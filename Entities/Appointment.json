@@ -1,0 +1,151 @@
+{
+    "name": "Appointment",
+    "type": "object",
+    "properties": {
+      "studio_id": {
+        "type": "string",
+        "description": "Studio ID"
+      },
+      "artist_id": {
+        "type": "string",
+        "description": "Assigned artist ID"
+      },
+      "location_id": {
+        "type": "string",
+        "description": "Studio location ID"
+      },
+      "work_station_id": {
+        "type": "string",
+        "description": "Work station ID"
+      },
+      "customer_id": {
+        "type": "string",
+        "description": "Customer ID (FK to customers)"
+      },
+      "appointment_type_id": {
+        "type": "string",
+        "description": "Appointment type ID (FK to appointment_types)"
+      },
+      "client_name": {
+        "type": "string",
+        "description": "Client full name (kept for backward compatibility)"
+      },
+      "client_email": {
+        "type": "string",
+        "description": "Client email (kept for backward compatibility)"
+      },
+      "client_phone": {
+        "type": "string",
+        "description": "Client phone (kept for backward compatibility)"
+      },
+      "appointment_date": {
+        "type": "string",
+        "format": "date",
+        "description": "Appointment date"
+      },
+      "start_time": {
+        "type": "string",
+        "description": "Start time (HH:MM format)"
+      },
+      "duration_hours": {
+        "type": "number",
+        "description": "Duration in hours"
+      },
+      "deposit_amount": {
+        "type": "number",
+        "description": "Deposit amount paid"
+      },
+      "total_estimate": {
+        "type": "number",
+        "description": "Total estimate amount"
+      },
+      "charge_amount": {
+        "type": "number",
+        "description": "Final charge amount at checkout"
+      },
+      "tax_amount": {
+        "type": "number",
+        "description": "Tax amount"
+      },
+      "payment_method": {
+        "type": "string",
+        "enum": [
+          "Card",
+          "Cash",
+          "E-Transfer"
+        ],
+        "description": "Payment method used at checkout"
+      },
+      "design_description": {
+        "type": "string",
+        "description": "Description of the tattoo design"
+      },
+      "placement": {
+        "type": "string",
+        "description": "Body placement"
+      },
+      "notes": {
+        "type": "string",
+        "description": "Additional notes"
+      },
+      "invitees": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "email": {
+              "type": "string"
+            }
+          }
+        },
+        "description": "Additional guests"
+      },
+      "status": {
+        "type": "string",
+        "enum": [
+          "scheduled",
+          "confirmed",
+          "cancelled",
+          "no_show",
+          "completed"
+        ],
+        "default": "scheduled",
+        "description": "Appointment status"
+      },
+      "reminder_sent_week": {
+        "type": "boolean",
+        "default": false,
+        "description": "Whether 1-week reminder was sent"
+      },
+      "reminder_sent_day": {
+        "type": "boolean",
+        "default": false,
+        "description": "Whether 1-day reminder was sent"
+      }
+    },
+    "required": [
+      "studio_id",
+      "artist_id",
+      "location_id",
+      "appointment_date",
+      "start_time",
+      "duration_hours"
+    ],
+    "rls": {
+      "read": {
+        "data.studio_id": "{{user.data.studio_id}}"
+      },
+      "update": {
+        "data.studio_id": "{{user.data.studio_id}}"
+      },
+      "delete": {
+        "data.studio_id": "{{user.data.studio_id}}"
+      },
+      "write": {
+        "data.studio_id": "{{user.data.studio_id}}"
+      }
+    }
+  }

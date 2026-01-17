@@ -1,0 +1,67 @@
+{
+    "name": "Availability",
+    "type": "object",
+    "properties": {
+      "studio_id": {
+        "type": "string",
+        "description": "Studio ID"
+      },
+      "artist_id": {
+        "type": "string",
+        "description": "Artist ID"
+      },
+      "location_id": {
+        "type": "string",
+        "description": "Location ID (optional - if not set, applies to all locations)"
+      },
+      "start_date": {
+        "type": "string",
+        "format": "date",
+        "description": "Start date of availability period"
+      },
+      "end_date": {
+        "type": "string",
+        "format": "date",
+        "description": "End date of availability period"
+      },
+      "start_time": {
+        "type": "string",
+        "description": "Start time (HH:MM format)"
+      },
+      "end_time": {
+        "type": "string",
+        "description": "End time (HH:MM format)"
+      },
+      "is_blocked": {
+        "type": "boolean",
+        "default": false,
+        "description": "Whether this is a blocked time (unavailable)"
+      },
+      "notes": {
+        "type": "string",
+        "description": "Notes about availability"
+      }
+    },
+    "required": [
+      "studio_id",
+      "artist_id",
+      "start_date",
+      "end_date",
+      "start_time",
+      "end_time"
+    ],
+    "rls": {
+      "read": {
+        "data.studio_id": "{{user.data.studio_id}}"
+      },
+      "update": {
+        "data.studio_id": "{{user.data.studio_id}}"
+      },
+      "delete": {
+        "data.studio_id": "{{user.data.studio_id}}"
+      },
+      "write": {
+        "data.studio_id": "{{user.data.studio_id}}"
+      }
+    }
+  }

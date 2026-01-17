@@ -1,0 +1,97 @@
+{
+    "name": "WorkStation",
+    "type": "object",
+    "properties": {
+      "studio_id": {
+        "type": "string",
+        "description": "Studio ID"
+      },
+      "location_id": {
+        "type": "string",
+        "description": "Location ID"
+      },
+      "name": {
+        "type": "string",
+        "description": "Station name (e.g., Station 1)"
+      },
+      "status": {
+        "type": "string",
+        "enum": [
+          "active",
+          "inactive"
+        ],
+        "default": "active",
+        "description": "Station status"
+      },
+      "notes": {
+        "type": "string",
+        "description": "Notes about this station"
+      }
+    },
+    "required": [
+      "studio_id",
+      "location_id",
+      "name"
+    ],
+    "rls": {
+      "create": {
+        "$or": [
+          {
+            "user_condition": {
+              "data.user_role": "Owner"
+            }
+          },
+          {
+            "user_condition": {
+              "data.user_role": "Admin"
+            }
+          }
+        ]
+      },
+      "read": {
+        "data.studio_id": "{{user.data.studio_id}}"
+      },
+      "update": {
+        "$or": [
+          {
+            "user_condition": {
+              "data.user_role": "Owner"
+            }
+          },
+          {
+            "user_condition": {
+              "data.user_role": "Admin"
+            }
+          }
+        ]
+      },
+      "delete": {
+        "$or": [
+          {
+            "user_condition": {
+              "data.user_role": "Owner"
+            }
+          },
+          {
+            "user_condition": {
+              "data.user_role": "Admin"
+            }
+          }
+        ]
+      },
+      "write": {
+        "$or": [
+          {
+            "user_condition": {
+              "data.user_role": "Owner"
+            }
+          },
+          {
+            "user_condition": {
+              "data.user_role": "Admin"
+            }
+          }
+        ]
+      }
+    }
+  }

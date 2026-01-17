@@ -1,0 +1,114 @@
+{
+    "name": "Artist",
+    "type": "object",
+    "properties": {
+      "studio_id": {
+        "type": "string",
+        "description": "Studio ID"
+      },
+      "user_id": {
+        "type": "string",
+        "description": "Associated user ID (one-to-one relationship)"
+      },
+      "full_name": {
+        "type": "string",
+        "description": "Artist full name"
+      },
+      "specialty": {
+        "type": "string",
+        "description": "Tattoo specialty (e.g., Traditional, Realism, Japanese)"
+      },
+      "bio": {
+        "type": "string",
+        "description": "Artist bio"
+      },
+      "phone": {
+        "type": "string",
+        "description": "Contact phone"
+      },
+      "instagram": {
+        "type": "string",
+        "description": "Instagram handle"
+      },
+      "hourly_rate": {
+        "type": "number",
+        "description": "Hourly rate"
+      },
+      "primary_location_id": {
+        "type": "string",
+        "description": "Primary location ID"
+      },
+      "is_active": {
+        "type": "boolean",
+        "default": true,
+        "description": "Whether artist is active"
+      }
+    },
+    "required": [
+      "studio_id",
+      "user_id",
+      "full_name",
+      "primary_location_id"
+    ],
+    "rls": {
+      "create": {
+        "$or": [
+          {
+            "user_condition": {
+              "data.user_role": "Owner"
+            }
+          },
+          {
+            "user_condition": {
+              "data.user_role": "Admin"
+            }
+          }
+        ]
+      },
+      "read": {
+        "data.studio_id": "{{user.data.studio_id}}"
+      },
+      "update": {
+        "$or": [
+          {
+            "user_condition": {
+              "data.user_role": "Owner"
+            }
+          },
+          {
+            "user_condition": {
+              "data.user_role": "Admin"
+            }
+          }
+        ]
+      },
+      "delete": {
+        "$or": [
+          {
+            "user_condition": {
+              "data.user_role": "Owner"
+            }
+          },
+          {
+            "user_condition": {
+              "data.user_role": "Admin"
+            }
+          }
+        ]
+      },
+      "write": {
+        "$or": [
+          {
+            "user_condition": {
+              "data.user_role": "Owner"
+            }
+          },
+          {
+            "user_condition": {
+              "data.user_role": "Admin"
+            }
+          }
+        ]
+      }
+    }
+  }

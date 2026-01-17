@@ -1,0 +1,107 @@
+{
+  "name": "Location",
+  "type": "object",
+  "properties": {
+    "studio_id": {
+      "type": "string",
+      "description": "Studio ID"
+    },
+    "name": {
+      "type": "string",
+      "description": "Location name"
+    },
+    "address": {
+      "type": "string",
+      "description": "Full address"
+    },
+    "city": {
+      "type": "string",
+      "description": "City"
+    },
+    "phone": {
+      "type": "string",
+      "description": "Contact phone"
+    },
+    "email": {
+      "type": "string",
+      "description": "Contact email"
+    },
+    "station_capacity": {
+      "type": "integer",
+      "default": 8,
+      "description": "Number of work stations"
+    },
+    "is_active": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether location is active"
+    }
+  },
+  "required": [
+    "studio_id",
+    "name",
+    "address",
+    "city"
+  ],
+  "rls": {
+    "read": {
+      "data.studio_id": "{{user.data.studio_id}}"
+    },
+    "update": {
+      "$or": [
+        {
+          "user_condition": {
+            "data.user_role": "Owner"
+          }
+        },
+        {
+          "user_condition": {
+            "data.user_role": "Admin"
+          }
+        }
+      ]
+    },
+    "delete": {
+      "$or": [
+        {
+          "user_condition": {
+            "data.user_role": "Owner"
+          }
+        },
+        {
+          "user_condition": {
+            "data.user_role": "Admin"
+          }
+        }
+      ]
+    },
+    "write": {
+      "$or": [
+        {
+          "user_condition": {
+            "data.user_role": "Owner"
+          }
+        },
+        {
+          "user_condition": {
+            "data.user_role": "Admin"
+          }
+        }
+      ]
+    },
+    "create": {
+      "$or": [
+        {
+          "user_condition": {
+            "data.user_role": "Owner"
+          }
+        },
+        {
+          "user_condition": {
+            "data.user_role": "Admin"
+          }
+        }
+      ]
+    }
+  }
+}

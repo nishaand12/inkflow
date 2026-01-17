@@ -1,0 +1,61 @@
+{
+    "name": "Studio",
+    "type": "object",
+    "properties": {
+      "name": {
+        "type": "string",
+        "description": "Studio name"
+      },
+      "hq_location": {
+        "type": "string",
+        "description": "Headquarters location"
+      },
+      "phone": {
+        "type": "string",
+        "description": "Studio phone number"
+      },
+      "currency": {
+        "type": "string",
+        "default": "USD",
+        "description": "Currency code"
+      },
+      "invite_code": {
+        "type": "string",
+        "description": "Unique 8-character invite code"
+      },
+      "is_active": {
+        "type": "boolean",
+        "default": false,
+        "description": "Whether studio is active and validated"
+      },
+      "owner_id": {
+        "type": "string",
+        "description": "Studio owner user ID"
+      }
+    },
+    "required": [
+      "name",
+      "invite_code",
+      "owner_id"
+    ],
+    "rls": {
+      "read": {
+        "id": "{{user.data.studio_id}}"
+      },
+      "update": {
+        "user_condition": {
+          "data.user_role": "Owner"
+        }
+      },
+      "delete": {
+        "user_condition": {
+          "data.user_role": "Owner"
+        }
+      },
+      "write": {
+        "user_condition": {
+          "data.user_role": "Owner"
+        }
+      }
+    }
+  }

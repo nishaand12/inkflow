@@ -1,0 +1,60 @@
+{
+    "name": "Customer",
+    "type": "object",
+    "properties": {
+      "studio_id": {
+        "type": "string",
+        "description": "Studio ID"
+      },
+      "name": {
+        "type": "string",
+        "description": "Customer full name"
+      },
+      "phone_number": {
+        "type": "string",
+        "description": "Customer phone number"
+      },
+      "email": {
+        "type": "string",
+        "description": "Customer email address"
+      },
+      "instagram_username": {
+        "type": "string",
+        "description": "Customer Instagram handle"
+      },
+      "preferred_location_id": {
+        "type": "string",
+        "description": "Preferred studio location ID"
+      },
+      "consent_obtained": {
+        "type": "boolean",
+        "default": false,
+        "description": "Whether tattoo consent form is on file"
+      },
+      "is_active": {
+        "type": "boolean",
+        "default": true,
+        "description": "Whether customer is active"
+      }
+    },
+    "required": [
+      "studio_id",
+      "name",
+      "phone_number",
+      "email"
+    ],
+    "rls": {
+      "read": {
+        "data.studio_id": "{{user.data.studio_id}}"
+      },
+      "update": {
+        "data.studio_id": "{{user.data.studio_id}}"
+      },
+      "delete": {
+        "data.studio_id": "{{user.data.studio_id}}"
+      },
+      "write": {
+        "data.studio_id": "{{user.data.studio_id}}"
+      }
+    }
+  }

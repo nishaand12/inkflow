@@ -1,0 +1,53 @@
+{
+    "name": "ArtistLocation",
+    "type": "object",
+    "properties": {
+      "studio_id": {
+        "type": "string",
+        "description": "Studio ID"
+      },
+      "artist_id": {
+        "type": "string",
+        "description": "Artist ID"
+      },
+      "location_id": {
+        "type": "string",
+        "description": "Location ID"
+      },
+      "days_available": {
+        "type": "array",
+        "items": {
+          "type": "string",
+          "enum": [
+            "monday",
+            "tuesday",
+            "wednesday",
+            "thursday",
+            "friday",
+            "saturday",
+            "sunday"
+          ]
+        },
+        "description": "Days artist works at this location"
+      }
+    },
+    "required": [
+      "studio_id",
+      "artist_id",
+      "location_id"
+    ],
+    "rls": {
+      "read": {
+        "data.studio_id": "{{user.data.studio_id}}"
+      },
+      "update": {
+        "data.studio_id": "{{user.data.studio_id}}"
+      },
+      "delete": {
+        "data.studio_id": "{{user.data.studio_id}}"
+      },
+      "write": {
+        "data.studio_id": "{{user.data.studio_id}}"
+      }
+    }
+  }

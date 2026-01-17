@@ -1,0 +1,62 @@
+{
+    "name": "AppointmentType",
+    "type": "object",
+    "properties": {
+      "studio_id": {
+        "type": "string",
+        "description": "Studio ID"
+      },
+      "category": {
+        "type": "string",
+        "enum": [
+          "Tattoo",
+          "Piercing",
+          "Deposit",
+          "Other"
+        ],
+        "description": "Appointment category"
+      },
+      "name": {
+        "type": "string",
+        "description": "Appointment type name"
+      },
+      "description": {
+        "type": "string",
+        "description": "Detailed description"
+      },
+      "default_duration": {
+        "type": "number",
+        "description": "Default duration in hours"
+      },
+      "default_deposit": {
+        "type": "number",
+        "description": "Default deposit amount"
+      },
+      "is_active": {
+        "type": "boolean",
+        "default": true,
+        "description": "Whether appointment type is active"
+      }
+    },
+    "required": [
+      "studio_id",
+      "category",
+      "name",
+      "default_duration",
+      "default_deposit"
+    ],
+    "rls": {
+      "read": {
+        "data.studio_id": "{{user.data.studio_id}}"
+      },
+      "update": {
+        "data.studio_id": "{{user.data.studio_id}}"
+      },
+      "delete": {
+        "data.studio_id": "{{user.data.studio_id}}"
+      },
+      "write": {
+        "data.studio_id": "{{user.data.studio_id}}"
+      }
+    }
+  }
