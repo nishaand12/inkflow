@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
@@ -42,6 +42,9 @@ export default function AdvancedSearchDialog({ open, onOpenChange, customers, on
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto bg-white">
         <DialogHeader>
           <DialogTitle className="text-2xl font-bold">Advanced Customer Search</DialogTitle>
+          <DialogDescription>
+            Search for customers by name, email, or phone number.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-6">

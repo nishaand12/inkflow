@@ -349,3 +349,18 @@ create policy appointments_insert
 on public.appointments
 for insert
 with check (true);
+
+-- Email Events
+alter table public.email_events enable row level security;
+
+drop policy if exists email_events_select on public.email_events;
+create policy email_events_select
+on public.email_events
+for select
+using (studio_id = public.current_user_studio());
+
+drop policy if exists email_events_insert on public.email_events;
+create policy email_events_insert
+on public.email_events
+for insert
+with check (studio_id = public.current_user_studio());

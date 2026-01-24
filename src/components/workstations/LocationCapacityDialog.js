@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -45,7 +45,9 @@ export default function LocationCapacityDialog({ open, onOpenChange, location })
           <DialogTitle className="text-2xl font-bold">
             Edit Station Capacity
           </DialogTitle>
-          <p className="text-sm text-gray-500 mt-2">{location?.name}</p>
+          <DialogDescription>
+            Set the maximum number of work stations for {location?.name}.
+          </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-6">

@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Search, Plus, Calendar, Clock, MapPin, User } from "lucide-react";
-import { format } from "date-fns";
+import { format, parseISO } from "date-fns";
 import AppointmentDialog from "../components/calendar/AppointmentDialog";
 import { normalizeUserRole } from "@/utils/roles";
 
@@ -243,7 +243,7 @@ export default function Appointments() {
                           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
                             <div className="flex items-center gap-2 text-gray-600">
                               <Calendar className="w-4 h-4" />
-                              {format(new Date(appointment.appointment_date), 'MMM d, yyyy')}
+                              {format(parseISO(appointment.appointment_date + 'T00:00:00'), 'MMM d, yyyy')}
                             </div>
                             <div className="flex items-center gap-2 text-gray-600">
                               <Clock className="w-4 h-4" />

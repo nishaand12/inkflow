@@ -5,10 +5,15 @@ create table if not exists studios (
   name text not null,
   hq_location text,
   phone text,
+  studio_email text,
   currency text default 'USD',
   invite_code text unique,
   is_active boolean default false,
   owner_id uuid,
+  timezone text default 'UTC',
+  subscription_tier text default 'basic',
+  email_reminders_enabled boolean default false,
+  reminder_minutes_before integer default 1440,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );
@@ -95,10 +100,16 @@ create table if not exists customers (
   studio_id uuid references studios (id),
   name text not null,
   phone_number text not null,
-  email text not null,
+  email text,
   instagram_username text,
   preferred_location_id uuid references locations (id),
+  send_calendar_invites boolean default false,
   consent_obtained boolean default false,
+  email_bounced boolean default false,
+  email_bounce_reason text,
+  email_bounced_at timestamptz,
+  email_unsubscribed boolean default false,
+  email_unsubscribed_at timestamptz,
   is_active boolean default true,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
@@ -141,11 +152,31 @@ create table if not exists appointments (
   notes text,
   invitees jsonb,
   status text default 'scheduled',
+  email_send_status text default 'pending',
+  email_send_failed_reason text,
+  email_sent_at timestamptz,
   reminder_sent_week boolean default false,
   reminder_sent_day boolean default false,
+  reminder_sent_at timestamptz,
+  reminder_minutes_before integer,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );
+
+create table if not exists email_events (
+  id uuid primary key default gen_random_uuid(),
+  studio_id uuid references studios (id),
+  customer_id uuid references customers (id),
+  appointment_id uuid references appointments (id),
+  email text not null,
+  event_type text not null,
+  reason text,
+  occurred_at timestamptz default now(),
+  metadata jsonb
+);
+
+create index if not exists email_events_email_idx on email_events (email);
+create index if not exists email_events_appointment_idx on email_events (appointment_id);
 
 create or replace function set_updated_at()
 returns trigger as $$

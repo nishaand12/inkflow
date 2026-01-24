@@ -18,6 +18,11 @@
         "type": "string",
         "description": "Customer email address"
       },
+      "send_calendar_invites": {
+        "type": "boolean",
+        "default": false,
+        "description": "Whether to send calendar invites"
+      },
       "instagram_username": {
         "type": "string",
         "description": "Customer Instagram handle"
@@ -31,6 +36,30 @@
         "default": false,
         "description": "Whether tattoo consent form is on file"
       },
+      "email_bounced": {
+        "type": "boolean",
+        "default": false,
+        "description": "Whether the email address bounced"
+      },
+      "email_bounce_reason": {
+        "type": "string",
+        "description": "Bounce reason from provider"
+      },
+      "email_bounced_at": {
+        "type": "string",
+        "format": "date-time",
+        "description": "When the email bounced"
+      },
+      "email_unsubscribed": {
+        "type": "boolean",
+        "default": false,
+        "description": "Whether the customer unsubscribed"
+      },
+      "email_unsubscribed_at": {
+        "type": "string",
+        "format": "date-time",
+        "description": "When the customer unsubscribed"
+      },
       "is_active": {
         "type": "boolean",
         "default": true,
@@ -40,8 +69,7 @@
     "required": [
       "studio_id",
       "name",
-      "phone_number",
-      "email"
+      "phone_number"
     ],
     "rls": {
       "read": {

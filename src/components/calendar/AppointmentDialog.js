@@ -1,20 +1,24 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
+import { supabase } from "@/utils/supabase";
 import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { format, parseISO } from "date-fns";
-import { Trash2, Save, AlertCircle, CheckCircle, Unlock } from "lucide-react";
+import { Trash2, Save, AlertCircle, CheckCircle, Unlock, Mail } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import CustomerSearch from "../customers/CustomerSearch";
 import CustomerDialog from "../customers/CustomerDialog";
 import AdvancedSearchDialog from "../customers/AdvancedSearchDialog";
 import CheckoutDialog from "./CheckoutDialog";
 import { normalizeUserRole } from "@/utils/roles";
+
+// Stable empty array to prevent new references on each render
+const EMPTY_ARRAY = [];
 
 export default function AppointmentDialog({ open, onOpenChange, appointment, defaultDate, artists, locations, currentUser, userArtist }) {
   const queryClient = useQueryClient();
@@ -48,14 +52,15 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     stationsFull: false
   });
 
-  const getUserRole = () => {
+  const [emailSendWarning, setEmailSendWarning] = useState(null);
+
+  const userRole = useMemo(() => {
     if (!currentUser) return null;
     return normalizeUserRole(currentUser.user_role || (currentUser.role === 'admin' ? 'Admin' : 'Front_Desk'));
-  };
+  }, [currentUser]);
 
-  const userRole = getUserRole();
-  const isArtist = userRole === 'Artist';
-  const isAdmin = userRole === 'Admin' || userRole === 'Owner';
+  const isArtist = useMemo(() => userRole === 'Artist', [userRole]);
+  const isAdmin = useMemo(() => userRole === 'Admin' || userRole === 'Owner', [userRole]);
   
   const canEdit = () => {
     if (!currentUser) return false;
@@ -98,7 +103,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     return canEdit();
   };
 
-  const { data: customers = [] } = useQuery({
+  const { data: customers = EMPTY_ARRAY } = useQuery({
     queryKey: ['customers', currentUser?.studio_id],
     queryFn: async () => {
       if (!currentUser?.studio_id) return [];
@@ -107,7 +112,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     enabled: !!currentUser?.studio_id
   });
 
-  const { data: appointmentTypes = [] } = useQuery({
+  const { data: appointmentTypes = EMPTY_ARRAY } = useQuery({
     queryKey: ['appointmentTypes', currentUser?.studio_id],
     queryFn: async () => {
       if (!currentUser?.studio_id) return [];
@@ -116,7 +121,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     enabled: !!currentUser?.studio_id
   });
 
-  const { data: allAppointments = [] } = useQuery({
+  const { data: allAppointments = EMPTY_ARRAY } = useQuery({
     queryKey: ['appointments', currentUser?.studio_id],
     queryFn: async () => {
       if (!currentUser?.studio_id) return [];
@@ -125,7 +130,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     enabled: !!currentUser?.studio_id
   });
 
-  const { data: workStations = [], isLoading: workStationsLoading } = useQuery({
+  const { data: workStations = EMPTY_ARRAY, isLoading: workStationsLoading } = useQuery({
     queryKey: ['workStations', currentUser?.studio_id],
     queryFn: async () => {
       if (!currentUser?.studio_id) return [];
@@ -134,7 +139,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     enabled: !!currentUser?.studio_id
   });
 
-  const { data: availabilities = [] } = useQuery({
+  const { data: availabilities = EMPTY_ARRAY } = useQuery({
     queryKey: ['availabilities', currentUser?.studio_id],
     queryFn: async () => {
       if (!currentUser?.studio_id) return [];
@@ -143,9 +148,45 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     enabled: open && !!currentUser?.studio_id
   });
 
+  const { data: studio } = useQuery({
+    queryKey: ['studio', currentUser?.studio_id],
+    queryFn: async () => {
+      if (!currentUser?.studio_id) return null;
+      const studios = await base44.entities.Studio.filter({ id: currentUser.studio_id });
+      return studios[0] || null;
+    },
+    enabled: !!currentUser?.studio_id
+  });
+
+  // Use userArtist?.id for stable dependency instead of the full object
+  const userArtistId = userArtist?.id;
+
   useEffect(() => {
     if (appointment) {
-      setFormData(appointment);
+      // Merge appointment with defaults to ensure no undefined/null values for inputs
+      setFormData({
+        ...appointment,
+        // Ensure string fields have empty string defaults (not null/undefined)
+        artist_id: appointment.artist_id || '',
+        location_id: appointment.location_id || '',
+        work_station_id: appointment.work_station_id || '',
+        customer_id: appointment.customer_id || '',
+        appointment_type_id: appointment.appointment_type_id || '',
+        client_name: appointment.client_name || '',
+        client_email: appointment.client_email || '',
+        client_phone: appointment.client_phone || '',
+        appointment_date: appointment.appointment_date || format(new Date(), 'yyyy-MM-dd'),
+        start_time: appointment.start_time || '10:00',
+        design_description: appointment.design_description || '',
+        placement: appointment.placement || '',
+        notes: appointment.notes || '',
+        status: appointment.status || 'scheduled',
+        // Ensure numeric fields have 0 defaults (not null/undefined/NaN)
+        duration_hours: appointment.duration_hours ?? 2,
+        deposit_amount: appointment.deposit_amount ?? 0,
+        total_estimate: appointment.total_estimate ?? 0,
+        tax_amount: appointment.tax_amount ?? 0,
+      });
       
       // Find and set the selected customer if customer_id exists
       if (appointment.customer_id) {
@@ -156,7 +197,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
       }
     } else {
       // For new appointments, auto-assign artist if user is an artist
-      const initialArtistId = (isArtist && !isAdmin && userArtist) ? userArtist.id : '';
+      const initialArtistId = (isArtist && !isAdmin && userArtistId) ? userArtistId : '';
 
       setFormData({
         artist_id: initialArtistId,
@@ -181,7 +222,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
       setSelectedCustomer(null);
     }
     setValidationErrors({ artistConflict: null, stationsFull: false });
-  }, [appointment, defaultDate, open, isArtist, isAdmin, userArtist, customers]);
+  }, [appointment, defaultDate, open, isArtist, isAdmin, userArtistId, customers]);
 
   useEffect(() => {
     if (open && formData.artist_id && formData.appointment_date && formData.start_time && formData.location_id) {
@@ -201,6 +242,27 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
       client_phone: customer.phone_number || '',
       location_id: customer.preferred_location_id || prev.location_id
     }));
+  };
+
+  const resolveClientEmail = () => {
+    if (formData.client_email?.trim()) return formData.client_email.trim();
+    if (selectedCustomer?.email?.trim()) return selectedCustomer.email.trim();
+    return null;
+  };
+
+  const shouldShowEmailWarnings = studio?.subscription_tier === "plus";
+
+  const getEmailWarningMessage = () => {
+    if (!shouldShowEmailWarnings) return null;
+    const email = resolveClientEmail();
+    if (!email) return "No email address available. Email reminders will be skipped.";
+    if (selectedCustomer?.email_bounced) {
+      return `This email bounced${selectedCustomer.email_bounce_reason ? `: ${selectedCustomer.email_bounce_reason}` : "."}`;
+    }
+    if (selectedCustomer?.email_unsubscribed) {
+      return "This customer has unsubscribed from email reminders.";
+    }
+    return null;
   };
 
   const handleAppointmentTypeSelect = (typeId) => {
@@ -331,18 +393,30 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
 
   const createMutation = useMutation({
     mutationFn: (data) => base44.entities.Appointment.create(data),
-    onSuccess: () => {
+    onSuccess: async (createdAppointment) => {
       queryClient.invalidateQueries({ queryKey: ['appointments'] });
       onOpenChange(false);
       resetForm();
+      await sendAppointmentEmail(createdAppointment, "created");
     }
   });
 
   const updateMutation = useMutation({
     mutationFn: ({ id, data }) => base44.entities.Appointment.update(id, data),
-    onSuccess: () => {
+    onSuccess: async (updatedAppointment, variables) => {
       queryClient.invalidateQueries({ queryKey: ['appointments'] });
       onOpenChange(false);
+
+      if (appointment) {
+        const hasScheduleChange =
+          appointment.appointment_date !== variables.data.appointment_date ||
+          appointment.start_time !== variables.data.start_time ||
+          appointment.location_id !== variables.data.location_id;
+
+        if (hasScheduleChange) {
+          await sendAppointmentEmail(updatedAppointment, "updated");
+        }
+      }
     }
   });
 
@@ -356,6 +430,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
 
   const handleSubmit = (e) => {
     e.preventDefault();
+    setEmailSendWarning(null);
     if (validationErrors.artistConflict || validationErrors.stationsFull) {
       return;
     }
@@ -376,6 +451,31 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
       updateMutation.mutate({ id: appointment.id, data: dataToSave });
     } else {
       createMutation.mutate(dataToSave);
+    }
+  };
+
+  const sendAppointmentEmail = async (appointmentRecord, eventType) => {
+    try {
+      if (!studio || studio.subscription_tier !== "plus") return;
+      if (!studio.email_reminders_enabled) return;
+
+      const { data, error } = await supabase.functions.invoke("send-appointment-email", {
+        body: {
+          appointmentId: appointmentRecord.id,
+          eventType
+        }
+      });
+
+      if (error || data?.skipped || data?.error) {
+        setEmailSendWarning(
+          data?.message ||
+          data?.error ||
+          "Email could not be sent. Please verify the customer email."
+        );
+      }
+    } catch (err) {
+      setEmailSendWarning("Email could not be sent. Please verify the customer email.");
+      console.error("Failed to send appointment email:", err);
     }
   };
 
@@ -430,6 +530,9 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
             <DialogTitle className="text-2xl font-bold">
               {appointment ? ((isArtist && !isAdmin) ? 'View/Edit Appointment' : 'Edit Appointment') : 'New Appointment'}
             </DialogTitle>
+            <DialogDescription>
+              {appointment ? 'Update the appointment details below.' : 'Fill in the details to create a new appointment.'}
+            </DialogDescription>
           </DialogHeader>
 
           <form onSubmit={handleSubmit} className="space-y-6">
@@ -446,6 +549,26 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                 <AlertCircle className="h-4 w-4" />
                 <AlertDescription>
                   All work stations are booked at this location for the selected time.
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {getEmailWarningMessage() && (
+              <Alert className="border-amber-200 bg-amber-50">
+                <AlertCircle className="h-4 w-4 text-amber-600" />
+                <AlertDescription className="text-amber-800">
+                  {getEmailWarningMessage()}
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {(emailSendWarning || appointment?.email_send_status === "failed" || appointment?.email_send_status === "skipped") && (
+              <Alert className="border-red-200 bg-red-50">
+                <Mail className="h-4 w-4 text-red-600" />
+                <AlertDescription className="text-red-700">
+                  {emailSendWarning ||
+                    appointment?.email_send_failed_reason ||
+                    "Email could not be sent. Please verify the customer email."}
                 </AlertDescription>
               </Alert>
             )}

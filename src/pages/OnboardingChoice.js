@@ -5,7 +5,13 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Building2, Users } from "lucide-react";
+
+const CURRENCY_OPTIONS = [
+  { value: "USD", label: "USD - US Dollar" },
+  { value: "CAD", label: "CAD - Canadian Dollar" }
+];
 
 export default function OnboardingChoice() {
   const [mode, setMode] = useState(null); // 'create' or 'join'
@@ -41,7 +47,8 @@ export default function OnboardingChoice() {
         currency: data.currency,
         invite_code: code,
         is_active: false,
-        owner_id: currentUser.id
+        owner_id: currentUser.id,
+        studio_email: currentUser.email // Default to owner's email
       });
 
       await base44.auth.updateMe({
@@ -197,12 +204,21 @@ export default function OnboardingChoice() {
 
               <div className="space-y-2">
                 <Label htmlFor="currency">Currency</Label>
-                <Input
-                  id="currency"
+                <Select
                   value={formData.currency}
-                  onChange={(e) => setFormData({ ...formData, currency: e.target.value })}
-                  placeholder="USD, CAD, EUR, etc."
-                />
+                  onValueChange={(value) => setFormData({ ...formData, currency: value })}
+                >
+                  <SelectTrigger id="currency">
+                    <SelectValue placeholder="Select currency" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CURRENCY_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={option.value}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 
               <div className="flex gap-3 pt-4">

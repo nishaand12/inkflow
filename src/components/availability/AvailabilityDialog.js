@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -114,6 +114,9 @@ export default function AvailabilityDialog({ open, onOpenChange, date, availabil
           <DialogTitle className="text-2xl font-bold">
             {availability ? 'Edit Availability' : 'Add Availability'}
           </DialogTitle>
+          <DialogDescription>
+            {availability ? 'Update availability or time-off settings.' : 'Set available hours or block time off.'}
+          </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-6">

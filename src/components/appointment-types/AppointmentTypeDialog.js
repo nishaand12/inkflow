@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -121,6 +121,9 @@ export default function AppointmentTypeDialog({ open, onOpenChange, appointmentT
             <DialogTitle className="text-2xl font-bold">
               {appointmentType ? 'Edit Appointment Type' : 'New Appointment Type'}
             </DialogTitle>
+            <DialogDescription>
+              {appointmentType ? 'Update the appointment type settings.' : 'Create a new appointment type with default duration and deposit.'}
+            </DialogDescription>
           </DialogHeader>
 
           <form onSubmit={handleSubmit} className="space-y-6">

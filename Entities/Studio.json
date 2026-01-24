@@ -14,6 +14,10 @@
         "type": "string",
         "description": "Studio phone number"
       },
+      "studio_email": {
+        "type": "string",
+        "description": "Studio contact email"
+      },
       "currency": {
         "type": "string",
         "default": "USD",
@@ -27,6 +31,26 @@
         "type": "boolean",
         "default": false,
         "description": "Whether studio is active and validated"
+      },
+      "timezone": {
+        "type": "string",
+        "default": "UTC",
+        "description": "Studio timezone"
+      },
+      "subscription_tier": {
+        "type": "string",
+        "default": "basic",
+        "description": "Subscription tier"
+      },
+      "email_reminders_enabled": {
+        "type": "boolean",
+        "default": false,
+        "description": "Whether email reminders are enabled"
+      },
+      "reminder_minutes_before": {
+        "type": "number",
+        "default": 1440,
+        "description": "Minutes before appointment to send reminder"
       },
       "owner_id": {
         "type": "string",
