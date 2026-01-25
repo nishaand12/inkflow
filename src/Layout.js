@@ -7,15 +7,16 @@ import ArtistDialog from "@/components/artists/ArtistDialog";
 import {
   Calendar,
   LayoutDashboard,
-  Users,
   MapPin,
   Clock,
   Settings,
   LogOut,
-  Menu,
-  X,
   CalendarCheck,
-  UserCog
+  UserPlus,
+  Wrench,
+  Palette,
+  ClipboardList,
+  BarChart3
 } from "lucide-react";
 import {
   Sidebar,
@@ -49,6 +50,7 @@ export default function Layout({ children, currentPageName = null }) {
     if (!checkedAuth) {
       loadUser();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [checkedAuth, location.pathname]);
 
   const loadUser = async () => {
@@ -148,13 +150,13 @@ export default function Layout({ children, currentPageName = null }) {
       {
         title: "Customers",
         url: createPageUrl("Customers"),
-        icon: Users,
+        icon: UserPlus,
         roles: ["Owner", "Admin", "Front_Desk"]
       },
       {
         title: "Artists",
         url: createPageUrl("Artists"),
-        icon: Users,
+        icon: Palette,
         roles: ["Owner", "Admin", "Front_Desk"]
       },
       {
@@ -166,19 +168,19 @@ export default function Layout({ children, currentPageName = null }) {
       {
         title: "Work Stations",
         url: createPageUrl("WorkStations"),
-        icon: Settings,
+        icon: Wrench,
         roles: ["Owner", "Admin"]
       },
       {
         title: "Appointment Types",
         url: createPageUrl("AppointmentTypes"),
-        icon: Calendar,
+        icon: ClipboardList,
         roles: ["Owner", "Admin"]
       },
       {
         title: "Reports",
         url: createPageUrl("Reports"),
-        icon: LayoutDashboard,
+        icon: BarChart3,
         roles: ["Owner", "Admin"]
       },
       {

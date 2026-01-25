@@ -138,7 +138,6 @@ export default function ArtistDialog({ open, onOpenChange, artist, locations }) 
 
   const userRole = currentUser?.user_role || currentUser?.role || null;
   const isAdmin = userRole === 'Admin' || userRole === 'Owner';
-  const isSelfEditing = artist && currentUser && artist.user_id === currentUser.id;
 
   // Get users with Artist, Admin, or Owner role who don't already have an artist profile
   const availableUsers = users.filter(u => {

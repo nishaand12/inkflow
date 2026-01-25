@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import { base44 } from "@/api/base44Client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -7,15 +8,17 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Building2, Key, Copy, Check, Mail, Clock } from "lucide-react";
+import { Building2, Key, Copy, Check, Mail, Clock, BookOpen, MapPin, Wrench, ClipboardList, Palette, UserPlus, BarChart3, Bell, ChevronDown, ChevronUp } from "lucide-react";
 import { normalizeUserRole } from "@/utils/roles";
 import { NORTH_AMERICAN_TIMEZONES } from "@/utils/timezones";
 
 export default function StudioSettings() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [user, setUser] = useState(null);
   const [studio, setStudio] = useState(null);
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [showGuide, setShowGuide] = useState(false);
   const [emailSettings, setEmailSettings] = useState({
     studio_email: "",
     timezone: "UTC",
@@ -25,6 +28,13 @@ export default function StudioSettings() {
 
   useEffect(() => {
     loadUserAndStudio();
+    // Check if we should show the onboarding guide (new studio)
+    if (searchParams.get('showGuide') === 'true') {
+      setShowGuide(true);
+      // Clear the URL parameter
+      setSearchParams({});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const loadUserAndStudio = async () => {
@@ -350,6 +360,138 @@ export default function StudioSettings() {
                 </CardContent>
               </Card>
             )}
+
+            {/* Getting Started Guide */}
+            <Card className="bg-white border-none shadow-lg">
+              <CardHeader 
+                className="border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors"
+                onClick={() => setShowGuide(!showGuide)}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center">
+                    <BookOpen className="w-6 h-6 text-green-600" />
+                  </div>
+                  <div className="flex-1">
+                    <CardTitle className="text-xl text-gray-900">Getting Started Guide</CardTitle>
+                    <p className="text-sm text-gray-600">How to set up your studio for scheduling</p>
+                  </div>
+                  <Button variant="ghost" size="icon" className="ml-auto">
+                    {showGuide ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
+                  </Button>
+                </div>
+              </CardHeader>
+              
+              {showGuide && (
+                <CardContent className="p-6 space-y-6">
+                  {/* Setup Steps */}
+                  <div>
+                    <h3 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                      <span className="w-6 h-6 bg-indigo-600 text-white rounded-full text-xs flex items-center justify-center">1</span>
+                      Setting Up for Appointments
+                    </h3>
+                    <p className="text-sm text-gray-600 mb-4">
+                      Before you can create appointments, set up these components in order:
+                    </p>
+                    
+                    <div className="space-y-3 ml-8">
+                      <div className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg">
+                        <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                          <MapPin className="w-4 h-4 text-indigo-600" />
+                        </div>
+                        <div>
+                          <p className="font-medium text-gray-900">1. Location</p>
+                          <p className="text-sm text-gray-600">Add your physical studio location(s) with address and operating hours.</p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg">
+                        <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                          <Wrench className="w-4 h-4 text-indigo-600" />
+                        </div>
+                        <div>
+                          <p className="font-medium text-gray-900">2. Work Station</p>
+                          <p className="text-sm text-gray-600">Create work stations (chairs/rooms) at each location where appointments happen.</p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg">
+                        <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                          <ClipboardList className="w-4 h-4 text-indigo-600" />
+                        </div>
+                        <div>
+                          <p className="font-medium text-gray-900">3. Appointment Type</p>
+                          <p className="text-sm text-gray-600">Define the services you offer (e.g., Consultation, Tattoo Session, Touch-up).</p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg">
+                        <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                          <Palette className="w-4 h-4 text-indigo-600" />
+                        </div>
+                        <div>
+                          <p className="font-medium text-gray-900">4. Artist</p>
+                          <p className="text-sm text-gray-600">Add artists (requires artists to have signed up and joined your studio).</p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg">
+                        <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                          <UserPlus className="w-4 h-4 text-indigo-600" />
+                        </div>
+                        <div>
+                          <p className="font-medium text-gray-900">5. Customer</p>
+                          <p className="text-sm text-gray-600">Add customers beforehand or as you book them.</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Additional Features */}
+                  <div className="border-t border-gray-200 pt-6">
+                    <h3 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                      <span className="w-6 h-6 bg-indigo-600 text-white rounded-full text-xs flex items-center justify-center">2</span>
+                      Additional Features
+                    </h3>
+                    
+                    <div className="grid md:grid-cols-3 gap-4">
+                      <div className="p-4 border border-gray-200 rounded-lg">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Clock className="w-5 h-5 text-indigo-600" />
+                          <p className="font-medium text-gray-900">Availability</p>
+                        </div>
+                        <p className="text-sm text-gray-600">
+                          Artists can set their weekly availability and time-off. Find this under "My Availability" in the menu.
+                        </p>
+                      </div>
+
+                      <div className="p-4 border border-gray-200 rounded-lg">
+                        <div className="flex items-center gap-2 mb-2">
+                          <BarChart3 className="w-5 h-5 text-indigo-600" />
+                          <p className="font-medium text-gray-900">Reports</p>
+                        </div>
+                        <p className="text-sm text-gray-600">
+                          View booking statistics, revenue summaries, and artist performance in the Reports section.
+                        </p>
+                      </div>
+
+                      <div className="p-4 border border-gray-200 rounded-lg">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Bell className="w-5 h-5 text-indigo-600" />
+                          <p className="font-medium text-gray-900">Reminders (Plus)</p>
+                        </div>
+                        <p className="text-sm text-gray-600">
+                          (Requires Plus tier) Enable automatic appointment reminders above. Customers get notified before their appointment.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="bg-indigo-50 rounded-lg p-4 text-sm text-indigo-800">
+                    <strong>Tip:</strong> Start by creating one location and one work station, then add an appointment type and artist. You'll be ready to book your first appointment in minutes!
+                  </div>
+                </CardContent>
+              )}
+            </Card>
           </>
         )}
       </div>

@@ -61,7 +61,8 @@ export default function OnboardingChoice() {
       return studio;
     },
     onSuccess: () => {
-      window.location.href = '/';
+      // Redirect to Studio Settings with the guide open for new owners
+      window.location.href = '/StudioSettings?showGuide=true';
     },
     onError: (err) => {
       setIsSubmitting(false);

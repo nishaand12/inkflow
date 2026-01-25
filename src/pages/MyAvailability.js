@@ -1,10 +1,9 @@
 import React, { useState, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Plus, Calendar, Clock, MapPin, X, ChevronLeft, ChevronRight } from "lucide-react";
+import { Plus, Calendar, Clock, X, ChevronLeft, ChevronRight } from "lucide-react";
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, startOfWeek, endOfWeek, addMonths, subMonths, parseISO, isWithinInterval, isSameMonth } from "date-fns";
 import AvailabilityDialog from "../components/availability/AvailabilityDialog";
 
@@ -89,6 +88,7 @@ export default function MyAvailability() {
         setUserArtist(artist);
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, artists, locations]);
 
   const getDaysToShow = () => {
