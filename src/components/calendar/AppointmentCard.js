@@ -2,7 +2,7 @@ import React from "react";
 import { Badge } from "@/components/ui/badge";
 import { Clock, MapPin, User } from "lucide-react";
 
-export default function AppointmentCard({ appointment, artists, locations, onClick, compact = false, detailed = false, isOwnAppointment = true }) {
+export default function AppointmentCard({ appointment, artists, locations, onClick, compact = false, detailed = false, isOwnAppointment = true, isMobile = false }) {
   const artist = artists.find(a => a.id === appointment.artist_id);
   const location = locations.find(l => l.id === appointment.location_id);
 
@@ -28,7 +28,7 @@ export default function AppointmentCard({ appointment, artists, locations, onCli
     return (
       <div
         onClick={onClick}
-        className={`${statusColor} text-white rounded px-2 py-1 text-xs cursor-pointer transition-colors`}
+        className={`${statusColor} text-white rounded px-1.5 sm:px-2 py-1 text-[10px] sm:text-xs cursor-pointer transition-colors`}
       >
         <div className="font-medium truncate">{appointment.start_time}</div>
       </div>
@@ -40,45 +40,45 @@ export default function AppointmentCard({ appointment, artists, locations, onCli
     return (
       <div
         onClick={onClick}
-        className="p-4 rounded-xl border-2 border-gray-100 hover:border-indigo-200 hover:shadow-md transition-all duration-200 cursor-pointer bg-white"
+        className="p-3 sm:p-4 rounded-xl border-2 border-gray-100 hover:border-indigo-200 hover:shadow-md transition-all duration-200 cursor-pointer bg-white active:bg-gray-50"
       >
-        <div className="flex items-start justify-between mb-3">
-          <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-600 flex items-center justify-center text-white font-bold text-lg">
+        <div className="flex items-start justify-between gap-2 mb-2 sm:mb-3">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
+            <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-600 flex items-center justify-center text-white font-bold text-base sm:text-lg shrink-0">
               {appointment.client_name?.charAt(0) || 'C'}
             </div>
-            <div>
-              <h3 className="font-semibold text-gray-900">{appointment.client_name}</h3>
-              <p className="text-sm text-gray-500">{artist?.full_name}</p>
+            <div className="min-w-0 flex-1">
+              <h3 className="font-semibold text-gray-900 text-sm sm:text-base truncate">{appointment.client_name}</h3>
+              <p className="text-xs sm:text-sm text-gray-500 truncate">{artist?.full_name}</p>
             </div>
           </div>
-          <Badge className={`${statusColors[appointment.status]} border`}>
+          <Badge className={`${statusColors[appointment.status]} border text-[10px] sm:text-xs shrink-0`}>
             {appointment.status}
           </Badge>
         </div>
 
-        <div className="grid grid-cols-2 gap-3 text-sm">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 sm:gap-3 text-xs sm:text-sm">
           <div className="flex items-center gap-2 text-gray-600">
-            <Clock className="w-4 h-4" />
-            {appointment.start_time} ({appointment.duration_hours}h)
+            <Clock className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+            <span className="truncate">{appointment.start_time} ({appointment.duration_hours}h)</span>
           </div>
           <div className="flex items-center gap-2 text-gray-600">
-            <MapPin className="w-4 h-4" />
-            {location?.name}
+            <MapPin className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
+            <span className="truncate">{location?.name}</span>
           </div>
         </div>
 
         {appointment.design_description && (
-          <p className="text-sm text-gray-600 mt-3 line-clamp-2">
+          <p className="text-xs sm:text-sm text-gray-600 mt-2 sm:mt-3 line-clamp-2">
             {appointment.design_description}
           </p>
         )}
 
         {appointment.total_estimate > 0 && (
-          <div className="mt-3 pt-3 border-t border-gray-100">
+          <div className="mt-2 sm:mt-3 pt-2 sm:pt-3 border-t border-gray-100">
             <div className="flex justify-between items-center">
-              <span className="text-sm text-gray-500">Total Estimate</span>
-              <span className="text-lg font-bold text-gray-900">${appointment.total_estimate}</span>
+              <span className="text-xs sm:text-sm text-gray-500">Total Estimate</span>
+              <span className="text-base sm:text-lg font-bold text-gray-900">${appointment.total_estimate}</span>
             </div>
           </div>
         )}

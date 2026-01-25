@@ -74,12 +74,15 @@ export default function AvailabilityDialog({ open, onOpenChange, date, availabil
 
   const handleSubmit = (e) => {
     e.preventDefault();
+    
+    // Build submit data, excluding location_id if empty (for "All Locations")
+    const { location_id, ...restFormData } = formData;
     const submitData = {
       studio_id: currentUser?.studio_id,
       artist_id: artistId,
-      ...formData,
-      // Only include location_id if it's set
-      ...(formData.location_id ? { location_id: formData.location_id } : {})
+      ...restFormData,
+      // Only include location_id if it's set (not empty)
+      ...(location_id ? { location_id } : { location_id: null })
     };
 
     if (availability) {
@@ -148,14 +151,14 @@ export default function AvailabilityDialog({ open, onOpenChange, date, availabil
           <div className="space-y-2">
             <Label htmlFor="location_id">Location (Optional)</Label>
             <Select
-              value={formData.location_id}
-              onValueChange={(value) => setFormData({ ...formData, location_id: value })}
+              value={formData.location_id || "__all__"}
+              onValueChange={(value) => setFormData({ ...formData, location_id: value === "__all__" ? "" : value })}
             >
               <SelectTrigger>
                 <SelectValue placeholder="All Locations" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value={null}>All Locations</SelectItem>
+                <SelectItem value="__all__">All Locations</SelectItem>
                 {locations.map(location => (
                   <SelectItem key={location.id} value={location.id}>
                     {location.name}

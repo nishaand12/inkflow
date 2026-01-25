@@ -65,30 +65,30 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg bg-white">
+      <DialogContent className="max-w-lg bg-white max-h-[95vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="text-xl font-bold flex items-center gap-2">
+          <DialogTitle className="text-lg sm:text-xl font-bold flex items-center gap-2">
             <CheckCircle className="w-5 h-5 text-green-600" />
             Check Out Appointment
           </DialogTitle>
-          <DialogDescription>
+          <DialogDescription className="text-sm">
             Complete the appointment by entering the final charge and payment details.
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-6">
           {/* Read-only appointment details */}
-          <div className="bg-gray-50 rounded-lg p-4 space-y-3">
-            <h3 className="font-semibold text-gray-900 mb-3">Appointment Details</h3>
+          <div className="bg-gray-50 rounded-lg p-3 sm:p-4 space-y-3">
+            <h3 className="font-semibold text-gray-900 text-sm sm:text-base mb-2 sm:mb-3">Appointment Details</h3>
             
-            <div className="grid grid-cols-2 gap-3 text-sm">
+            <div className="grid grid-cols-2 gap-2 sm:gap-3 text-xs sm:text-sm">
               <div>
                 <span className="text-gray-500">Client:</span>
-                <p className="font-medium">{clientName}</p>
+                <p className="font-medium truncate">{clientName}</p>
               </div>
               <div>
                 <span className="text-gray-500">Artist:</span>
-                <p className="font-medium">{artist?.full_name || 'Unknown'}</p>
+                <p className="font-medium truncate">{artist?.full_name || 'Unknown'}</p>
               </div>
               <div>
                 <span className="text-gray-500">Date:</span>
@@ -102,11 +102,11 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
               </div>
               <div>
                 <span className="text-gray-500">Service:</span>
-                <p className="font-medium">{appointmentType?.name || 'No Type'}</p>
+                <p className="font-medium truncate">{appointmentType?.name || 'No Type'}</p>
               </div>
               <div>
                 <span className="text-gray-500">Location:</span>
-                <p className="font-medium">{location?.name || 'Unknown'}</p>
+                <p className="font-medium truncate">{location?.name || 'Unknown'}</p>
               </div>
               <div>
                 <span className="text-gray-500">Deposit:</span>
@@ -120,19 +120,19 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
 
             {appointment.notes && (
               <div className="pt-2 border-t border-gray-200">
-                <span className="text-gray-500 text-sm">Notes:</span>
-                <p className="text-sm mt-1">{appointment.notes}</p>
+                <span className="text-gray-500 text-xs sm:text-sm">Notes:</span>
+                <p className="text-xs sm:text-sm mt-1">{appointment.notes}</p>
               </div>
             )}
           </div>
 
           {/* Editable checkout fields */}
-          <div className="space-y-4">
-            <h3 className="font-semibold text-gray-900">Payment Information</h3>
+          <div className="space-y-3 sm:space-y-4">
+            <h3 className="font-semibold text-gray-900 text-sm sm:text-base">Payment Information</h3>
             
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-2 sm:gap-4">
               <div className="space-y-2">
-                <Label htmlFor="charge_amount">Charge Amount ($)</Label>
+                <Label htmlFor="charge_amount" className="text-sm">Charge ($)</Label>
                 <Input
                   id="charge_amount"
                   type="number"
@@ -141,11 +141,12 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
                   value={formData.charge_amount}
                   onChange={(e) => setFormData({ ...formData, charge_amount: e.target.value })}
                   placeholder="0.00"
+                  className="text-sm"
                 />
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="tax_amount">Tax ($)</Label>
+                <Label htmlFor="tax_amount" className="text-sm">Tax ($)</Label>
                 <Input
                   id="tax_amount"
                   type="number"
@@ -154,17 +155,18 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
                   value={formData.tax_amount}
                   onChange={(e) => setFormData({ ...formData, tax_amount: e.target.value })}
                   placeholder="0.00"
+                  className="text-sm"
                 />
               </div>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="payment_method">Payment Method</Label>
+              <Label htmlFor="payment_method" className="text-sm">Payment Method</Label>
               <Select
                 value={formData.payment_method}
                 onValueChange={(value) => setFormData({ ...formData, payment_method: value })}
               >
-                <SelectTrigger>
+                <SelectTrigger className="text-sm">
                   <SelectValue placeholder="Select payment method (optional)" />
                 </SelectTrigger>
                 <SelectContent>
@@ -176,17 +178,18 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
             </div>
           </div>
 
-          <DialogFooter className="flex gap-2">
+          <DialogFooter className="flex flex-col-reverse sm:flex-row gap-2 pt-4 border-t border-gray-100">
             <Button
               type="button"
               variant="outline"
               onClick={() => onOpenChange(false)}
+              className="w-full sm:w-auto"
             >
               Cancel
             </Button>
             <Button
               type="submit"
-              className="bg-green-600 hover:bg-green-700"
+              className="bg-green-600 hover:bg-green-700 w-full sm:w-auto"
               disabled={checkoutMutation.isPending}
             >
               <CheckCircle className="w-4 h-4 mr-2" />

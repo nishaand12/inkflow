@@ -19,6 +19,7 @@ export default function OnboardingChoice() {
     name: '',
     hq_location: '',
     phone: '',
+    studio_email: '',
     currency: 'USD'
   });
   const [inviteCode, setInviteCode] = useState('');
@@ -44,11 +45,11 @@ export default function OnboardingChoice() {
         name: data.name,
         hq_location: data.hq_location,
         phone: data.phone,
+        studio_email: data.studio_email,
         currency: data.currency,
         invite_code: code,
         is_active: false,
-        owner_id: currentUser.id,
-        studio_email: currentUser.email // Default to owner's email
+        owner_id: currentUser.id
       });
 
       await base44.auth.updateMe({
@@ -199,6 +200,18 @@ export default function OnboardingChoice() {
                   type="tel"
                   value={formData.phone}
                   onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="studio_email">Studio Email *</Label>
+                <Input
+                  id="studio_email"
+                  type="email"
+                  value={formData.studio_email}
+                  onChange={(e) => setFormData({ ...formData, studio_email: e.target.value })}
+                  placeholder="contact@yourstudio.com"
+                  required
                 />
               </div>
 

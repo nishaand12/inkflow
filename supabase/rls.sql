@@ -79,7 +79,12 @@ for update
 using (id = auth.uid())
 with check (
   id = auth.uid()
-  and user_role = (select user_role from public.users where id = auth.uid())
+  and (
+    -- Allow all changes during initial onboarding (user currently has no studio)
+    (select studio_id from public.users where id = auth.uid()) is null
+    -- After onboarding, prevent users from changing their own role
+    or user_role = (select user_role from public.users where id = auth.uid())
+  )
 );
 
 drop policy if exists users_delete on public.users;

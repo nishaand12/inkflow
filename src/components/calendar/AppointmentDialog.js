@@ -130,7 +130,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     enabled: !!currentUser?.studio_id
   });
 
-  const { data: workStations = EMPTY_ARRAY, isLoading: workStationsLoading } = useQuery({
+  const { data: workStations = EMPTY_ARRAY } = useQuery({
     queryKey: ['workStations', currentUser?.studio_id],
     queryFn: async () => {
       if (!currentUser?.studio_id) return [];
@@ -230,6 +230,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     } else {
       setValidationErrors({ artistConflict: null, stationsFull: false });
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formData.artist_id, formData.appointment_date, formData.start_time, formData.duration_hours, formData.location_id, open, allAppointments, workStations, availabilities]);
 
   const handleCustomerSelect = (customer) => {
@@ -254,6 +255,11 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
 
   const getEmailWarningMessage = () => {
     if (!shouldShowEmailWarnings) return null;
+    
+    // Only show email warnings if a customer has been selected or client info is filled in
+    const hasCustomerOrClient = selectedCustomer || formData.client_name?.trim();
+    if (!hasCustomerOrClient) return null;
+    
     const email = resolveClientEmail();
     if (!email) return "No email address available. Email reminders will be skipped.";
     if (selectedCustomer?.email_bounced) {
@@ -525,17 +531,17 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto bg-white">
-          <DialogHeader>
-            <DialogTitle className="text-2xl font-bold">
+        <DialogContent className="w-full max-w-3xl max-h-[95vh] sm:max-h-[90vh] overflow-y-auto bg-white p-4 sm:p-6 mx-2 sm:mx-auto rounded-lg">
+          <DialogHeader className="pb-2 sm:pb-4">
+            <DialogTitle className="text-xl sm:text-2xl font-bold">
               {appointment ? ((isArtist && !isAdmin) ? 'View/Edit Appointment' : 'Edit Appointment') : 'New Appointment'}
             </DialogTitle>
-            <DialogDescription>
+            <DialogDescription className="text-sm">
               {appointment ? 'Update the appointment details below.' : 'Fill in the details to create a new appointment.'}
             </DialogDescription>
           </DialogHeader>
 
-          <form onSubmit={handleSubmit} className="space-y-6">
+          <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-6">
             <input type="hidden" name="studio_id" value={currentUser?.studio_id || ''} />
             {validationErrors.artistConflict && (
               <Alert variant="destructive">
@@ -565,7 +571,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
             {(emailSendWarning || appointment?.email_send_status === "failed" || appointment?.email_send_status === "skipped") && (
               <Alert className="border-red-200 bg-red-50">
                 <Mail className="h-4 w-4 text-red-600" />
-                <AlertDescription className="text-red-700">
+                <AlertDescription className="text-red-800">
                   {emailSendWarning ||
                     appointment?.email_send_failed_reason ||
                     "Email could not be sent. Please verify the customer email."}
@@ -612,9 +618,9 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
               </div>
             )}
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
               <div className="space-y-2">
-                <Label htmlFor="location_id">Location *</Label>
+                <Label htmlFor="location_id" className="text-sm">Location *</Label>
                 <Select
                   value={formData.location_id}
                   onValueChange={(value) => {
@@ -623,7 +629,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                   required
                   disabled={!canEditLocation() || !canEdit()}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className="text-sm">
                     <SelectValue placeholder="Select location" />
                   </SelectTrigger>
                   <SelectContent>
@@ -637,14 +643,14 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="artist_id">Artist *</Label>
+                <Label htmlFor="artist_id" className="text-sm">Artist *</Label>
                 <Select
                   value={formData.artist_id}
                   onValueChange={(value) => setFormData({ ...formData, artist_id: value })}
                   required
                   disabled={!canEditArtist() || !canEdit()}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className="text-sm">
                     <SelectValue placeholder="Select artist" />
                   </SelectTrigger>
                   <SelectContent>
@@ -658,20 +664,21 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-4">
-              <div className="space-y-2">
-                <Label>Date *</Label>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
+              <div className="space-y-2 col-span-2 sm:col-span-1">
+                <Label className="text-sm">Date *</Label>
                 <Input
                   type="date"
                   value={formData.appointment_date}
                   onChange={(e) => setFormData({ ...formData, appointment_date: e.target.value, work_station_id: '' })}
                   required
                   disabled={!canEdit()}
+                  className="text-sm"
                 />
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="start_time">Start Time *</Label>
+                <Label htmlFor="start_time" className="text-sm">Start Time *</Label>
                 <Input
                   id="start_time"
                   type="time"
@@ -679,11 +686,12 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                   onChange={(e) => setFormData({ ...formData, start_time: e.target.value, work_station_id: '' })}
                   required
                   disabled={!canEdit()}
+                  className="text-sm"
                 />
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="duration_hours">Duration (h) *</Label>
+                <Label htmlFor="duration_hours" className="text-sm">Duration (h) *</Label>
                 <Input
                   id="duration_hours"
                   type="number"
@@ -693,6 +701,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                   onChange={(e) => setFormData({ ...formData, duration_hours: parseFloat(e.target.value), work_station_id: '' })}
                   required
                   disabled={!canEdit()}
+                  className="text-sm"
                 />
               </div>
             </div>
@@ -724,26 +733,28 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
             )}
 
             {!selectedCustomer && (
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="client_name">Client Name *</Label>
+                  <Label htmlFor="client_name" className="text-sm">Client Name *</Label>
                   <Input
                     id="client_name"
                     value={formData.client_name}
                     onChange={(e) => setFormData({ ...formData, client_name: e.target.value })}
                     required
                     disabled={!canEdit()}
+                    className="text-sm"
                   />
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="client_email">Client Email</Label>
+                  <Label htmlFor="client_email" className="text-sm">Client Email</Label>
                   <Input
                     id="client_email"
                     type="email"
                     value={formData.client_email}
                     onChange={(e) => setFormData({ ...formData, client_email: e.target.value })}
                     disabled={!canEdit()}
+                    className="text-sm"
                   />
                 </div>
               </div>
@@ -751,19 +762,20 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
 
             {!selectedCustomer && (
               <div className="space-y-2">
-                <Label htmlFor="client_phone">Client Phone</Label>
+                <Label htmlFor="client_phone" className="text-sm">Client Phone</Label>
                 <Input
                   id="client_phone"
                   value={formData.client_phone}
                   onChange={(e) => setFormData({ ...formData, client_phone: e.target.value })}
                   disabled={!canEdit()}
+                  className="text-sm"
                 />
               </div>
             )}
 
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-3 gap-2 sm:gap-4">
               <div className="space-y-2">
-                <Label htmlFor="deposit_amount">Deposit ($)</Label>
+                <Label htmlFor="deposit_amount" className="text-sm">Deposit ($)</Label>
                 <Input
                   id="deposit_amount"
                   type="number"
@@ -771,11 +783,12 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                   value={formData.deposit_amount}
                   onChange={(e) => setFormData({ ...formData, deposit_amount: parseFloat(e.target.value) })}
                   disabled={!canEdit()}
+                  className="text-sm"
                 />
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="total_estimate">Estimate ($)</Label>
+                <Label htmlFor="total_estimate" className="text-sm">Estimate ($)</Label>
                 <Input
                   id="total_estimate"
                   type="number"
@@ -783,11 +796,12 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                   value={formData.total_estimate}
                   onChange={(e) => setFormData({ ...formData, total_estimate: parseFloat(e.target.value) })}
                   disabled={!canEdit()}
+                  className="text-sm"
                 />
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="tax_amount">Tax ($)</Label>
+                <Label htmlFor="tax_amount" className="text-sm">Tax ($)</Label>
                 <Input
                   id="tax_amount"
                   type="number"
@@ -796,40 +810,44 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                   value={formData.tax_amount}
                   onChange={(e) => setFormData({ ...formData, tax_amount: parseFloat(e.target.value) })}
                   disabled={!canEdit()}
+                  className="text-sm"
                 />
               </div>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="design_description">Design Description</Label>
+              <Label htmlFor="design_description" className="text-sm">Design Description</Label>
               <Textarea
                 id="design_description"
                 value={formData.design_description}
                 onChange={(e) => setFormData({ ...formData, design_description: e.target.value })}
-                rows={3}
+                rows={2}
                 disabled={!canEdit()}
+                className="text-sm"
               />
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="placement">Placement</Label>
+              <Label htmlFor="placement" className="text-sm">Placement</Label>
               <Input
                 id="placement"
                 value={formData.placement}
                 onChange={(e) => setFormData({ ...formData, placement: e.target.value })}
                 placeholder="e.g., Upper arm, back, etc."
                 disabled={!canEdit()}
+                className="text-sm"
               />
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="notes">Notes</Label>
+              <Label htmlFor="notes" className="text-sm">Notes</Label>
               <Textarea
                 id="notes"
                 value={formData.notes}
                 onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
                 rows={2}
                 disabled={!canEdit()}
+                className="text-sm"
               />
             </div>
 
@@ -892,14 +910,15 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
               </div>
             )}
 
-            <DialogFooter className="flex flex-wrap justify-between gap-2">
-              <div className="flex gap-2">
+            <DialogFooter className="flex flex-col-reverse sm:flex-row sm:flex-wrap sm:justify-between gap-2 pt-4 border-t border-gray-100">
+              <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
                 {appointment && canDelete() && appointment.status !== 'completed' && (
                   <Button
                     type="button"
                     variant="destructive"
                     onClick={handleDelete}
                     disabled={deleteMutation.isPending || updateMutation.isPending}
+                    className="w-full sm:w-auto text-sm"
                   >
                     <Trash2 className="w-4 h-4 mr-2" />
                     {(isArtist && !isAdmin) ? 'Cancel' : 'Delete'}
@@ -915,17 +934,18 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                       }
                     }}
                     disabled={updateMutation.isPending}
+                    className="w-full sm:w-auto text-sm"
                   >
                     <Unlock className="w-4 h-4 mr-2" />
                     Unlock
                   </Button>
                 )}
               </div>
-              <div className="flex gap-2 ml-auto">
+              <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto sm:ml-auto">
                 {canCheckout() && (
                   <Button
                     type="button"
-                    className="bg-green-600 hover:bg-green-700"
+                    className="bg-green-600 hover:bg-green-700 w-full sm:w-auto text-sm"
                     onClick={() => setShowCheckoutDialog(true)}
                   >
                     <CheckCircle className="w-4 h-4 mr-2" />
@@ -936,13 +956,14 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                   type="button"
                   variant="outline"
                   onClick={() => onOpenChange(false)}
+                  className="w-full sm:w-auto text-sm"
                 >
                   {canEdit() ? 'Cancel' : 'Close'}
                 </Button>
                 {canEdit() && (
                   <Button
                     type="submit"
-                    className="bg-indigo-600 hover:bg-indigo-700"
+                    className="bg-indigo-600 hover:bg-indigo-700 w-full sm:w-auto text-sm"
                     disabled={hasErrors || createMutation.isPending || updateMutation.isPending}
                   >
                     <Save className="w-4 h-4 mr-2" />

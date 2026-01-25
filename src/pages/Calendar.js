@@ -9,8 +9,10 @@ import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isSam
 import AppointmentDialog from "../components/calendar/AppointmentDialog";
 import AppointmentCard from "../components/calendar/AppointmentCard";
 import { normalizeUserRole } from "@/utils/roles";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 export default function Calendar() {
+  const isMobile = useIsMobile();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [view, setView] = useState('day');
   const [selectedLocation, setSelectedLocation] = useState('all');
@@ -20,6 +22,14 @@ export default function Calendar() {
   const [selectedDate, setSelectedDate] = useState(null);
   const [user, setUser] = useState(null);
   const [userArtist, setUserArtist] = useState(null);
+
+  // On mobile, default to day view and switch if user selects week/month on desktop then goes mobile
+  useEffect(() => {
+    if (isMobile && view === 'month') {
+      setView('day');
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isMobile]);
 
   useEffect(() => {
     loadUser();
@@ -176,20 +186,20 @@ export default function Calendar() {
   const days = getDaysToShow();
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-6">
-      <div className="max-w-7xl mx-auto space-y-6">
-        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-3 sm:p-6">
+      <div className="max-w-7xl mx-auto space-y-4 sm:space-y-6">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 sm:gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">
               {(isArtist && !isAdmin) ? 'My Schedule' : 'Calendar'}
             </h1>
-            <p className="text-gray-500 mt-1">
+            <p className="text-sm sm:text-base text-gray-500 mt-1">
               {(isArtist && !isAdmin) ? 'View your appointments' : 'Manage your studio appointments'}
             </p>
           </div>
           <Button 
             onClick={() => handleNewAppointment()}
-            className="bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-200"
+            className="bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-200 w-full sm:w-auto"
           >
             <Plus className="w-4 h-4 mr-2" />
             New Appointment
@@ -197,22 +207,22 @@ export default function Calendar() {
         </div>
 
         <Card className="bg-white border-none shadow-md">
-          <CardContent className="p-6">
-            <div className="rounded-xl bg-gray-50/80 p-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <CardContent className="p-3 sm:p-6">
+            <div className="rounded-xl bg-gray-50/80 p-3 sm:p-4">
+              <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-4">
               <Select value={view} onValueChange={setView}>
-                <SelectTrigger>
+                <SelectTrigger className="text-sm">
                   <SelectValue placeholder="View" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="day">Day View</SelectItem>
                   <SelectItem value="week">Week View</SelectItem>
-                  <SelectItem value="month">Month View</SelectItem>
+                  {!isMobile && <SelectItem value="month">Month View</SelectItem>}
                 </SelectContent>
               </Select>
 
               <Select value={selectedLocation} onValueChange={setSelectedLocation}>
-                <SelectTrigger>
+                <SelectTrigger className="text-sm">
                   <SelectValue placeholder="All Locations" />
                 </SelectTrigger>
                 <SelectContent>
@@ -227,7 +237,7 @@ export default function Calendar() {
 
               {(isAdmin || userRole === 'Front_Desk') && (
                 <Select value={selectedArtist} onValueChange={setSelectedArtist}>
-                  <SelectTrigger>
+                  <SelectTrigger className="text-sm">
                     <SelectValue placeholder="All Artists" />
                   </SelectTrigger>
                   <SelectContent>
@@ -241,14 +251,14 @@ export default function Calendar() {
                 </Select>
               )}
 
-              <div className="flex gap-2 sm:col-span-2 lg:col-span-1">
-                <Button variant="outline" onClick={handlePrevious} className="flex-1">
+              <div className="flex gap-1 sm:gap-2 col-span-2 sm:col-span-1 lg:col-span-1">
+                <Button variant="outline" onClick={handlePrevious} className="flex-1 px-2 sm:px-4">
                   <ChevronLeft className="w-4 h-4" />
                 </Button>
-                <Button variant="outline" onClick={handleToday} className="flex-1">
+                <Button variant="outline" onClick={handleToday} className="flex-1 px-2 sm:px-4 text-sm">
                   Today
                 </Button>
-                <Button variant="outline" onClick={handleNext} className="flex-1">
+                <Button variant="outline" onClick={handleNext} className="flex-1 px-2 sm:px-4">
                   <ChevronRight className="w-4 h-4" />
                 </Button>
               </div>
@@ -258,36 +268,42 @@ export default function Calendar() {
         </Card>
 
         <Card className="bg-white border-none shadow-lg">
-          <CardContent className="p-6">
-            <div className="mb-6 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-              <h2 className="text-2xl font-bold text-gray-900">
-                {format(currentDate, 'MMMM yyyy')}
-              </h2>
-              <div className="flex flex-wrap items-center gap-2 text-xs text-gray-600 bg-white/80 border border-gray-200 rounded-full px-3 py-2">
-                <span className="font-semibold text-gray-700">Legend</span>
+          <CardContent className="p-3 sm:p-6">
+            <div className="mb-4 sm:mb-6 flex flex-col gap-3">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xl sm:text-2xl font-bold text-gray-900">
+                  {format(currentDate, 'MMMM yyyy')}
+                </h2>
+              </div>
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-600">
+                <span className="font-semibold text-gray-700">Legend:</span>
                 <span className="flex items-center gap-1">
-                  <span className="h-2.5 w-2.5 rounded-full bg-gray-400"></span>
-                  Scheduled
+                  <span className="h-2 w-2 sm:h-2.5 sm:w-2.5 rounded-full bg-gray-400"></span>
+                  <span className="hidden sm:inline">Scheduled</span>
+                  <span className="sm:hidden">Sched</span>
                 </span>
                 <span className="flex items-center gap-1">
-                  <span className="h-2.5 w-2.5 rounded-full bg-blue-500"></span>
-                  Confirmed
+                  <span className="h-2 w-2 sm:h-2.5 sm:w-2.5 rounded-full bg-blue-500"></span>
+                  <span className="hidden sm:inline">Confirmed</span>
+                  <span className="sm:hidden">Conf</span>
                 </span>
                 <span className="flex items-center gap-1">
-                  <span className="h-2.5 w-2.5 rounded-full bg-green-500"></span>
-                  Checked Out
+                  <span className="h-2 w-2 sm:h-2.5 sm:w-2.5 rounded-full bg-green-500"></span>
+                  <span className="hidden sm:inline">Checked Out</span>
+                  <span className="sm:hidden">Done</span>
                 </span>
                 <span className="flex items-center gap-1">
-                  <span className="h-2.5 w-2.5 rounded-full bg-red-500"></span>
-                  Cancelled/No-Show
+                  <span className="h-2 w-2 sm:h-2.5 sm:w-2.5 rounded-full bg-red-500"></span>
+                  <span className="hidden sm:inline">Cancelled/No-Show</span>
+                  <span className="sm:hidden">Cancel</span>
                 </span>
               </div>
             </div>
 
-            {view === 'month' && (
-              <div className="grid grid-cols-7 gap-2">
+            {view === 'month' && !isMobile && (
+              <div className="grid grid-cols-7 gap-1 sm:gap-2">
                 {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
-                  <div key={day} className="text-center font-semibold text-gray-600 text-sm p-2">
+                  <div key={day} className="text-center font-semibold text-gray-600 text-xs sm:text-sm p-1 sm:p-2">
                     {day}
                   </div>
                 ))}
@@ -299,20 +315,20 @@ export default function Calendar() {
                   return (
                     <div
                       key={idx}
-                      className={`min-h-[120px] p-2 rounded-lg border-2 transition-all duration-200 ${
+                      className={`min-h-[80px] sm:min-h-[120px] p-1 sm:p-2 rounded-lg border-2 transition-all duration-200 ${
                         isToday ? 'border-indigo-500 bg-indigo-50' : 'border-gray-100'
                       } ${
                         !isCurrentMonth ? 'bg-gray-50' : 'bg-white hover:bg-gray-50'
                       } cursor-pointer`}
                       onClick={() => handleNewAppointment(day)}
                     >
-                      <div className={`text-sm font-medium mb-2 ${
+                      <div className={`text-xs sm:text-sm font-medium mb-1 sm:mb-2 ${
                         isToday ? 'text-indigo-600' : isCurrentMonth ? 'text-gray-900' : 'text-gray-400'
                       }`}>
                         {format(day, 'd')}
                       </div>
                       <div className="space-y-1">
-                        {dayAppointments.map(apt => (
+                        {dayAppointments.slice(0, 3).map(apt => (
                           <AppointmentCard
                             key={apt.id}
                             appointment={apt}
@@ -326,6 +342,11 @@ export default function Calendar() {
                             isOwnAppointment={isOwnAppointment(apt)}
                           />
                         ))}
+                        {dayAppointments.length > 3 && (
+                          <div className="text-xs text-gray-500 text-center">
+                            +{dayAppointments.length - 3} more
+                          </div>
+                        )}
                       </div>
                     </div>
                   );
@@ -334,54 +355,75 @@ export default function Calendar() {
             )}
 
             {view === 'week' && (
-              <div className="grid grid-cols-7 gap-2 md:gap-4">
-                {days.map((day, idx) => {
-                  const dayAppointments = getAppointmentsForDay(day);
-                  const isToday = isSameDay(day, new Date());
+              <div className={`${isMobile ? 'overflow-x-auto -mx-3 px-3 pb-2' : ''}`}>
+                <div className={`grid gap-2 md:gap-4 ${isMobile ? 'grid-cols-7 min-w-[600px]' : 'grid-cols-7'}`}>
+                  {days.map((day, idx) => {
+                    const dayAppointments = getAppointmentsForDay(day);
+                    const isToday = isSameDay(day, new Date());
 
-                  return (
-                    <div key={idx} className="space-y-2">
-                      <div className={`text-center p-1.5 md:p-2 rounded-lg ${
-                        isToday ? 'bg-indigo-500 text-white' : 'bg-gray-100 text-gray-900'
-                      }`}>
-                        <div className="text-[10px] md:text-xs font-medium truncate">{format(day, 'EEE')}</div>
-                        <div className="text-sm md:text-lg font-bold">{format(day, 'd')}</div>
+                    return (
+                      <div key={idx} className="space-y-2 min-w-0">
+                        <div 
+                          className={`text-center p-1.5 md:p-2 rounded-lg cursor-pointer ${
+                            isToday ? 'bg-indigo-500 text-white' : 'bg-gray-100 text-gray-900 hover:bg-gray-200'
+                          }`}
+                          onClick={() => {
+                            if (isMobile) {
+                              setCurrentDate(day);
+                              setView('day');
+                            }
+                          }}
+                        >
+                          <div className="text-[10px] md:text-xs font-medium truncate">{format(day, 'EEE')}</div>
+                          <div className="text-sm md:text-lg font-bold">{format(day, 'd')}</div>
+                        </div>
+                        <div className="space-y-1">
+                          {dayAppointments.map(apt => (
+                            <AppointmentCard
+                              key={apt.id}
+                              appointment={apt}
+                              artists={artists}
+                              locations={locations}
+                              onClick={() => handleEditAppointment(apt)}
+                              compact
+                              isOwnAppointment={isOwnAppointment(apt)}
+                            />
+                          ))}
+                        </div>
                       </div>
-                      <div className="space-y-1">
-                        {dayAppointments.map(apt => (
-                          <AppointmentCard
-                            key={apt.id}
-                            appointment={apt}
-                            artists={artists}
-                            locations={locations}
-                            onClick={() => handleEditAppointment(apt)}
-                            compact
-                            isOwnAppointment={isOwnAppointment(apt)}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
+                {isMobile && (
+                  <p className="text-xs text-gray-500 text-center mt-2">Swipe to see more days • Tap a day to view details</p>
+                )}
               </div>
             )}
 
             {view === 'day' && (
               <div className="space-y-3">
-                <div className="text-center p-4 bg-indigo-50 rounded-lg mb-6">
-                  <div className="text-sm text-indigo-600 font-medium">
+                <div className="text-center p-3 sm:p-4 bg-indigo-50 rounded-lg mb-4 sm:mb-6">
+                  <div className="text-xs sm:text-sm text-indigo-600 font-medium">
                     {format(currentDate, 'EEEE')}
                   </div>
-                  <div className="text-2xl font-bold text-gray-900">
+                  <div className="text-xl sm:text-2xl font-bold text-gray-900">
                     {format(currentDate, 'MMMM d, yyyy')}
                   </div>
                 </div>
                 {getAppointmentsForDay(currentDate).length === 0 ? (
-                  <div className="text-center py-12">
-                    <p className="text-gray-500">No appointments scheduled</p>
+                  <div className="text-center py-8 sm:py-12">
+                    <p className="text-gray-500 text-sm sm:text-base">No appointments scheduled</p>
+                    <Button 
+                      onClick={() => handleNewAppointment(currentDate)}
+                      variant="outline"
+                      className="mt-4"
+                    >
+                      <Plus className="w-4 h-4 mr-2" />
+                      Add Appointment
+                    </Button>
                   </div>
                 ) : (
-                  <div className="space-y-3">
+                  <div className="space-y-2 sm:space-y-3">
                     {getAppointmentsForDay(currentDate).map(apt => {
                       const modifiedApt = {
                         ...apt,
@@ -395,6 +437,7 @@ export default function Calendar() {
                           locations={locations}
                           onClick={() => handleEditAppointment(apt)}
                           detailed
+                          isMobile={isMobile}
                         />
                       );
                     })}
