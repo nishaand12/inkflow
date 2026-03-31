@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { CheckCircle, CreditCard, Loader2, Mail } from "lucide-react";
+import { CheckCircle, CreditCard, Loader2, Mail, ExternalLink } from "lucide-react";
 import { supabase } from "@/utils/supabase";
 
 export default function CheckoutDialog({ open, onOpenChange, appointment, artists, locations, appointmentTypes, customers, studio }) {
@@ -16,7 +16,8 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
     tax_amount: '',
     payment_method: ''
   });
-  const [stripeLoading, setStripeLoading] = useState(false);
+  const [openLinkLoading, setOpenLinkLoading] = useState(false);
+  const [emailLinkLoading, setEmailLinkLoading] = useState(false);
   const [stripeMessage, setStripeMessage] = useState(null);
 
   useEffect(() => {
@@ -51,40 +52,77 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
     checkoutMutation.mutate(updateData);
   };
 
-  const handleStripeCheckout = async () => {
+  const validateChargeAmount = () => {
     const charge = parseFloat(formData.charge_amount);
     if (!charge || charge <= 0) {
       setStripeMessage({ type: 'error', text: 'Please enter a charge amount greater than 0.' });
-      return;
+      return null;
     }
+    return charge;
+  };
 
-    setStripeLoading(true);
+  const createCheckoutSession = async (sendEmail) => {
+    const charge = validateChargeAmount();
+    if (!charge) return null;
+
+    const { data, error } = await supabase.functions.invoke('create-checkout-payment', {
+      body: {
+        appointmentId: appointment.id,
+        chargeAmount: charge,
+        taxAmount: formData.tax_amount ? parseFloat(formData.tax_amount) : 0,
+        sendEmail,
+      },
+    });
+
+    if (error) throw error;
+    if (data?.error) throw new Error(data.error);
+
+    queryClient.invalidateQueries({ queryKey: ['appointments'] });
+    return data;
+  };
+
+  const handleOpenCheckout = async () => {
+    setOpenLinkLoading(true);
     setStripeMessage(null);
 
     try {
-      const { data, error } = await supabase.functions.invoke('create-checkout-payment', {
-        body: {
-          appointmentId: appointment.id,
-          chargeAmount: charge,
-          taxAmount: formData.tax_amount ? parseFloat(formData.tax_amount) : 0,
-        },
-      });
+      const data = await createCheckoutSession(false);
+      if (!data) return;
 
-      if (error) throw error;
-      if (data?.error) throw new Error(data.error);
-
+      window.open(data.checkout_url, '_blank');
       setStripeMessage({
         type: 'success',
-        text: 'Payment link created and emailed to the customer.',
+        text: 'Checkout page opened. Payment will be confirmed automatically once completed.',
         url: data.checkout_url,
       });
-
-      queryClient.invalidateQueries({ queryKey: ['appointments'] });
     } catch (err) {
       console.error('Stripe checkout error:', err);
       setStripeMessage({ type: 'error', text: err.message || 'Failed to create payment link.' });
     } finally {
-      setStripeLoading(false);
+      setOpenLinkLoading(false);
+    }
+  };
+
+  const handleEmailPaymentLink = async () => {
+    setEmailLinkLoading(true);
+    setStripeMessage(null);
+
+    try {
+      const data = await createCheckoutSession(true);
+      if (!data) return;
+
+      setStripeMessage({
+        type: 'success',
+        text: data.email_sent
+          ? 'Payment link emailed to the customer.'
+          : 'Payment link created but no email address on file. You can share the link manually.',
+        url: data.checkout_url,
+      });
+    } catch (err) {
+      console.error('Stripe email error:', err);
+      setStripeMessage({ type: 'error', text: err.message || 'Failed to create payment link.' });
+    } finally {
+      setEmailLinkLoading(false);
     }
   };
 
@@ -247,44 +285,56 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
             </div>
           )}
 
-          <DialogFooter className="flex flex-col gap-2 pt-4 border-t border-gray-100">
-            {/* Stripe checkout button */}
+          <div className="flex flex-col gap-2 pt-4 border-t border-gray-100">
             {stripeConnected && (
-              <Button
-                type="button"
-                className="bg-indigo-600 hover:bg-indigo-700 w-full"
-                disabled={stripeLoading || checkoutMutation.isPending}
-                onClick={handleStripeCheckout}
-              >
-                {stripeLoading ? (
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                ) : (
-                  <CreditCard className="w-4 h-4 mr-2" />
-                )}
-                Check Out via Stripe
-              </Button>
+              <>
+                <Button
+                  type="button"
+                  className="bg-indigo-600 hover:bg-indigo-700 w-full"
+                  disabled={openLinkLoading || emailLinkLoading || checkoutMutation.isPending}
+                  onClick={handleOpenCheckout}
+                >
+                  {openLinkLoading ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <ExternalLink className="w-4 h-4 mr-2" />
+                  )}
+                  Open Stripe Checkout
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="border-indigo-300 text-indigo-700 hover:bg-indigo-50 w-full"
+                  disabled={openLinkLoading || emailLinkLoading || checkoutMutation.isPending}
+                  onClick={handleEmailPaymentLink}
+                >
+                  {emailLinkLoading ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Mail className="w-4 h-4 mr-2" />
+                  )}
+                  Email Payment Link
+                </Button>
+              </>
             )}
-
-            <div className="flex flex-col-reverse sm:flex-row gap-2 w-full">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => onOpenChange(false)}
-                className="w-full sm:w-auto"
-              >
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                className="bg-green-600 hover:bg-green-700 w-full sm:w-auto"
-                disabled={checkoutMutation.isPending || stripeLoading}
-                onClick={handleManualCheckout}
-              >
-                <CheckCircle className="w-4 h-4 mr-2" />
-                Manual Checkout
-              </Button>
-            </div>
-          </DialogFooter>
+            <Button
+              type="button"
+              className="bg-green-600 hover:bg-green-700 w-full"
+              disabled={checkoutMutation.isPending || openLinkLoading || emailLinkLoading}
+              onClick={handleManualCheckout}
+            >
+              <CheckCircle className="w-4 h-4 mr-2" />
+              Manual Checkout
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+              className="w-full"
+            >
+              Cancel
+            </Button>
+          </div>
         </div>
       </DialogContent>
     </Dialog>

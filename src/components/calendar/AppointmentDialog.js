@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { format, parseISO } from "date-fns";
-import { Trash2, Save, AlertCircle, CheckCircle, Unlock, Mail, CreditCard, Loader2, Link2 } from "lucide-react";
+import { Trash2, Save, AlertCircle, CheckCircle, Unlock, Mail, CreditCard, Loader2, Link2, Copy, Check } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import CustomerSearch from "../customers/CustomerSearch";
@@ -49,6 +49,8 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
   const [showCheckoutDialog, setShowCheckoutDialog] = useState(false);
   const [depositLinkLoading, setDepositLinkLoading] = useState(false);
   const [depositLinkMessage, setDepositLinkMessage] = useState(null);
+  const [depositCheckoutUrl, setDepositCheckoutUrl] = useState(null);
+  const [copiedDepositUrl, setCopiedDepositUrl] = useState(false);
 
   const [validationErrors, setValidationErrors] = useState({
     artistConflict: null,
@@ -56,6 +58,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
   });
 
   const [emailSendWarning, setEmailSendWarning] = useState(null);
+  const [saveError, setSaveError] = useState(null);
 
   const userRole = useMemo(() => {
     if (!currentUser) return null;
@@ -225,6 +228,10 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
       setSelectedCustomer(null);
     }
     setValidationErrors({ artistConflict: null, stationsFull: false });
+    setDepositLinkMessage(null);
+    setDepositCheckoutUrl(null);
+    setCopiedDepositUrl(false);
+    setSaveError(null);
   }, [appointment, defaultDate, open, isArtist, isAdmin, userArtistId, customers]);
 
   useEffect(() => {
@@ -407,6 +414,9 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
       onOpenChange(false);
       resetForm();
       await sendAppointmentEmail(createdAppointment, "created");
+    },
+    onError: (error) => {
+      setSaveError(error?.message || 'Failed to save appointment. Please try again.');
     }
   });
 
@@ -426,6 +436,9 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
           await sendAppointmentEmail(updatedAppointment, "updated");
         }
       }
+    },
+    onError: (error) => {
+      setSaveError(error?.message || 'Failed to update appointment. Please try again.');
     }
   });
 
@@ -451,9 +464,18 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
       }
     }
 
+    setSaveError(null);
+
+    // UUID columns reject empty strings — convert '' → null before sending to Supabase
+    const sanitizeUuid = (v) => (v === '' || v == null ? null : v);
     const dataToSave = {
       ...formData,
-      studio_id: currentUser?.studio_id
+      studio_id: currentUser?.studio_id,
+      appointment_type_id: sanitizeUuid(formData.appointment_type_id),
+      customer_id: sanitizeUuid(formData.customer_id),
+      work_station_id: sanitizeUuid(formData.work_station_id),
+      artist_id: sanitizeUuid(formData.artist_id),
+      location_id: sanitizeUuid(formData.location_id),
     };
 
     if (appointment) {
@@ -492,6 +514,8 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     if (!appointment) return;
     setDepositLinkLoading(true);
     setDepositLinkMessage(null);
+    setDepositCheckoutUrl(null);
+    setCopiedDepositUrl(false);
     try {
       const { data, error } = await supabase.functions.invoke("create-deposit-checkout", {
         body: { appointmentId: appointment.id }
@@ -499,8 +523,13 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
       if (error || data?.error) {
         setDepositLinkMessage({ type: 'error', text: data?.error || 'Failed to create deposit link.' });
       } else if (data?.checkout_url) {
-        setDepositLinkMessage({ type: 'success', text: 'Deposit link created! Copy it below or share with the client.' });
-        try { await navigator.clipboard.writeText(data.checkout_url); } catch (_) { /* ignore */ }
+        setDepositCheckoutUrl(data.checkout_url);
+        try {
+          await navigator.clipboard.writeText(data.checkout_url);
+          setDepositLinkMessage({ type: 'success', text: 'Deposit link created and copied to clipboard!' });
+        } catch (_) {
+          setDepositLinkMessage({ type: 'success', text: 'Deposit link created! Copy the link below to share with the client.' });
+        }
         queryClient.invalidateQueries({ queryKey: ['appointments'] });
       }
     } catch (err) {
@@ -508,6 +537,15 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     } finally {
       setDepositLinkLoading(false);
     }
+  };
+
+  const handleCopyDepositUrl = async () => {
+    if (!depositCheckoutUrl) return;
+    try {
+      await navigator.clipboard.writeText(depositCheckoutUrl);
+      setCopiedDepositUrl(true);
+      setTimeout(() => setCopiedDepositUrl(false), 2000);
+    } catch (_) { /* ignore */ }
   };
 
   const handleDelete = () => {
@@ -590,6 +628,13 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                 <AlertDescription className="text-amber-800">
                   {getEmailWarningMessage()}
                 </AlertDescription>
+              </Alert>
+            )}
+
+            {saveError && (
+              <Alert className="border-red-200 bg-red-50">
+                <AlertCircle className="h-4 w-4 text-red-600" />
+                <AlertDescription className="text-red-800">{saveError}</AlertDescription>
               </Alert>
             )}
 
@@ -888,6 +933,28 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                   <p className={`text-xs ${depositLinkMessage.type === 'success' ? 'text-green-700' : 'text-red-700'}`}>
                     {depositLinkMessage.text}
                   </p>
+                )}
+
+                {depositCheckoutUrl && (
+                  <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-md px-2 py-1.5">
+                    <input
+                      readOnly
+                      value={depositCheckoutUrl}
+                      className="text-xs text-gray-600 flex-1 bg-transparent min-w-0 truncate outline-none"
+                      onFocus={e => e.target.select()}
+                    />
+                    <button
+                      type="button"
+                      onClick={handleCopyDepositUrl}
+                      className="shrink-0 text-gray-400 hover:text-gray-700 transition-colors"
+                      title="Copy link"
+                    >
+                      {copiedDepositUrl
+                        ? <Check className="w-3.5 h-3.5 text-green-600" />
+                        : <Copy className="w-3.5 h-3.5" />
+                      }
+                    </button>
+                  </div>
                 )}
               </div>
             )}

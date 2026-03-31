@@ -45,7 +45,7 @@ serve(async (req) => {
       return json({ error: "Unauthorized" }, 401);
     }
 
-    const { appointmentId, chargeAmount, taxAmount } = await req.json();
+    const { appointmentId, chargeAmount, taxAmount, sendEmail = false } = await req.json();
     if (!appointmentId) {
       return json({ error: "Missing appointmentId" }, 400);
     }
@@ -173,8 +173,8 @@ serve(async (req) => {
       })
       .eq("id", appointmentId);
 
-    // Send payment link email to customer
-    if (customerEmail && MAILJET_API_KEY && MAILJET_SECRET_KEY) {
+    let emailSent = false;
+    if (sendEmail && customerEmail && MAILJET_API_KEY && MAILJET_SECRET_KEY) {
       const clientName =
         appointment.client_name ||
         appointment.customer?.name ||
@@ -189,12 +189,13 @@ serve(async (req) => {
           totalAmount,
           currency: studio.currency || "USD",
         });
+        emailSent = true;
       } catch (emailErr) {
         console.error("Failed to send checkout payment email:", emailErr);
       }
     }
 
-    return json({ checkout_url: session.url, session_id: session.id });
+    return json({ checkout_url: session.url, session_id: session.id, email_sent: emailSent });
   } catch (err) {
     console.error("create-checkout-payment error:", err);
     return json({ error: err.message || "Unknown error" }, 500);
