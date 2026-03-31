@@ -1,6 +1,6 @@
 import React from "react";
 import { Badge } from "@/components/ui/badge";
-import { Clock, MapPin, User } from "lucide-react";
+import { Clock, MapPin, User, CreditCard } from "lucide-react";
 
 export default function AppointmentCard({ appointment, artists, locations, onClick, compact = false, detailed = false, isOwnAppointment = true, isMobile = false }) {
   const artist = artists.find(a => a.id === appointment.artist_id);
@@ -82,6 +82,19 @@ export default function AppointmentCard({ appointment, artists, locations, onCli
             </div>
           </div>
         )}
+
+        {appointment.deposit_amount > 0 && appointment.deposit_status && appointment.deposit_status !== 'none' && (
+          <div className="mt-1.5 flex items-center gap-1.5">
+            <CreditCard className="w-3 h-3 text-purple-500" />
+            <span className="text-xs text-gray-500">Deposit ${appointment.deposit_amount}</span>
+            {appointment.deposit_status === 'paid' && (
+              <Badge className="bg-green-100 text-green-800 text-[10px] px-1.5 py-0">Paid</Badge>
+            )}
+            {appointment.deposit_status === 'pending' && (
+              <Badge className="bg-amber-100 text-amber-800 text-[10px] px-1.5 py-0">Pending</Badge>
+            )}
+          </div>
+        )}
       </div>
     );
   }
@@ -109,6 +122,13 @@ export default function AppointmentCard({ appointment, artists, locations, onCli
         <span>•</span>
         <MapPin className="w-3 h-3" />
         <span className="truncate">{location?.name}</span>
+        {appointment.deposit_status === 'paid' && (
+          <>
+            <span>•</span>
+            <CreditCard className="w-3 h-3 text-green-600" />
+            <span className="text-green-600">Deposit Paid</span>
+          </>
+        )}
       </div>
     </div>
   );

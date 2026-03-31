@@ -8,6 +8,7 @@ const tableMap = {
   Availability: "availabilities",
   Customer: "customers",
   Location: "locations",
+  Payment: "payments",
   Studio: "studios",
   WorkStation: "workstations",
   User: "users"
@@ -156,6 +157,7 @@ export const base44 = {
     Availability: createEntityClient("Availability"),
     Customer: createEntityClient("Customer"),
     Location: createEntityClient("Location"),
+    Payment: createEntityClient("Payment"),
     Studio: createEntityClient("Studio"),
     WorkStation: createEntityClient("WorkStation"),
     User: createEntityClient("User")

@@ -19,6 +19,10 @@ import OnboardingChoice from "./pages/OnboardingChoice";
 import PendingValidation from "./pages/PendingValidation";
 import StudioSettings from "./pages/StudioSettings";
 import UserManagement from "./pages/UserManagement";
+import DepositSuccess from "./pages/DepositSuccess";
+import DepositCancelled from "./pages/DepositCancelled";
+import PaymentSuccess from "./pages/PaymentSuccess";
+import PaymentCancelled from "./pages/PaymentCancelled";
 
 const AppShell = ({ session }) => {
   if (!session) {
@@ -80,6 +84,10 @@ export default function App() {
             path="/auth"
             element={session ? <Navigate to="/dashboard" replace /> : <Auth />}
           />
+          <Route path="/deposit-success" element={<DepositSuccess />} />
+          <Route path="/deposit-cancelled" element={<DepositCancelled />} />
+          <Route path="/payment-success" element={<PaymentSuccess />} />
+          <Route path="/payment-cancelled" element={<PaymentCancelled />} />
 
           <Route element={<AppShell session={session} />}>
             <Route path="/dashboard" element={<Dashboard />} />

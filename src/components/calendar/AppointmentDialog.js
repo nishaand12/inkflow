@@ -9,7 +9,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { format, parseISO } from "date-fns";
-import { Trash2, Save, AlertCircle, CheckCircle, Unlock, Mail } from "lucide-react";
+import { Trash2, Save, AlertCircle, CheckCircle, Unlock, Mail, CreditCard, Loader2, Link2 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import CustomerSearch from "../customers/CustomerSearch";
 import CustomerDialog from "../customers/CustomerDialog";
@@ -46,6 +47,8 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
   const [showCustomerDialog, setShowCustomerDialog] = useState(false);
   const [showAdvancedSearch, setShowAdvancedSearch] = useState(false);
   const [showCheckoutDialog, setShowCheckoutDialog] = useState(false);
+  const [depositLinkLoading, setDepositLinkLoading] = useState(false);
+  const [depositLinkMessage, setDepositLinkMessage] = useState(null);
 
   const [validationErrors, setValidationErrors] = useState({
     artistConflict: null,
@@ -485,6 +488,28 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     }
   };
 
+  const handleSendDepositLink = async () => {
+    if (!appointment) return;
+    setDepositLinkLoading(true);
+    setDepositLinkMessage(null);
+    try {
+      const { data, error } = await supabase.functions.invoke("create-deposit-checkout", {
+        body: { appointmentId: appointment.id }
+      });
+      if (error || data?.error) {
+        setDepositLinkMessage({ type: 'error', text: data?.error || 'Failed to create deposit link.' });
+      } else if (data?.checkout_url) {
+        setDepositLinkMessage({ type: 'success', text: 'Deposit link created! Copy it below or share with the client.' });
+        try { await navigator.clipboard.writeText(data.checkout_url); } catch (_) { /* ignore */ }
+        queryClient.invalidateQueries({ queryKey: ['appointments'] });
+      }
+    } catch (err) {
+      setDepositLinkMessage({ type: 'error', text: 'Failed to create deposit link.' });
+    } finally {
+      setDepositLinkLoading(false);
+    }
+  };
+
   const handleDelete = () => {
     if (window.confirm(`Are you sure you want to ${(isArtist && !isAdmin) ? 'cancel' : 'delete'} this appointment?`)) {
       if ((isArtist && !isAdmin)) {
@@ -815,6 +840,58 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
               </div>
             </div>
 
+            {appointment && studio?.stripe_charges_enabled && formData.deposit_amount > 0 && (
+              <div className="border border-gray-200 rounded-lg p-3 space-y-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <CreditCard className="w-4 h-4 text-purple-600" />
+                    <span className="text-sm font-medium text-gray-700">Online Deposit</span>
+                  </div>
+                  {appointment.deposit_status === 'paid' && (
+                    <Badge className="bg-green-100 text-green-800 text-xs">Paid</Badge>
+                  )}
+                  {appointment.deposit_status === 'pending' && (
+                    <Badge className="bg-amber-100 text-amber-800 text-xs">Link Sent</Badge>
+                  )}
+                  {appointment.deposit_status === 'failed' && (
+                    <Badge className="bg-red-100 text-red-800 text-xs">Failed</Badge>
+                  )}
+                  {(!appointment.deposit_status || appointment.deposit_status === 'none') && (
+                    <Badge className="bg-gray-100 text-gray-600 text-xs">Not Requested</Badge>
+                  )}
+                </div>
+
+                {appointment.deposit_status !== 'paid' && canEdit() && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="w-full text-purple-700 border-purple-200 hover:bg-purple-50"
+                    onClick={handleSendDepositLink}
+                    disabled={depositLinkLoading}
+                  >
+                    {depositLinkLoading ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Creating link...
+                      </>
+                    ) : (
+                      <>
+                        <Link2 className="w-4 h-4 mr-2" />
+                        {appointment.deposit_status === 'pending' ? 'Resend Deposit Link' : 'Create Deposit Link'}
+                      </>
+                    )}
+                  </Button>
+                )}
+
+                {depositLinkMessage && (
+                  <p className={`text-xs ${depositLinkMessage.type === 'success' ? 'text-green-700' : 'text-red-700'}`}>
+                    {depositLinkMessage.text}
+                  </p>
+                )}
+              </div>
+            )}
+
             <div className="space-y-2">
               <Label htmlFor="design_description" className="text-sm">Design Description</Label>
               <Textarea
@@ -1005,6 +1082,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
         locations={locations}
         appointmentTypes={appointmentTypes}
         customers={customers}
+        studio={studio}
       />
     </>
   );
