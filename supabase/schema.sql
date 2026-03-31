@@ -14,6 +14,10 @@ create table if not exists studios (
   subscription_tier text default 'basic',
   email_reminders_enabled boolean default false,
   reminder_minutes_before integer default 1440,
+  stripe_account_id text,
+  stripe_onboarding_complete boolean default false,
+  stripe_charges_enabled boolean default false,
+  stripe_payouts_enabled boolean default false,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );
@@ -151,6 +155,7 @@ create table if not exists appointments (
   placement text,
   notes text,
   invitees jsonb,
+  deposit_status text default 'none',
   status text default 'scheduled',
   email_send_status text default 'pending',
   email_send_failed_reason text,
@@ -162,6 +167,29 @@ create table if not exists appointments (
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );
+
+create table if not exists payments (
+  id uuid primary key default gen_random_uuid(),
+  studio_id uuid references studios(id),
+  appointment_id uuid references appointments(id),
+  customer_id uuid references customers(id),
+  stripe_checkout_session_id text,
+  stripe_payment_intent_id text,
+  amount numeric not null,
+  currency text default 'USD',
+  status text default 'pending',
+  payment_type text default 'deposit',
+  checkout_url text,
+  paid_at timestamptz,
+  expires_at timestamptz,
+  metadata jsonb,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+create index if not exists payments_appointment_idx on payments(appointment_id);
+create index if not exists payments_studio_idx on payments(studio_id);
+create index if not exists payments_stripe_session_idx on payments(stripe_checkout_session_id);
 
 create table if not exists email_events (
   id uuid primary key default gen_random_uuid(),
@@ -224,4 +252,8 @@ for each row execute procedure set_updated_at();
 
 create trigger set_appointments_updated_at
 before update on appointments
+for each row execute procedure set_updated_at();
+
+create trigger set_payments_updated_at
+before update on payments
 for each row execute procedure set_updated_at();

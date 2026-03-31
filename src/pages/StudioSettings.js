@@ -8,7 +8,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Building2, Key, Copy, Check, Mail, Clock, BookOpen, MapPin, Wrench, ClipboardList, Palette, UserPlus, BarChart3, Bell, ChevronDown, ChevronUp } from "lucide-react";
+import { Building2, Key, Copy, Check, Mail, Clock, BookOpen, MapPin, Wrench, ClipboardList, Palette, UserPlus, BarChart3, Bell, ChevronDown, ChevronUp, CreditCard, ExternalLink, AlertCircle, Loader2 } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { supabase } from "@/utils/supabase";
 import { normalizeUserRole } from "@/utils/roles";
 import { NORTH_AMERICAN_TIMEZONES } from "@/utils/timezones";
 
@@ -26,12 +28,28 @@ export default function StudioSettings() {
     reminder_minutes_before: 1440
   });
 
+  const [stripeStatus, setStripeStatus] = useState({
+    connected: false,
+    charges_enabled: false,
+    payouts_enabled: false,
+    details_submitted: false,
+    loading: true
+  });
+  const [stripeConnecting, setStripeConnecting] = useState(false);
+  const [stripeMessage, setStripeMessage] = useState(null);
+
   useEffect(() => {
     loadUserAndStudio();
-    // Check if we should show the onboarding guide (new studio)
     if (searchParams.get('showGuide') === 'true') {
       setShowGuide(true);
-      // Clear the URL parameter
+      setSearchParams({});
+    }
+    const stripeParam = searchParams.get('stripe');
+    if (stripeParam === 'complete') {
+      setStripeMessage({ type: 'success', text: 'Stripe account connected! Checking status...' });
+      setSearchParams({});
+    } else if (stripeParam === 'refresh') {
+      setStripeMessage({ type: 'warning', text: 'Stripe onboarding was not completed. Please try again.' });
       setSearchParams({});
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -53,10 +71,49 @@ export default function StudioSettings() {
             email_reminders_enabled: !!loadedStudio.email_reminders_enabled,
             reminder_minutes_before: loadedStudio.reminder_minutes_before || 1440
           });
+          loadStripeStatus(loadedStudio.id);
         }
       }
     } catch (error) {
       console.error("Error loading studio:", error);
+    }
+  };
+
+  const loadStripeStatus = async (studioId) => {
+    try {
+      const { data, error } = await supabase.functions.invoke("stripe-connect-status", {
+        body: { studioId }
+      });
+      if (!error && data) {
+        setStripeStatus({ ...data, loading: false });
+      } else {
+        setStripeStatus(prev => ({ ...prev, loading: false }));
+      }
+    } catch (err) {
+      console.error("Error loading Stripe status:", err);
+      setStripeStatus(prev => ({ ...prev, loading: false }));
+    }
+  };
+
+  const handleConnectStripe = async () => {
+    if (!studio) return;
+    setStripeConnecting(true);
+    setStripeMessage(null);
+    try {
+      const { data, error } = await supabase.functions.invoke("stripe-connect-onboard", {
+        body: { studioId: studio.id }
+      });
+      if (error || data?.error) {
+        setStripeMessage({ type: 'error', text: data?.error || 'Failed to start Stripe onboarding.' });
+        setStripeConnecting(false);
+        return;
+      }
+      if (data?.url) {
+        window.location.href = data.url;
+      }
+    } catch (err) {
+      setStripeMessage({ type: 'error', text: 'Failed to connect to Stripe. Please try again.' });
+      setStripeConnecting(false);
     }
   };
 
@@ -332,6 +389,156 @@ export default function StudioSettings() {
                       )}
                     </Button>
                   </>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Stripe Connect */}
+            <Card className="bg-white border-none shadow-lg">
+              <CardHeader className="border-b border-gray-100">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 bg-purple-100 rounded-xl flex items-center justify-center">
+                    <CreditCard className="w-6 h-6 text-purple-600" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-xl text-gray-900">Online Payments</CardTitle>
+                    <p className="text-sm text-gray-600">Connect Stripe to collect deposits online</p>
+                  </div>
+                  {stripeStatus.connected && stripeStatus.charges_enabled && (
+                    <Badge className="ml-auto bg-green-100 text-green-800">Connected</Badge>
+                  )}
+                  {stripeStatus.connected && !stripeStatus.charges_enabled && (
+                    <Badge className="ml-auto bg-amber-100 text-amber-800">Setup Incomplete</Badge>
+                  )}
+                  {!stripeStatus.connected && !stripeStatus.loading && (
+                    <Badge className="ml-auto bg-gray-100 text-gray-600">Not Connected</Badge>
+                  )}
+                </div>
+              </CardHeader>
+              <CardContent className="p-6 space-y-4">
+                {stripeMessage && (
+                  <Alert className={
+                    stripeMessage.type === 'success' ? 'border-green-200 bg-green-50' :
+                    stripeMessage.type === 'warning' ? 'border-amber-200 bg-amber-50' :
+                    'border-red-200 bg-red-50'
+                  }>
+                    <AlertCircle className={`h-4 w-4 ${
+                      stripeMessage.type === 'success' ? 'text-green-600' :
+                      stripeMessage.type === 'warning' ? 'text-amber-600' :
+                      'text-red-600'
+                    }`} />
+                    <AlertDescription className={
+                      stripeMessage.type === 'success' ? 'text-green-800' :
+                      stripeMessage.type === 'warning' ? 'text-amber-800' :
+                      'text-red-800'
+                    }>
+                      {stripeMessage.text}
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                {stripeStatus.loading ? (
+                  <div className="flex items-center gap-2 text-gray-500">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span className="text-sm">Checking Stripe connection...</span>
+                  </div>
+                ) : stripeStatus.connected && stripeStatus.charges_enabled ? (
+                  <div className="space-y-4">
+                    <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Check className="w-5 h-5 text-green-600" />
+                        <span className="font-semibold text-green-800">Stripe is connected and ready</span>
+                      </div>
+                      <p className="text-sm text-green-700">
+                        Your studio can now collect deposits online. When you create an appointment with a deposit amount,
+                        a payment link will be included in the confirmation email sent to the customer.
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4 text-sm">
+                      <div className="p-3 bg-gray-50 rounded-lg">
+                        <span className="text-gray-500">Charges</span>
+                        <p className="font-medium text-green-700">Enabled</p>
+                      </div>
+                      <div className="p-3 bg-gray-50 rounded-lg">
+                        <span className="text-gray-500">Payouts</span>
+                        <p className={`font-medium ${stripeStatus.payouts_enabled ? 'text-green-700' : 'text-amber-700'}`}>
+                          {stripeStatus.payouts_enabled ? 'Enabled' : 'Pending'}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <a
+                        href="https://dashboard.stripe.com"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-2 text-sm text-purple-600 hover:text-purple-800 font-medium"
+                      >
+                        <ExternalLink className="w-4 h-4" />
+                        Open Stripe Dashboard
+                      </a>
+                    </div>
+                  </div>
+                ) : stripeStatus.connected && !stripeStatus.charges_enabled ? (
+                  <div className="space-y-4">
+                    <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                      <p className="text-sm text-amber-800">
+                        Your Stripe account is connected but onboarding is not complete.
+                        Please finish setting up your Stripe account to start accepting payments.
+                      </p>
+                    </div>
+                    <Button
+                      onClick={handleConnectStripe}
+                      disabled={stripeConnecting}
+                      className="bg-purple-600 hover:bg-purple-700"
+                    >
+                      {stripeConnecting ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Redirecting...
+                        </>
+                      ) : (
+                        <>
+                          <CreditCard className="w-4 h-4 mr-2" />
+                          Continue Stripe Setup
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <p className="text-sm text-gray-600">
+                      Connect your Stripe account to collect deposits from customers online before their appointment.
+                      Customers will receive a secure payment link in their confirmation email.
+                    </p>
+                    <div className="bg-gray-50 rounded-lg p-4">
+                      <h4 className="font-semibold text-gray-900 mb-2">How it works:</h4>
+                      <ol className="text-sm text-gray-600 space-y-1 ml-4 list-decimal">
+                        <li>Connect your Stripe account (or create one for free)</li>
+                        <li>Set deposit amounts on your appointment types</li>
+                        <li>When appointments are created, customers receive a payment link via email</li>
+                        <li>Deposits go directly to your Stripe account</li>
+                        <li>You manage refunds and transactions in your own Stripe Dashboard</li>
+                      </ol>
+                    </div>
+                    <Button
+                      onClick={handleConnectStripe}
+                      disabled={stripeConnecting}
+                      className="bg-purple-600 hover:bg-purple-700"
+                      size="lg"
+                    >
+                      {stripeConnecting ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Redirecting to Stripe...
+                        </>
+                      ) : (
+                        <>
+                          <CreditCard className="w-4 h-4 mr-2" />
+                          Connect with Stripe
+                        </>
+                      )}
+                    </Button>
+                  </div>
                 )}
               </CardContent>
             </Card>

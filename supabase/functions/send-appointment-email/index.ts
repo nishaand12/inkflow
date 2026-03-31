@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import Stripe from "https://esm.sh/stripe@17?target=deno";
 
 const MAILJET_API_KEY = Deno.env.get("MAILJET_API_KEY");
 const MAILJET_SECRET_KEY = Deno.env.get("MAILJET_SECRET_KEY");
@@ -8,6 +9,8 @@ const MAILJET_SENDER_NAME = Deno.env.get("MAILJET_SENDER_NAME");
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY");
+const APP_URL = Deno.env.get("APP_URL") || "https://inkflow.app";
 
 const MAILJET_API_URL = "https://api.mailjet.com/v3.1/send";
 
@@ -102,13 +105,33 @@ serve(async (req) => {
     const locationText = appointment.location?.name || "Location";
     const studioEmail = studio.studio_email || MAILJET_SENDER_EMAIL;
 
+    // Generate deposit link for new appointments if studio has Stripe connected
+    let depositUrl: string | null = null;
+    if (
+      eventType === "created" &&
+      STRIPE_SECRET_KEY &&
+      studio.stripe_account_id &&
+      studio.stripe_charges_enabled &&
+      appointment.deposit_amount &&
+      appointment.deposit_amount > 0 &&
+      appointment.deposit_status !== "paid"
+    ) {
+      try {
+        depositUrl = await createDepositCheckout(supabase, appointment, studio, email);
+      } catch (depErr) {
+        console.error("Failed to create deposit checkout:", depErr);
+      }
+    }
+
     const subject = getSubject(eventType, studio.name);
     const body = getEmailBody({
       eventType,
       customerName: appointment.client_name || customer?.name || "Customer",
       dateTime: formattedDateTime,
       location: locationText,
-      studioEmail
+      studioEmail,
+      depositAmount: appointment.deposit_amount,
+      depositUrl,
     });
 
     const attachments = [];
@@ -247,14 +270,23 @@ function getEmailBody({
   customerName,
   dateTime,
   location,
-  studioEmail
+  studioEmail,
+  depositAmount,
+  depositUrl,
 }: {
   eventType: string;
   customerName: string;
   dateTime: string;
   location: string;
   studioEmail: string;
+  depositAmount?: number;
+  depositUrl?: string | null;
 }) {
+  const depositSection =
+    depositUrl && depositAmount && depositAmount > 0
+      ? `\n\nA deposit of $${depositAmount.toFixed(2)} is required to secure your appointment. Please complete your payment using the link below:\n\n${depositUrl}\n\nThis payment link expires in 24 hours. If it has expired, please contact ${studioEmail} for a new link.`
+      : "";
+
   if (eventType === "reminder") {
     return `Hi There,\n\nThis is an appointment reminder for ${customerName}.\n\n${dateTime}\n${location}\n\nLooking forward to seeing you there!\n\nIf you received this email in error, please contact ${studioEmail}.`;
   }
@@ -263,7 +295,7 @@ function getEmailBody({
     return `Hi There,\n\nYour appointment details have been updated for ${customerName}.\n\n${dateTime}\n${location}\n\nIf you received this email in error, please contact ${studioEmail}.`;
   }
 
-  return `Hi There,\n\nThis is a confirmation for ${customerName}.\n\n${dateTime}\n${location}\n\nLooking forward to seeing you there!\n\nIf you received this email in error, please contact ${studioEmail}.`;
+  return `Hi There,\n\nThis is a confirmation for ${customerName}.\n\n${dateTime}\n${location}${depositSection}\n\nLooking forward to seeing you there!\n\nIf you received this email in error, please contact ${studioEmail}.`;
 }
 
 async function sendWithRetry(payload: any) {
@@ -379,6 +411,70 @@ function generateCalendarInvite({
     "END:VEVENT",
     "END:VCALENDAR"
   ].join("\r\n");
+}
+
+async function createDepositCheckout(
+  supabase: ReturnType<typeof createClient>,
+  appointment: any,
+  studio: any,
+  customerEmail: string | null
+): Promise<string | null> {
+  if (!STRIPE_SECRET_KEY) return null;
+
+  const stripe = new Stripe(STRIPE_SECRET_KEY, { apiVersion: "2024-06-20" });
+  const currency = (studio.currency || "USD").toLowerCase();
+  const unitAmount = Math.round(appointment.deposit_amount * 100);
+  const expiresAt = Math.floor(Date.now() / 1000) + 86400;
+
+  const session = await stripe.checkout.sessions.create(
+    {
+      mode: "payment",
+      line_items: [
+        {
+          price_data: {
+            currency,
+            product_data: {
+              name: `Deposit – ${studio.name}`,
+              description: `Appointment on ${appointment.appointment_date} at ${appointment.start_time}`,
+            },
+            unit_amount: unitAmount,
+          },
+          quantity: 1,
+        },
+      ],
+      customer_email: customerEmail || undefined,
+      expires_at: expiresAt,
+      success_url: `${APP_URL}/payment-success?session_id={CHECKOUT_SESSION_ID}&studio=${encodeURIComponent(studio.name)}&type=deposit`,
+      cancel_url: `${APP_URL}/payment-cancelled?appointment_id=${appointment.id}&studio=${encodeURIComponent(studio.name)}`,
+      metadata: {
+        appointment_id: appointment.id,
+        studio_id: studio.id,
+        customer_id: appointment.customer_id || "",
+        payment_type: "deposit",
+      },
+    },
+    { stripeAccount: studio.stripe_account_id }
+  );
+
+  await supabase.from("payments").insert({
+    studio_id: studio.id,
+    appointment_id: appointment.id,
+    customer_id: appointment.customer_id || null,
+    stripe_checkout_session_id: session.id,
+    amount: appointment.deposit_amount,
+    currency: studio.currency || "USD",
+    status: "pending",
+    payment_type: "deposit",
+    checkout_url: session.url,
+    expires_at: new Date(expiresAt * 1000).toISOString(),
+  });
+
+  await supabase
+    .from("appointments")
+    .update({ deposit_status: "pending" })
+    .eq("id", appointment.id);
+
+  return session.url;
 }
 
 function jsonResponse(payload: Record<string, unknown>, status = 200) {

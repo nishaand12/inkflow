@@ -6,15 +6,19 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { CheckCircle } from "lucide-react";
+import { CheckCircle, CreditCard, Loader2, Mail, ExternalLink } from "lucide-react";
+import { supabase } from "@/utils/supabase";
 
-export default function CheckoutDialog({ open, onOpenChange, appointment, artists, locations, appointmentTypes, customers }) {
+export default function CheckoutDialog({ open, onOpenChange, appointment, artists, locations, appointmentTypes, customers, studio }) {
   const queryClient = useQueryClient();
   const [formData, setFormData] = useState({
     charge_amount: '',
     tax_amount: '',
     payment_method: ''
   });
+  const [openLinkLoading, setOpenLinkLoading] = useState(false);
+  const [emailLinkLoading, setEmailLinkLoading] = useState(false);
+  const [stripeMessage, setStripeMessage] = useState(null);
 
   useEffect(() => {
     if (appointment) {
@@ -23,6 +27,7 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
         tax_amount: appointment.tax_amount || '',
         payment_method: appointment.payment_method || ''
       });
+      setStripeMessage(null);
     }
   }, [appointment]);
 
@@ -34,9 +39,9 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
     }
   });
 
-  const handleSubmit = (e) => {
+  const handleManualCheckout = (e) => {
     e.preventDefault();
-    
+
     const updateData = {
       status: 'completed',
       charge_amount: formData.charge_amount ? parseFloat(formData.charge_amount) : null,
@@ -47,6 +52,80 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
     checkoutMutation.mutate(updateData);
   };
 
+  const validateChargeAmount = () => {
+    const charge = parseFloat(formData.charge_amount);
+    if (!charge || charge <= 0) {
+      setStripeMessage({ type: 'error', text: 'Please enter a charge amount greater than 0.' });
+      return null;
+    }
+    return charge;
+  };
+
+  const createCheckoutSession = async (sendEmail) => {
+    const charge = validateChargeAmount();
+    if (!charge) return null;
+
+    const { data, error } = await supabase.functions.invoke('create-checkout-payment', {
+      body: {
+        appointmentId: appointment.id,
+        chargeAmount: charge,
+        taxAmount: formData.tax_amount ? parseFloat(formData.tax_amount) : 0,
+        sendEmail,
+      },
+    });
+
+    if (error) throw error;
+    if (data?.error) throw new Error(data.error);
+
+    queryClient.invalidateQueries({ queryKey: ['appointments'] });
+    return data;
+  };
+
+  const handleOpenCheckout = async () => {
+    setOpenLinkLoading(true);
+    setStripeMessage(null);
+
+    try {
+      const data = await createCheckoutSession(false);
+      if (!data) return;
+
+      window.open(data.checkout_url, '_blank');
+      setStripeMessage({
+        type: 'success',
+        text: 'Checkout page opened. Payment will be confirmed automatically once completed.',
+        url: data.checkout_url,
+      });
+    } catch (err) {
+      console.error('Stripe checkout error:', err);
+      setStripeMessage({ type: 'error', text: err.message || 'Failed to create payment link.' });
+    } finally {
+      setOpenLinkLoading(false);
+    }
+  };
+
+  const handleEmailPaymentLink = async () => {
+    setEmailLinkLoading(true);
+    setStripeMessage(null);
+
+    try {
+      const data = await createCheckoutSession(true);
+      if (!data) return;
+
+      setStripeMessage({
+        type: 'success',
+        text: data.email_sent
+          ? 'Payment link emailed to the customer.'
+          : 'Payment link created but no email address on file. You can share the link manually.',
+        url: data.checkout_url,
+      });
+    } catch (err) {
+      console.error('Stripe email error:', err);
+      setStripeMessage({ type: 'error', text: err.message || 'Failed to create payment link.' });
+    } finally {
+      setEmailLinkLoading(false);
+    }
+  };
+
   if (!appointment) return null;
 
   const artist = artists?.find(a => a.id === appointment.artist_id);
@@ -54,6 +133,8 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
   const appointmentType = appointmentTypes?.find(t => t.id === appointment.appointment_type_id);
   const customer = customers?.find(c => c.id === appointment.customer_id);
   const clientName = customer?.name || appointment.client_name || 'Unknown';
+
+  const stripeConnected = studio?.stripe_account_id && studio?.stripe_charges_enabled;
 
   const calculateEndTime = (startTime, duration) => {
     const [hours, minutes] = startTime.split(':').map(Number);
@@ -76,11 +157,11 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-4 sm:space-y-6">
+        <div className="space-y-4 sm:space-y-6">
           {/* Read-only appointment details */}
           <div className="bg-gray-50 rounded-lg p-3 sm:p-4 space-y-3">
             <h3 className="font-semibold text-gray-900 text-sm sm:text-base mb-2 sm:mb-3">Appointment Details</h3>
-            
+
             <div className="grid grid-cols-2 gap-2 sm:gap-3 text-xs sm:text-sm">
               <div>
                 <span className="text-gray-500">Client:</span>
@@ -110,7 +191,12 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
               </div>
               <div>
                 <span className="text-gray-500">Deposit:</span>
-                <p className="font-medium">${(appointment.deposit_amount || 0).toFixed(2)}</p>
+                <div className="flex items-center gap-1">
+                  <p className="font-medium">${(appointment.deposit_amount || 0).toFixed(2)}</p>
+                  {appointment.deposit_status === 'paid' && (
+                    <span className="text-[10px] bg-green-100 text-green-800 px-1 rounded">Online</span>
+                  )}
+                </div>
               </div>
               <div>
                 <span className="text-gray-500">Estimate:</span>
@@ -129,7 +215,7 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
           {/* Editable checkout fields */}
           <div className="space-y-3 sm:space-y-4">
             <h3 className="font-semibold text-gray-900 text-sm sm:text-base">Payment Information</h3>
-            
+
             <div className="grid grid-cols-2 gap-2 sm:gap-4">
               <div className="space-y-2">
                 <Label htmlFor="charge_amount" className="text-sm">Charge ($)</Label>
@@ -178,25 +264,78 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
             </div>
           </div>
 
-          <DialogFooter className="flex flex-col-reverse sm:flex-row gap-2 pt-4 border-t border-gray-100">
+          {/* Stripe checkout message */}
+          {stripeMessage && (
+            <div className={`rounded-lg p-3 text-sm ${
+              stripeMessage.type === 'success'
+                ? 'bg-green-50 text-green-800 border border-green-200'
+                : 'bg-red-50 text-red-800 border border-red-200'
+            }`}>
+              <p>{stripeMessage.text}</p>
+              {stripeMessage.url && (
+                <a
+                  href={stripeMessage.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline text-green-700 text-xs mt-1 inline-block"
+                >
+                  Open payment link
+                </a>
+              )}
+            </div>
+          )}
+
+          <div className="flex flex-col gap-2 pt-4 border-t border-gray-100">
+            {stripeConnected && (
+              <>
+                <Button
+                  type="button"
+                  className="bg-indigo-600 hover:bg-indigo-700 w-full"
+                  disabled={openLinkLoading || emailLinkLoading || checkoutMutation.isPending}
+                  onClick={handleOpenCheckout}
+                >
+                  {openLinkLoading ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <ExternalLink className="w-4 h-4 mr-2" />
+                  )}
+                  Open Stripe Checkout
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="border-indigo-300 text-indigo-700 hover:bg-indigo-50 w-full"
+                  disabled={openLinkLoading || emailLinkLoading || checkoutMutation.isPending}
+                  onClick={handleEmailPaymentLink}
+                >
+                  {emailLinkLoading ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Mail className="w-4 h-4 mr-2" />
+                  )}
+                  Email Payment Link
+                </Button>
+              </>
+            )}
+            <Button
+              type="button"
+              className="bg-green-600 hover:bg-green-700 w-full"
+              disabled={checkoutMutation.isPending || openLinkLoading || emailLinkLoading}
+              onClick={handleManualCheckout}
+            >
+              <CheckCircle className="w-4 h-4 mr-2" />
+              Manual Checkout
+            </Button>
             <Button
               type="button"
               variant="outline"
               onClick={() => onOpenChange(false)}
-              className="w-full sm:w-auto"
+              className="w-full"
             >
               Cancel
             </Button>
-            <Button
-              type="submit"
-              className="bg-green-600 hover:bg-green-700 w-full sm:w-auto"
-              disabled={checkoutMutation.isPending}
-            >
-              <CheckCircle className="w-4 h-4 mr-2" />
-              Complete Checkout
-            </Button>
-          </DialogFooter>
-        </form>
+          </div>
+        </div>
       </DialogContent>
     </Dialog>
   );

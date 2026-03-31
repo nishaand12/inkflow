@@ -4,3 +4,7 @@ build
 .env.local
 .venv
 *.log
+playwright.env
+playwright-results/
+playwright-report/
+resetforprod.sql

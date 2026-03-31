@@ -1,0 +1,74 @@
+{
+    "name": "Payment",
+    "type": "object",
+    "properties": {
+      "studio_id": {
+        "type": "string",
+        "description": "Studio ID"
+      },
+      "appointment_id": {
+        "type": "string",
+        "description": "Appointment ID"
+      },
+      "customer_id": {
+        "type": "string",
+        "description": "Customer ID"
+      },
+      "stripe_checkout_session_id": {
+        "type": "string",
+        "description": "Stripe Checkout Session ID"
+      },
+      "stripe_payment_intent_id": {
+        "type": "string",
+        "description": "Stripe Payment Intent ID"
+      },
+      "amount": {
+        "type": "number",
+        "description": "Payment amount"
+      },
+      "currency": {
+        "type": "string",
+        "default": "USD",
+        "description": "Currency code"
+      },
+      "status": {
+        "type": "string",
+        "enum": ["pending", "paid", "failed", "expired"],
+        "default": "pending",
+        "description": "Payment status"
+      },
+      "payment_type": {
+        "type": "string",
+        "default": "deposit",
+        "description": "Type of payment"
+      },
+      "checkout_url": {
+        "type": "string",
+        "description": "Stripe Checkout URL for customer"
+      },
+      "paid_at": {
+        "type": "string",
+        "format": "date-time",
+        "description": "When payment was completed"
+      },
+      "expires_at": {
+        "type": "string",
+        "format": "date-time",
+        "description": "When the checkout session expires"
+      },
+      "metadata": {
+        "type": "object",
+        "description": "Additional metadata"
+      }
+    },
+    "required": ["studio_id", "appointment_id", "amount"],
+    "rls": {
+      "read": { "data.studio_id": "{{user.data.studio_id}}" },
+      "update": { "data.studio_id": "{{user.data.studio_id}}" },
+      "delete": {
+        "data.studio_id": "{{user.data.studio_id}}",
+        "user_condition": { "data.user_role": ["Owner", "Admin"] }
+      },
+      "write": {}
+    }
+  }

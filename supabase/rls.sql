@@ -355,6 +355,36 @@ on public.appointments
 for insert
 with check (true);
 
+-- Payments
+alter table public.payments enable row level security;
+
+drop policy if exists payments_select on public.payments;
+create policy payments_select
+on public.payments
+for select
+using (studio_id = public.current_user_studio());
+
+drop policy if exists payments_insert on public.payments;
+create policy payments_insert
+on public.payments
+for insert
+with check (true);
+
+drop policy if exists payments_update on public.payments;
+create policy payments_update
+on public.payments
+for update
+using (studio_id = public.current_user_studio());
+
+drop policy if exists payments_delete on public.payments;
+create policy payments_delete
+on public.payments
+for delete
+using (
+  studio_id = public.current_user_studio()
+  and public.current_user_role() in ('Owner', 'Admin')
+);
+
 -- Email Events
 alter table public.email_events enable row level security;
 
