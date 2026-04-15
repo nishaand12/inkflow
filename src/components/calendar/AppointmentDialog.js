@@ -52,6 +52,8 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
   const [depositCheckoutUrl, setDepositCheckoutUrl] = useState(null);
   const [copiedDepositUrl, setCopiedDepositUrl] = useState(false);
 
+  const [healthFields, setHealthFields] = useState({});
+
   const [validationErrors, setValidationErrors] = useState({
     artistConflict: null,
     stationsFull: false
@@ -194,7 +196,8 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
         tax_amount: appointment.tax_amount ?? 0,
       });
       
-      // Find and set the selected customer if customer_id exists
+      setHealthFields(appointment.health_fields || {});
+
       if (appointment.customer_id) {
         const customer = customers.find(c => c.id === appointment.customer_id);
         setSelectedCustomer(customer || null);
@@ -226,6 +229,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
         status: 'scheduled'
       });
       setSelectedCustomer(null);
+      setHealthFields({});
     }
     setValidationErrors({ artistConflict: null, stationsFull: false });
     setDepositLinkMessage(null);
@@ -476,6 +480,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
       work_station_id: sanitizeUuid(formData.work_station_id),
       artist_id: sanitizeUuid(formData.artist_id),
       location_id: sanitizeUuid(formData.location_id),
+      health_fields: Object.keys(healthFields).length > 0 ? healthFields : {},
     };
 
     if (appointment) {
@@ -590,6 +595,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     : artists;
 
   const activeAppointmentTypes = appointmentTypes.filter(t => t.is_active);
+  const selectedAppointmentType = appointmentTypes.find(t => t.id === formData.appointment_type_id);
 
   return (
     <>
@@ -994,6 +1000,44 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                 className="text-sm"
               />
             </div>
+
+            {selectedAppointmentType?.category === 'Piercing' && (
+              <details className="border border-gray-200 rounded-lg p-3">
+                <summary className="cursor-pointer text-sm font-medium text-gray-700">Health & Clinical Fields</summary>
+                <div className="grid grid-cols-2 gap-3 mt-3">
+                  <div className="space-y-1">
+                    <Label className="text-xs">Needle Lot #</Label>
+                    <Input
+                      value={healthFields.needle_lot || ''}
+                      onChange={(e) => setHealthFields({ ...healthFields, needle_lot: e.target.value })}
+                      disabled={!canEdit()}
+                      className="text-sm"
+                      placeholder="Lot number"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Jewellery Lot #</Label>
+                    <Input
+                      value={healthFields.jewellery_lot || ''}
+                      onChange={(e) => setHealthFields({ ...healthFields, jewellery_lot: e.target.value })}
+                      disabled={!canEdit()}
+                      className="text-sm"
+                      placeholder="Lot number"
+                    />
+                  </div>
+                  <div className="space-y-1 col-span-2">
+                    <Label className="text-xs">Sterilization Notes</Label>
+                    <Input
+                      value={healthFields.sterilization_notes || ''}
+                      onChange={(e) => setHealthFields({ ...healthFields, sterilization_notes: e.target.value })}
+                      disabled={!canEdit()}
+                      className="text-sm"
+                      placeholder="Autoclave cycle, spore test, etc."
+                    />
+                  </div>
+                </div>
+              </details>
+            )}
 
             {appointment && canEdit() && appointment.status !== 'completed' && (
               <div className="space-y-2">

@@ -1,0 +1,29 @@
+{
+  "name": "AppointmentCharge",
+  "type": "object",
+  "properties": {
+    "studio_id": { "type": "string", "description": "Studio ID" },
+    "appointment_id": { "type": "string", "description": "FK to appointments" },
+    "line_type": {
+      "type": "string",
+      "enum": ["service", "product", "adjustment"],
+      "default": "product",
+      "description": "Line item type"
+    },
+    "reporting_category_id": { "type": "string", "description": "FK to reporting_categories" },
+    "reporting_category_name": { "type": "string", "description": "Snapshot of category name at transaction time" },
+    "product_id": { "type": "string", "description": "FK to products (if product line)" },
+    "description": { "type": "string", "description": "Line item description" },
+    "quantity": { "type": "integer", "default": 1 },
+    "unit_price": { "type": "number", "default": 0 },
+    "discount_amount": { "type": "number", "default": 0 },
+    "line_total": { "type": "number", "default": 0, "description": "(quantity * unit_price) - discount_amount" }
+  },
+  "required": ["studio_id", "appointment_id", "description", "unit_price"],
+  "rls": {
+    "read": { "data.studio_id": "{{user.data.studio_id}}" },
+    "update": { "data.studio_id": "{{user.data.studio_id}}" },
+    "delete": { "data.studio_id": "{{user.data.studio_id}}" },
+    "write": {}
+  }
+}

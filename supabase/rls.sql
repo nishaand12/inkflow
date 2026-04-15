@@ -385,6 +385,235 @@ using (
   and public.current_user_role() in ('Owner', 'Admin')
 );
 
+-- Public booking: allow anon read access for selected tables scoped by studio_id.
+-- The public booking page passes studio_id as a query filter; these policies
+-- allow unauthenticated (anon) users to read the data needed for slot selection.
+
+drop policy if exists studios_select_anon on public.studios;
+create policy studios_select_anon
+on public.studios
+for select
+using (is_active = true);
+
+drop policy if exists appointment_types_select_anon on public.appointment_types;
+create policy appointment_types_select_anon
+on public.appointment_types
+for select
+using (is_active = true and is_public_bookable = true);
+
+drop policy if exists artists_select_anon on public.artists;
+create policy artists_select_anon
+on public.artists
+for select
+using (is_active = true);
+
+drop policy if exists locations_select_anon on public.locations;
+create policy locations_select_anon
+on public.locations
+for select
+using (is_active = true);
+
+drop policy if exists availabilities_select_anon on public.availabilities;
+create policy availabilities_select_anon
+on public.availabilities
+for select
+using (true);
+
+drop policy if exists workstations_select_anon on public.workstations;
+create policy workstations_select_anon
+on public.workstations
+for select
+using (status = 'active');
+
+drop policy if exists appointments_select_anon on public.appointments;
+create policy appointments_select_anon
+on public.appointments
+for select
+using (true);
+
+-- Reporting Categories (Owner/Admin manage, all studio members read)
+alter table public.reporting_categories enable row level security;
+
+drop policy if exists reporting_categories_select on public.reporting_categories;
+create policy reporting_categories_select
+on public.reporting_categories
+for select
+using (studio_id = public.current_user_studio());
+
+drop policy if exists reporting_categories_insert on public.reporting_categories;
+create policy reporting_categories_insert
+on public.reporting_categories
+for insert
+with check (public.current_user_role() in ('Owner', 'Admin'));
+
+drop policy if exists reporting_categories_update on public.reporting_categories;
+create policy reporting_categories_update
+on public.reporting_categories
+for update
+using (
+  studio_id = public.current_user_studio()
+  and public.current_user_role() in ('Owner', 'Admin')
+);
+
+drop policy if exists reporting_categories_delete on public.reporting_categories;
+create policy reporting_categories_delete
+on public.reporting_categories
+for delete
+using (
+  studio_id = public.current_user_studio()
+  and public.current_user_role() in ('Owner', 'Admin')
+);
+
+-- Products (Owner/Admin manage, all studio members read)
+alter table public.products enable row level security;
+
+drop policy if exists products_select on public.products;
+create policy products_select
+on public.products
+for select
+using (studio_id = public.current_user_studio());
+
+drop policy if exists products_insert on public.products;
+create policy products_insert
+on public.products
+for insert
+with check (public.current_user_role() in ('Owner', 'Admin'));
+
+drop policy if exists products_update on public.products;
+create policy products_update
+on public.products
+for update
+using (
+  studio_id = public.current_user_studio()
+  and public.current_user_role() in ('Owner', 'Admin')
+);
+
+drop policy if exists products_delete on public.products;
+create policy products_delete
+on public.products
+for delete
+using (
+  studio_id = public.current_user_studio()
+  and public.current_user_role() in ('Owner', 'Admin')
+);
+
+-- Appointment Charges (studio members create/read, admin manage)
+alter table public.appointment_charges enable row level security;
+
+drop policy if exists appointment_charges_select on public.appointment_charges;
+create policy appointment_charges_select
+on public.appointment_charges
+for select
+using (studio_id = public.current_user_studio());
+
+drop policy if exists appointment_charges_insert on public.appointment_charges;
+create policy appointment_charges_insert
+on public.appointment_charges
+for insert
+with check (true);
+
+drop policy if exists appointment_charges_update on public.appointment_charges;
+create policy appointment_charges_update
+on public.appointment_charges
+for update
+using (studio_id = public.current_user_studio());
+
+drop policy if exists appointment_charges_delete on public.appointment_charges;
+create policy appointment_charges_delete
+on public.appointment_charges
+for delete
+using (studio_id = public.current_user_studio());
+
+-- Artist Split Rules (Owner/Admin only)
+alter table public.artist_split_rules enable row level security;
+
+drop policy if exists artist_split_rules_select on public.artist_split_rules;
+create policy artist_split_rules_select
+on public.artist_split_rules
+for select
+using (studio_id = public.current_user_studio());
+
+drop policy if exists artist_split_rules_insert on public.artist_split_rules;
+create policy artist_split_rules_insert
+on public.artist_split_rules
+for insert
+with check (public.current_user_role() in ('Owner', 'Admin'));
+
+drop policy if exists artist_split_rules_update on public.artist_split_rules;
+create policy artist_split_rules_update
+on public.artist_split_rules
+for update
+using (
+  studio_id = public.current_user_studio()
+  and public.current_user_role() in ('Owner', 'Admin')
+);
+
+drop policy if exists artist_split_rules_delete on public.artist_split_rules;
+create policy artist_split_rules_delete
+on public.artist_split_rules
+for delete
+using (
+  studio_id = public.current_user_studio()
+  and public.current_user_role() in ('Owner', 'Admin')
+);
+
+-- Daily Settlements (Owner/Admin manage)
+alter table public.daily_settlements enable row level security;
+
+drop policy if exists daily_settlements_select on public.daily_settlements;
+create policy daily_settlements_select
+on public.daily_settlements
+for select
+using (studio_id = public.current_user_studio());
+
+drop policy if exists daily_settlements_insert on public.daily_settlements;
+create policy daily_settlements_insert
+on public.daily_settlements
+for insert
+with check (public.current_user_role() in ('Owner', 'Admin'));
+
+drop policy if exists daily_settlements_update on public.daily_settlements;
+create policy daily_settlements_update
+on public.daily_settlements
+for update
+using (
+  studio_id = public.current_user_studio()
+  and public.current_user_role() in ('Owner', 'Admin')
+);
+
+drop policy if exists daily_settlements_delete on public.daily_settlements;
+create policy daily_settlements_delete
+on public.daily_settlements
+for delete
+using (
+  studio_id = public.current_user_studio()
+  and public.current_user_role() in ('Owner', 'Admin')
+);
+
+-- Daily Settlement Lines
+alter table public.daily_settlement_lines enable row level security;
+
+drop policy if exists daily_settlement_lines_select on public.daily_settlement_lines;
+create policy daily_settlement_lines_select
+on public.daily_settlement_lines
+for select
+using (studio_id = public.current_user_studio());
+
+drop policy if exists daily_settlement_lines_insert on public.daily_settlement_lines;
+create policy daily_settlement_lines_insert
+on public.daily_settlement_lines
+for insert
+with check (public.current_user_role() in ('Owner', 'Admin'));
+
+drop policy if exists daily_settlement_lines_delete on public.daily_settlement_lines;
+create policy daily_settlement_lines_delete
+on public.daily_settlement_lines
+for delete
+using (
+  studio_id = public.current_user_studio()
+  and public.current_user_role() in ('Owner', 'Admin')
+);
+
 -- Email Events
 alter table public.email_events enable row level security;
 

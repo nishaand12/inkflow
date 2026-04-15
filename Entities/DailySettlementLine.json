@@ -1,0 +1,20 @@
+{
+  "name": "DailySettlementLine",
+  "type": "object",
+  "properties": {
+    "studio_id": { "type": "string", "description": "Studio ID" },
+    "settlement_id": { "type": "string", "description": "FK to daily_settlements" },
+    "artist_id": { "type": "string", "description": "FK to artists" },
+    "appointment_id": { "type": "string", "description": "FK to appointments" },
+    "gross_amount": { "type": "number", "default": 0 },
+    "artist_share": { "type": "number", "default": 0 },
+    "shop_share": { "type": "number", "default": 0 },
+    "split_percent": { "type": "number", "default": 0 }
+  },
+  "required": ["studio_id", "settlement_id", "artist_id", "appointment_id"],
+  "rls": {
+    "read": { "data.studio_id": "{{user.data.studio_id}}" },
+    "write": { "user_condition": { "data.user_role": ["Owner", "Admin"] } },
+    "delete": { "data.studio_id": "{{user.data.studio_id}}", "user_condition": { "data.user_role": ["Owner", "Admin"] } }
+  }
+}

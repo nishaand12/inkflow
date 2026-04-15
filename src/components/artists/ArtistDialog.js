@@ -8,7 +8,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Save, Trash2 } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Save, Trash2, Percent } from "lucide-react";
 
 export default function ArtistDialog({ open, onOpenChange, artist, locations }) {
   const queryClient = useQueryClient();
@@ -70,13 +71,38 @@ export default function ArtistDialog({ open, onOpenChange, artist, locations }) 
     enabled: open && !!currentUser?.studio_id
   });
 
+  const { data: reportingCategories = [] } = useQuery({
+    queryKey: ['reportingCategories', currentUser?.studio_id],
+    queryFn: () => base44.entities.ReportingCategory.filter({ studio_id: currentUser.studio_id }),
+    enabled: open && !!currentUser?.studio_id && !!artist
+  });
+
+  const { data: splitRules = [] } = useQuery({
+    queryKey: ['artistSplitRules', currentUser?.studio_id],
+    queryFn: () => base44.entities.ArtistSplitRule.filter({ studio_id: currentUser.studio_id }),
+    enabled: open && !!currentUser?.studio_id && !!artist
+  });
+
+  const [splitPercent, setSplitPercent] = useState(50);
+  const [eligibleCategoryIds, setEligibleCategoryIds] = useState([]);
+
   useEffect(() => {
     if (artist) {
       setFormData(artist);
+      const existingRule = splitRules.find(r => r.artist_id === artist.id && r.is_active);
+      if (existingRule) {
+        setSplitPercent(existingRule.split_percent);
+        setEligibleCategoryIds(existingRule.eligible_category_ids || []);
+      } else {
+        setSplitPercent(50);
+        setEligibleCategoryIds([]);
+      }
     } else {
       resetForm();
+      setSplitPercent(50);
+      setEligibleCategoryIds([]);
     }
-  }, [artist]);
+  }, [artist, splitRules]);
 
   const createMutation = useMutation({
     mutationFn: (data) => base44.entities.Artist.create(data),
@@ -103,7 +129,25 @@ export default function ArtistDialog({ open, onOpenChange, artist, locations }) 
     }
   });
 
-  const handleSubmit = (e) => {
+  const saveSplitRule = async (artistId) => {
+    if (!isAdmin) return;
+    const existingRule = splitRules.find(r => r.artist_id === artistId && r.is_active);
+    const ruleData = {
+      studio_id: currentUser.studio_id,
+      artist_id: artistId,
+      split_percent: splitPercent,
+      eligible_category_ids: eligibleCategoryIds,
+      is_active: true
+    };
+    if (existingRule) {
+      await base44.entities.ArtistSplitRule.update(existingRule.id, ruleData);
+    } else {
+      await base44.entities.ArtistSplitRule.create(ruleData);
+    }
+    queryClient.invalidateQueries({ queryKey: ['artistSplitRules'] });
+  };
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
     const submitData = {
       ...formData,
@@ -111,6 +155,7 @@ export default function ArtistDialog({ open, onOpenChange, artist, locations }) 
     };
     if (artist) {
       updateMutation.mutate({ id: artist.id, data: submitData });
+      await saveSplitRule(artist.id);
     } else {
       createMutation.mutate(submitData);
     }
@@ -293,6 +338,48 @@ export default function ArtistDialog({ open, onOpenChange, artist, locations }) 
                 disabled={!isAdmin}
             />
           </div>
+
+          {artist && isAdmin && (
+            <div className="border border-gray-200 rounded-lg p-4 space-y-4">
+              <div className="flex items-center gap-2">
+                <Percent className="w-4 h-4 text-indigo-600" />
+                <h3 className="font-semibold text-gray-900 text-sm">Revenue Split</h3>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-sm">Artist Split (%)</Label>
+                <Input
+                  type="number" min="0" max="100" step="1"
+                  value={splitPercent}
+                  onChange={(e) => setSplitPercent(parseFloat(e.target.value) || 0)}
+                  className="w-32"
+                />
+                <p className="text-xs text-gray-500">
+                  Artist receives {splitPercent}%, shop receives {100 - splitPercent}% of eligible revenue
+                </p>
+              </div>
+              {reportingCategories.length > 0 && (
+                <div className="space-y-2">
+                  <Label className="text-sm">Eligible Categories</Label>
+                  <p className="text-xs text-gray-500">Select which revenue categories this split applies to</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    {reportingCategories.filter(c => c.is_active).map(cat => (
+                      <label key={cat.id} className="flex items-center gap-2 text-sm cursor-pointer">
+                        <Checkbox
+                          checked={eligibleCategoryIds.includes(cat.id)}
+                          onCheckedChange={(checked) => {
+                            setEligibleCategoryIds(prev =>
+                              checked ? [...prev, cat.id] : prev.filter(id => id !== cat.id)
+                            );
+                          }}
+                        />
+                        {cat.name}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           <DialogFooter className="flex justify-between gap-2">
             {artist && isAdmin && (

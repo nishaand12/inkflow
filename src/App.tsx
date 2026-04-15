@@ -13,12 +13,16 @@ import Locations from "./pages/Locations";
 import WorkStations from "./pages/WorkStations";
 import AppointmentTypes from "./pages/AppointmentTypes";
 import Customers from "./pages/Customers";
+import Products from "./pages/Products";
+import ReportingCategories from "./pages/ReportingCategories";
 import Reports from "./pages/Reports";
+import Settlements from "./pages/Settlements";
 import MyAvailability from "./pages/MyAvailability";
 import OnboardingChoice from "./pages/OnboardingChoice";
 import PendingValidation from "./pages/PendingValidation";
 import StudioSettings from "./pages/StudioSettings";
 import UserManagement from "./pages/UserManagement";
+import PublicBooking from "./pages/PublicBooking";
 import DepositSuccess from "./pages/DepositSuccess";
 import DepositCancelled from "./pages/DepositCancelled";
 import PaymentSuccess from "./pages/PaymentSuccess";
@@ -84,6 +88,7 @@ export default function App() {
             path="/auth"
             element={session ? <Navigate to="/dashboard" replace /> : <Auth />}
           />
+          <Route path="/book" element={<PublicBooking />} />
           <Route path="/deposit-success" element={<DepositSuccess />} />
           <Route path="/deposit-cancelled" element={<DepositCancelled />} />
           <Route path="/payment-success" element={<PaymentSuccess />} />
@@ -97,8 +102,11 @@ export default function App() {
             <Route path="/locations" element={<Locations />} />
             <Route path="/workstations" element={<WorkStations />} />
             <Route path="/appointment-types" element={<AppointmentTypes />} />
+            <Route path="/products" element={<Products />} />
+            <Route path="/reporting-categories" element={<ReportingCategories />} />
             <Route path="/customers" element={<Customers />} />
             <Route path="/reports" element={<Reports />} />
+            <Route path="/settlements" element={<Settlements />} />
             <Route path="/my-availability" element={<MyAvailability />} />
             <Route path="/onboarding-choice" element={<OnboardingChoice />} />
             <Route path="/pending-validation" element={<PendingValidation />} />
