@@ -52,6 +52,7 @@ create table if not exists artists (
   studio_id uuid references studios (id),
   user_id uuid references users (id),
   full_name text not null,
+  artist_type text not null default 'tattoo',
   specialty text,
   bio text,
   phone text,
@@ -317,6 +318,22 @@ create table if not exists daily_settlement_lines (
 create index if not exists daily_settlement_lines_settlement_idx on daily_settlement_lines(settlement_id);
 create index if not exists daily_settlement_lines_artist_idx on daily_settlement_lines(artist_id);
 
+create table if not exists artist_weekly_schedules (
+  id uuid primary key default gen_random_uuid(),
+  studio_id uuid references studios (id),
+  artist_id uuid references artists (id),
+  day_of_week integer not null,
+  start_time text not null,
+  end_time text not null,
+  location_id uuid references locations (id),
+  is_active boolean default true,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+create index if not exists artist_weekly_schedules_studio_idx on artist_weekly_schedules(studio_id);
+create index if not exists artist_weekly_schedules_artist_idx on artist_weekly_schedules(artist_id);
+
 create or replace function set_updated_at()
 returns trigger as $$
 begin
@@ -387,4 +404,8 @@ for each row execute procedure set_updated_at();
 
 create trigger set_daily_settlements_updated_at
 before update on daily_settlements
+for each row execute procedure set_updated_at();
+
+create trigger set_artist_weekly_schedules_updated_at
+before update on artist_weekly_schedules
 for each row execute procedure set_updated_at();

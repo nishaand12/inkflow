@@ -214,7 +214,7 @@ export default function Layout({ children, currentPageName = null }) {
 
     const artistItems = [
       {
-        title: "My Availability",
+        title: "Availability",
         url: createPageUrl("MyAvailability"),
         icon: Clock,
         roles: ["Artist", "Owner", "Admin"]

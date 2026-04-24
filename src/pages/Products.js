@@ -478,7 +478,7 @@ export default function Products() {
       </div>
 
       <Dialog open={showDialog} onOpenChange={setShowDialog}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent className="sm:max-w-lg bg-white">
           <DialogHeader>
             <DialogTitle>
               {selectedProduct ? "Edit Product" : "Add Product"}

@@ -385,51 +385,98 @@ using (
   and public.current_user_role() in ('Owner', 'Admin')
 );
 
--- Public booking: allow anon read access for selected tables scoped by studio_id.
--- The public booking page passes studio_id as a query filter; these policies
--- allow unauthenticated (anon) users to read the data needed for slot selection.
+-- Public booking: all data is accessed exclusively through security definer
+-- functions that are explicitly scoped to a single studio_id. Anon users have
+-- no direct table access, preventing cross-studio data enumeration.
 
+-- Studios: anon may read basic info for active studios only (used for slug resolution).
 drop policy if exists studios_select_anon on public.studios;
 create policy studios_select_anon
 on public.studios
 for select
+to anon
 using (is_active = true);
 
+-- Drop any previously broad anon policies on sensitive booking tables.
 drop policy if exists appointment_types_select_anon on public.appointment_types;
-create policy appointment_types_select_anon
-on public.appointment_types
-for select
-using (is_active = true and is_public_bookable = true);
-
 drop policy if exists artists_select_anon on public.artists;
-create policy artists_select_anon
-on public.artists
-for select
-using (is_active = true);
-
 drop policy if exists locations_select_anon on public.locations;
-create policy locations_select_anon
-on public.locations
-for select
-using (is_active = true);
-
 drop policy if exists availabilities_select_anon on public.availabilities;
-create policy availabilities_select_anon
-on public.availabilities
-for select
-using (true);
-
 drop policy if exists workstations_select_anon on public.workstations;
-create policy workstations_select_anon
-on public.workstations
-for select
-using (status = 'active');
-
 drop policy if exists appointments_select_anon on public.appointments;
-create policy appointments_select_anon
-on public.appointments
-for select
-using (true);
+
+-- Returns all data needed for the public booking page, scoped to a single
+-- studio. Running as security definer means it bypasses RLS and applies its
+-- own explicit studio_id filter — anon callers cannot access other studios.
+create or replace function public.get_public_booking_data(p_studio_id uuid)
+returns json
+language plpgsql
+security definer
+stable
+set search_path = public
+as $$
+declare
+  v_result json;
+begin
+  if not exists (
+    select 1 from studios where id = p_studio_id and is_active = true
+  ) then
+    return null;
+  end if;
+
+  select json_build_object(
+    'studio', (
+      select row_to_json(s) from studios s where s.id = p_studio_id
+    ),
+    'appointment_types', coalesce((
+      select json_agg(row_to_json(at))
+      from appointment_types at
+      where at.studio_id = p_studio_id
+        and at.is_active = true
+        and at.is_public_bookable = true
+    ), '[]'::json),
+    'artists', coalesce((
+      select json_agg(row_to_json(a))
+      from artists a
+      where a.studio_id = p_studio_id and a.is_active = true
+    ), '[]'::json),
+    'locations', coalesce((
+      select json_agg(row_to_json(l))
+      from locations l
+      where l.studio_id = p_studio_id and l.is_active = true
+    ), '[]'::json),
+    'availabilities', coalesce((
+      select json_agg(row_to_json(av))
+      from availabilities av
+      where av.studio_id = p_studio_id
+    ), '[]'::json),
+    'weekly_schedules', coalesce((
+      select json_agg(row_to_json(ws))
+      from artist_weekly_schedules ws
+      where ws.studio_id = p_studio_id and ws.is_active = true
+    ), '[]'::json),
+    'appointments', coalesce((
+      select json_agg(row_to_json(ap))
+      from (
+        select id, artist_id, location_id, appointment_date,
+               start_time, duration_hours, work_station_id, status
+        from appointments
+        where studio_id = p_studio_id
+          and status not in ('cancelled', 'no_show')
+      ) ap
+    ), '[]'::json),
+    'workstations', coalesce((
+      select json_agg(row_to_json(wst))
+      from workstations wst
+      where wst.studio_id = p_studio_id and wst.status = 'active'
+    ), '[]'::json)
+  ) into v_result;
+
+  return v_result;
+end;
+$$;
+
+grant execute on function public.get_public_booking_data(uuid) to anon;
 
 -- Reporting Categories (Owner/Admin manage, all studio members read)
 alter table public.reporting_categories enable row level security;
@@ -628,3 +675,33 @@ create policy email_events_insert
 on public.email_events
 for insert
 with check (studio_id = public.current_user_studio());
+
+-- Artist Weekly Schedules
+alter table public.artist_weekly_schedules enable row level security;
+
+drop policy if exists aws_select on public.artist_weekly_schedules;
+create policy aws_select
+on public.artist_weekly_schedules
+for select
+using (studio_id = public.current_user_studio());
+
+drop policy if exists aws_insert on public.artist_weekly_schedules;
+create policy aws_insert
+on public.artist_weekly_schedules
+for insert
+with check (studio_id = public.current_user_studio());
+
+drop policy if exists aws_update on public.artist_weekly_schedules;
+create policy aws_update
+on public.artist_weekly_schedules
+for update
+using (studio_id = public.current_user_studio());
+
+drop policy if exists aws_delete on public.artist_weekly_schedules;
+create policy aws_delete
+on public.artist_weekly_schedules
+for delete
+using (studio_id = public.current_user_studio());
+
+-- artist_weekly_schedules anon access is handled by get_public_booking_data().
+drop policy if exists aws_select_anon on public.artist_weekly_schedules;

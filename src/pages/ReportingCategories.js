@@ -289,7 +289,7 @@ export default function ReportingCategories() {
       </div>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-md bg-white">
           <DialogHeader>
             <DialogTitle>
               {selectedCategory ? "Edit Category" : "Add Category"}

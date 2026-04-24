@@ -13,14 +13,16 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 
 export default function PublicBooking() {
   const [searchParams] = useSearchParams();
-  const studioId = searchParams.get("studio");
+  const studioParam = searchParams.get("studio");
 
   const [loading, setLoading] = useState(true);
+  const [studioId, setStudioId] = useState(null);
   const [studio, setStudio] = useState(null);
   const [appointmentTypes, setAppointmentTypes] = useState([]);
   const [artists, setArtists] = useState([]);
   const [locations, setLocations] = useState([]);
   const [availabilities, setAvailabilities] = useState([]);
+  const [weeklySchedules, setWeeklySchedules] = useState([]);
   const [appointments, setAppointments] = useState([]);
   const [workStations, setWorkStations] = useState([]);
 
@@ -36,30 +38,25 @@ export default function PublicBooking() {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    if (studioId) loadStudioData();
+    if (studioParam) loadStudioData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [studioId]);
+  }, [studioParam]);
 
   const loadStudioData = async () => {
     try {
-      const [studioRes, typesRes, artistsRes, locationsRes, availRes, aptsRes, wsRes] = await Promise.all([
-        supabase.from("studios").select("*").eq("id", studioId).single(),
-        supabase.from("appointment_types").select("*").eq("studio_id", studioId).eq("is_active", true).eq("is_public_bookable", true),
-        supabase.from("artists").select("*").eq("studio_id", studioId).eq("is_active", true),
-        supabase.from("locations").select("*").eq("studio_id", studioId).eq("is_active", true),
-        supabase.from("availabilities").select("*").eq("studio_id", studioId),
-        supabase.from("appointments").select("id, artist_id, location_id, appointment_date, start_time, duration_hours, work_station_id, status").eq("studio_id", studioId),
-        supabase.from("workstations").select("*").eq("studio_id", studioId).eq("status", "active")
-      ]);
+      const { data, error: rpcErr } = await supabase.rpc("get_public_booking_data", { p_studio_id: studioParam });
+      if (rpcErr) throw rpcErr;
+      if (!data) throw new Error("Studio not found or unavailable");
 
-      if (studioRes.error) throw studioRes.error;
-      setStudio(studioRes.data);
-      setAppointmentTypes(typesRes.data || []);
-      setArtists(artistsRes.data || []);
-      setLocations(locationsRes.data || []);
-      setAvailabilities(availRes.data || []);
-      setAppointments((aptsRes.data || []).filter(a => a.status !== 'cancelled' && a.status !== 'no_show'));
-      setWorkStations(wsRes.data || []);
+      setStudioId(studioParam);
+      setStudio(data.studio);
+      setAppointmentTypes(data.appointment_types || []);
+      setArtists(data.artists || []);
+      setLocations(data.locations || []);
+      setAvailabilities(data.availabilities || []);
+      setWeeklySchedules(data.weekly_schedules || []);
+      setAppointments(data.appointments || []);
+      setWorkStations(data.workstations || []);
     } catch (err) {
       setError("Unable to load booking information. Please check the link and try again.");
     } finally {
@@ -78,37 +75,51 @@ export default function PublicBooking() {
     return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
   };
 
-  const availableSlots = useMemo(() => {
-    if (!selectedType || !selectedArtist || !selectedLocation || !selectedDate) return [];
+  const piercers = useMemo(() =>
+    artists.filter(a => a.artist_type === 'piercer' || a.artist_type === 'both'),
+    [artists]
+  );
 
+  const getSlotsForArtist = (artistId, date) => {
+    if (!selectedType || !selectedLocation || !date) return [];
     const duration = selectedType.default_duration;
     const durationMinutes = duration * 60;
-    const date = selectedDate;
+
+    const dateObj = new Date(date + 'T00:00:00');
+    const dayOfWeek = dateObj.getDay();
+
     const artistAvail = availabilities.filter(a => {
-      if (a.artist_id !== selectedArtist) return false;
+      if (a.artist_id !== artistId) return false;
       if (a.is_blocked) return false;
-      const start = a.start_date;
-      const end = a.end_date;
-      return date >= start && date <= end;
+      return date >= a.start_date && date <= a.end_date;
     });
 
-    if (artistAvail.length === 0) return [];
+    const weeklyAvail = weeklySchedules
+      .filter(ws => ws.artist_id === artistId && ws.day_of_week === dayOfWeek)
+      .map(ws => ({
+        start_time: ws.start_time,
+        end_time: ws.end_time,
+        location_id: ws.location_id,
+        _isWeekly: true
+      }));
+
+    const combinedAvail = [...artistAvail, ...weeklyAvail];
+    if (combinedAvail.length === 0) return [];
 
     const blockedSlots = availabilities.filter(a => {
-      if (a.artist_id !== selectedArtist) return false;
+      if (a.artist_id !== artistId) return false;
       if (!a.is_blocked) return false;
       return date >= a.start_date && date <= a.end_date;
     });
 
     const dayAppointments = appointments.filter(
-      a => a.artist_id === selectedArtist && a.appointment_date === date
+      a => a.artist_id === artistId && a.appointment_date === date
     );
 
     const locationStations = workStations.filter(ws => ws.location_id === selectedLocation);
-
     const slots = [];
 
-    for (const avail of artistAvail) {
+    for (const avail of combinedAvail) {
       if (avail.location_id && avail.location_id !== selectedLocation) continue;
 
       const availStart = timeToMinutes(avail.start_time);
@@ -146,13 +157,33 @@ export default function PublicBooking() {
 
         slots.push({
           time: minutesToTime(slotStart),
-          stationId: freeStation?.id || null
+          stationId: freeStation?.id || null,
+          artistId
         });
       }
     }
-
     return slots;
-  }, [selectedType, selectedArtist, selectedLocation, selectedDate, availabilities, appointments, workStations]);
+  };
+
+  const availableSlots = useMemo(() => {
+    if (!selectedType || !selectedLocation || !selectedDate) return [];
+
+    if (selectedArtist === '__any__') {
+      const allSlots = new Map();
+      for (const piercer of piercers) {
+        for (const slot of getSlotsForArtist(piercer.id, selectedDate)) {
+          if (!allSlots.has(slot.time)) {
+            allSlots.set(slot.time, slot);
+          }
+        }
+      }
+      return Array.from(allSlots.values()).sort((a, b) => a.time.localeCompare(b.time));
+    }
+
+    if (!selectedArtist) return [];
+    return getSlotsForArtist(selectedArtist, selectedDate);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedType, selectedArtist, selectedLocation, selectedDate, availabilities, weeklySchedules, appointments, workStations, piercers]);
 
   const handleSubmitBooking = async () => {
     if (!customerInfo.name || !customerInfo.email || !customerInfo.phone) {
@@ -165,12 +196,13 @@ export default function PublicBooking() {
 
     try {
       const slot = availableSlots.find(s => s.time === selectedTime);
+      const resolvedArtistId = selectedArtist === '__any__' ? slot?.artistId : selectedArtist;
 
       const { data, error: fnError } = await supabase.functions.invoke("create-public-booking", {
         body: {
           studioId,
           appointmentTypeId: selectedType.id,
-          artistId: selectedArtist,
+          artistId: resolvedArtistId,
           locationId: selectedLocation,
           workStationId: slot?.stationId || null,
           date: selectedDate,
@@ -204,7 +236,7 @@ export default function PublicBooking() {
     );
   }
 
-  if (!studio || !studioId) {
+  if (!studio || !studioParam) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100 p-6">
         <Card className="max-w-md w-full bg-white shadow-xl">
@@ -336,11 +368,12 @@ export default function PublicBooking() {
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label>Artist</Label>
+                <Label>Piercer</Label>
                 <Select value={selectedArtist} onValueChange={(v) => { setSelectedArtist(v); setSelectedDate(''); setSelectedTime(''); }}>
-                  <SelectTrigger><SelectValue placeholder="Select artist" /></SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder="Select piercer" /></SelectTrigger>
                   <SelectContent>
-                    {artists.map(a => (
+                    <SelectItem value="__any__">Any Available Piercer</SelectItem>
+                    {piercers.map(a => (
                       <SelectItem key={a.id} value={a.id}>{a.full_name}</SelectItem>
                     ))}
                   </SelectContent>
@@ -421,7 +454,7 @@ export default function PublicBooking() {
             <CardContent className="space-y-4">
               <div className="bg-indigo-50 rounded-lg p-4 space-y-1 text-sm">
                 <p><span className="font-medium">Service:</span> {selectedType?.name}</p>
-                <p><span className="font-medium">Artist:</span> {artists.find(a => a.id === selectedArtist)?.full_name}</p>
+                <p><span className="font-medium">Piercer:</span> {selectedArtist === '__any__' ? 'Any Available Piercer' : piercers.find(a => a.id === selectedArtist)?.full_name}</p>
                 <p><span className="font-medium">Location:</span> {locations.find(l => l.id === selectedLocation)?.name}</p>
                 <p><span className="font-medium">Date:</span> {selectedDate} at {selectedTime}</p>
                 <p><span className="font-medium">Duration:</span> {selectedType?.default_duration}h</p>
