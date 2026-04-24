@@ -38,7 +38,12 @@ export default function PublicBooking() {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    if (studioParam) loadStudioData();
+    if (studioParam) {
+      loadStudioData();
+    } else {
+      // No studio param provided — stop the loader so the error state renders
+      setLoading(false);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [studioParam]);
 

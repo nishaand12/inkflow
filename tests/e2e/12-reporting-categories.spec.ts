@@ -4,6 +4,16 @@ import { loginAs } from './helpers/auth';
 const email = process.env.TEST_TESTER_EMAIL!;
 const password = process.env.TEST_TESTER_PASSWORD!;
 
+// Per-run suffix keeps names unique across reruns against the same production DB.
+// Each run creates fresh records — no unique-constraint collisions, no cleanup needed.
+const RID = Date.now().toString().slice(-6);
+
+const CAT_SERVICE    = `E2E Tattoo Revenue ${RID}`;
+const CAT_ITEM       = `E2E Merch Items ${RID}`;
+const CAT_CREDIT     = `E2E Store Credit ${RID}`;
+const CAT_INACTIVE   = `E2E Inactive Category ${RID}`;
+const CAT_NO_SAVE    = `This Should Not Appear ${RID}`;
+
 test.describe('Reporting Categories', () => {
   test.beforeEach(async ({ page }) => {
     await loginAs(page, email, password);
@@ -30,10 +40,9 @@ test.describe('Reporting Categories', () => {
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible({ timeout: 8000 });
 
-    await dialog.getByLabel(/name/i).fill('E2E Tattoo Revenue');
+    await dialog.getByLabel(/name/i).fill(CAT_SERVICE);
 
     // Category type — Radix Select, default is "service"
-    // Confirm it already shows "Service" or explicitly select it
     const typeSelect = dialog.locator('[id="category_type"]');
     if (await typeSelect.isVisible({ timeout: 2000 }).catch(() => false)) {
       await typeSelect.click();
@@ -44,7 +53,7 @@ test.describe('Reporting Categories', () => {
     await expect(dialog).not.toBeVisible({ timeout: 10000 });
     await page.waitForLoadState('networkidle');
 
-    await expect(page.getByText('E2E Tattoo Revenue')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText(CAT_SERVICE)).toBeVisible({ timeout: 10000 });
   });
 
   test('HP-RC-4: Create category of type "item" and verify badge', async ({ page }) => {
@@ -52,7 +61,7 @@ test.describe('Reporting Categories', () => {
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible({ timeout: 8000 });
 
-    await dialog.getByLabel(/name/i).fill('E2E Merch Items');
+    await dialog.getByLabel(/name/i).fill(CAT_ITEM);
 
     const typeSelect = dialog.locator('[id="category_type"]');
     if (await typeSelect.isVisible({ timeout: 2000 }).catch(() => false)) {
@@ -64,8 +73,7 @@ test.describe('Reporting Categories', () => {
     await expect(dialog).not.toBeVisible({ timeout: 10000 });
     await page.waitForLoadState('networkidle');
 
-    await expect(page.getByText('E2E Merch Items')).toBeVisible({ timeout: 10000 });
-    // Item badge should appear
+    await expect(page.getByText(CAT_ITEM)).toBeVisible({ timeout: 10000 });
     await expect(page.getByText(/item/i).first()).toBeVisible();
   });
 
@@ -74,7 +82,7 @@ test.describe('Reporting Categories', () => {
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible({ timeout: 8000 });
 
-    await dialog.getByLabel(/name/i).fill('E2E Store Credit');
+    await dialog.getByLabel(/name/i).fill(CAT_CREDIT);
 
     const typeSelect = dialog.locator('[id="category_type"]');
     if (await typeSelect.isVisible({ timeout: 2000 }).catch(() => false)) {
@@ -86,14 +94,13 @@ test.describe('Reporting Categories', () => {
     await expect(dialog).not.toBeVisible({ timeout: 10000 });
     await page.waitForLoadState('networkidle');
 
-    await expect(page.getByText('E2E Store Credit')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText(CAT_CREDIT)).toBeVisible({ timeout: 10000 });
   });
 
   test('HP-RC-6: Edit existing category updates its name', async ({ page }) => {
-    // Find the E2E Tattoo Revenue category we created
-    const categoryRow = page.getByText('E2E Tattoo Revenue');
+    const categoryRow = page.getByText(CAT_SERVICE);
     if (!await categoryRow.isVisible({ timeout: 5000 }).catch(() => false)) {
-      test.skip(true, 'E2E Tattoo Revenue category not found — run HP-RC-3 first.');
+      test.skip(true, `${CAT_SERVICE} not found — run HP-RC-3 first in the same suite run.`);
       return;
     }
 
@@ -103,13 +110,13 @@ test.describe('Reporting Categories', () => {
 
     const nameInput = dialog.getByLabel(/name/i);
     await nameInput.clear();
-    await nameInput.fill('E2E Tattoo Revenue (updated)');
+    await nameInput.fill(`${CAT_SERVICE} (updated)`);
 
     await dialog.getByRole('button', { name: /save/i }).click();
     await expect(dialog).not.toBeVisible({ timeout: 10000 });
     await page.waitForLoadState('networkidle');
 
-    await expect(page.getByText('E2E Tattoo Revenue (updated)')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText(`${CAT_SERVICE} (updated)`)).toBeVisible({ timeout: 10000 });
   });
 
   test('HP-RC-7: Toggle category to inactive and verify badge changes', async ({ page }) => {
@@ -117,7 +124,7 @@ test.describe('Reporting Categories', () => {
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible({ timeout: 8000 });
 
-    await dialog.getByLabel(/name/i).fill('E2E Inactive Category');
+    await dialog.getByLabel(/name/i).fill(CAT_INACTIVE);
 
     // Turn off active toggle
     const activeSwitch = dialog.locator('#is_active');
@@ -130,8 +137,7 @@ test.describe('Reporting Categories', () => {
     await expect(dialog).not.toBeVisible({ timeout: 10000 });
     await page.waitForLoadState('networkidle');
 
-    // The row should exist with an "Inactive" badge
-    const row = page.locator('div').filter({ hasText: 'E2E Inactive Category' }).first();
+    const row = page.locator('div').filter({ hasText: CAT_INACTIVE }).first();
     await expect(row).toBeVisible({ timeout: 10000 });
     await expect(page.getByText(/inactive/i).first()).toBeVisible();
   });
@@ -143,7 +149,6 @@ test.describe('Reporting Categories', () => {
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible({ timeout: 8000 });
 
-    // Do not fill name — save button should be disabled
     const saveBtn = dialog.getByRole('button', { name: /save/i });
     await expect(saveBtn).toBeDisabled({ timeout: 3000 });
 
@@ -151,7 +156,6 @@ test.describe('Reporting Categories', () => {
   });
 
   test('NHP-RC-9: Delete category triggers confirmation dialog', async ({ page }) => {
-    // Hover over any row to reveal the trash icon
     const row = page.locator('[class*="grid"][class*="items-center"]').first();
     if (!await row.isVisible({ timeout: 5000 }).catch(() => false)) {
       test.skip(true, 'No category rows found — run HP-RC-3 first.');
@@ -180,12 +184,11 @@ test.describe('Reporting Categories', () => {
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible({ timeout: 8000 });
 
-    await dialog.getByLabel(/name/i).fill('This Should Not Appear');
+    await dialog.getByLabel(/name/i).fill(CAT_NO_SAVE);
 
     await dialog.getByRole('button', { name: /cancel/i }).click();
     await expect(dialog).not.toBeVisible({ timeout: 5000 });
 
-    // The unsaved name must not appear in the list
-    await expect(page.getByText('This Should Not Appear')).not.toBeVisible();
+    await expect(page.getByText(CAT_NO_SAVE)).not.toBeVisible();
   });
 });

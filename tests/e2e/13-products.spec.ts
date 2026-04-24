@@ -7,6 +7,20 @@ import * as os from 'os';
 const email = process.env.TEST_TESTER_EMAIL!;
 const password = process.env.TEST_TESTER_PASSWORD!;
 
+// Per-run suffix — ensures unique names/SKUs/barcodes on every test run so
+// that repeated runs against the production DB never hit unique-constraint errors.
+const RID = Date.now().toString().slice(-6);
+
+const PRODUCT_LOTION       = `E2E Aftercare Lotion ${RID}`;
+const PRODUCT_WITH_CAT     = `E2E Product With Category ${RID}`;
+const PRODUCT_LOTION_V2    = `${PRODUCT_LOTION} v2`;
+const SKU_LOTION           = `E2E-SKU-${RID}`;
+const BARCODE_LOTION       = `01234${RID}01`;    // 11 chars — unique per run
+const CSV_SKU_A            = `CSV-A-${RID}`;
+const CSV_SKU_B            = `CSV-B-${RID}`;
+const CSV_BAR_A            = `999${RID}01`;
+const CSV_BAR_B            = `999${RID}02`;
+
 /**
  * Writes a temporary CSV file and returns its path.
  * Playwright's setInputFiles() expects a real file on disk.
@@ -37,7 +51,6 @@ test.describe('Products', () => {
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible({ timeout: 8000 });
 
-    // Verify key fields are present
     await expect(dialog.locator('#name')).toBeVisible();
     await expect(dialog.locator('#sku')).toBeVisible();
     await expect(dialog.locator('#barcode')).toBeVisible();
@@ -52,9 +65,9 @@ test.describe('Products', () => {
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible({ timeout: 8000 });
 
-    await dialog.locator('#name').fill('E2E Aftercare Lotion');
-    await dialog.locator('#sku').fill('E2E-SKU-001');
-    await dialog.locator('#barcode').fill('012345670001');
+    await dialog.locator('#name').fill(PRODUCT_LOTION);
+    await dialog.locator('#sku').fill(SKU_LOTION);
+    await dialog.locator('#barcode').fill(BARCODE_LOTION);
     await dialog.locator('#price').fill('24.99');
     await dialog.locator('#cost').fill('8.50');
 
@@ -65,16 +78,15 @@ test.describe('Products', () => {
     await expect(dialog).not.toBeVisible({ timeout: 10000 });
     await page.waitForLoadState('networkidle');
 
-    await expect(page.getByText('E2E Aftercare Lotion')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText(PRODUCT_LOTION)).toBeVisible({ timeout: 10000 });
   });
 
   test('HP-PRD-4: Create product with reporting category assigned', async ({ page }) => {
-    // Only works if at least one reporting category exists
     await page.getByRole('button', { name: /add product/i }).click();
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible({ timeout: 8000 });
 
-    await dialog.locator('#name').fill('E2E Product With Category');
+    await dialog.locator('#name').fill(PRODUCT_WITH_CAT);
     await dialog.locator('#price').fill('15.00');
 
     // Try to select a category if available
@@ -93,32 +105,32 @@ test.describe('Products', () => {
     await expect(dialog).not.toBeVisible({ timeout: 10000 });
     await page.waitForLoadState('networkidle');
 
-    await expect(page.getByText('E2E Product With Category')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText(PRODUCT_WITH_CAT)).toBeVisible({ timeout: 10000 });
   });
 
   test('HP-PRD-5: Search filters products by name', async ({ page }) => {
     const searchInput = page.getByPlaceholder(/search products/i);
     await expect(searchInput).toBeVisible({ timeout: 5000 });
-    await searchInput.fill('E2E Aftercare');
+    // Search with the run-specific suffix so we only match THIS run's product
+    await searchInput.fill(PRODUCT_LOTION);
     await page.waitForTimeout(400);
 
-    // At least one match should be visible and the count should reflect it
-    await expect(page.getByText('E2E Aftercare Lotion')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText(PRODUCT_LOTION)).toBeVisible({ timeout: 5000 });
   });
 
   test('HP-PRD-6: Search filters products by barcode', async ({ page }) => {
     const searchInput = page.getByPlaceholder(/search products/i);
     await expect(searchInput).toBeVisible({ timeout: 5000 });
-    await searchInput.fill('012345670001');
+    await searchInput.fill(BARCODE_LOTION);
     await page.waitForTimeout(400);
 
-    await expect(page.getByText('E2E Aftercare Lotion')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText(PRODUCT_LOTION)).toBeVisible({ timeout: 5000 });
   });
 
   test('HP-PRD-7: Edit product — update name and price, verify changes', async ({ page }) => {
-    const row = page.locator('tr').filter({ hasText: 'E2E Aftercare Lotion' }).first();
+    const row = page.locator('tr').filter({ hasText: PRODUCT_LOTION }).first();
     if (!await row.isVisible({ timeout: 5000 }).catch(() => false)) {
-      test.skip(true, 'E2E Aftercare Lotion not found — run HP-PRD-3 first.');
+      test.skip(true, `${PRODUCT_LOTION} not found — run HP-PRD-3 first in the same suite run.`);
       return;
     }
 
@@ -128,7 +140,7 @@ test.describe('Products', () => {
 
     const nameInput = dialog.locator('#name');
     await nameInput.clear();
-    await nameInput.fill('E2E Aftercare Lotion v2');
+    await nameInput.fill(PRODUCT_LOTION_V2);
 
     const priceInput = dialog.locator('#price');
     await priceInput.clear();
@@ -138,14 +150,14 @@ test.describe('Products', () => {
     await expect(dialog).not.toBeVisible({ timeout: 10000 });
     await page.waitForLoadState('networkidle');
 
-    await expect(page.getByText('E2E Aftercare Lotion v2')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText(PRODUCT_LOTION_V2)).toBeVisible({ timeout: 10000 });
     await expect(page.getByText('$27.99')).toBeVisible();
   });
 
   test('HP-PRD-8: Toggle product to Inactive via edit dialog', async ({ page }) => {
-    const row = page.locator('tr').filter({ hasText: 'E2E Product With Category' }).first();
+    const row = page.locator('tr').filter({ hasText: PRODUCT_WITH_CAT }).first();
     if (!await row.isVisible({ timeout: 5000 }).catch(() => false)) {
-      test.skip(true, 'E2E Product With Category not found — run HP-PRD-4 first.');
+      test.skip(true, `${PRODUCT_WITH_CAT} not found — run HP-PRD-4 first in the same suite run.`);
       return;
     }
 
@@ -153,7 +165,6 @@ test.describe('Products', () => {
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible({ timeout: 8000 });
 
-    // Toggle Active switch off
     const activeSwitch = dialog.locator('#is_active');
     const isChecked = await activeSwitch.isChecked({ timeout: 3000 }).catch(() => true);
     if (isChecked) await activeSwitch.click();
@@ -162,16 +173,19 @@ test.describe('Products', () => {
     await expect(dialog).not.toBeVisible({ timeout: 10000 });
     await page.waitForLoadState('networkidle');
 
-    // Inactive badge should be visible in the row
-    const updatedRow = page.locator('tr').filter({ hasText: 'E2E Product With Category' }).first();
+    const updatedRow = page.locator('tr').filter({ hasText: PRODUCT_WITH_CAT }).first();
     await expect(updatedRow.getByText(/inactive/i)).toBeVisible({ timeout: 8000 });
   });
 
   test('HP-PRD-9: CSV import success with valid data', async ({ page }) => {
-    const csvContent = `name,sku,barcode,price,cost\nE2E CSV Product A,CSV-001,9990000001,19.99,5.00\nE2E CSV Product B,CSV-002,9990000002,9.99,2.50`;
+    // SKUs and barcodes are also run-scoped to avoid unique-constraint errors on reimport
+    const csvContent = [
+      'name,sku,barcode,price,cost',
+      `E2E CSV Product A ${RID},${CSV_SKU_A},${CSV_BAR_A},19.99,5.00`,
+      `E2E CSV Product B ${RID},${CSV_SKU_B},${CSV_BAR_B},9.99,2.50`,
+    ].join('\n');
     const tmpFile = writeTempCsv(csvContent);
 
-    // Playwright's setInputFiles triggers the hidden file input
     await page.locator('input[type="file"][accept=".csv"]').setInputFiles(tmpFile);
     await page.waitForTimeout(2000);
 
@@ -211,7 +225,6 @@ test.describe('Products', () => {
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible({ timeout: 8000 });
 
-    // Leave name empty
     const saveBtn = dialog.getByRole('button', { name: /save product/i });
     await expect(saveBtn).toBeDisabled({ timeout: 3000 });
 
@@ -219,7 +232,6 @@ test.describe('Products', () => {
   });
 
   test('NHP-PRD-13: Delete product triggers confirmation, cancel keeps product in list', async ({ page }) => {
-    // Use any E2E product — find a delete icon button in any row
     const deleteBtn = page.locator('tr').filter({ hasText: /E2E/ }).locator('button').last().first();
     if (!await deleteBtn.isVisible({ timeout: 5000 }).catch(() => false)) {
       test.skip(true, 'No E2E product rows found — run HP-PRD-3 first.');
@@ -234,7 +246,7 @@ test.describe('Products', () => {
     await alertDialog.getByRole('button', { name: /cancel/i }).click();
     await expect(alertDialog).not.toBeVisible({ timeout: 5000 });
 
-    // Product should still be in the list
-    await expect(page.locator('tr').filter({ hasText: /E2E/ }).first()).toBeVisible();
+    // At least one E2E product must still be visible
+    await expect(page.locator('tr').filter({ hasText: /E2E/ }).first()).toBeVisible({ timeout: 5000 });
   });
 });

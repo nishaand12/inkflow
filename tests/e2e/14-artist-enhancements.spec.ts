@@ -18,8 +18,10 @@ test.describe('Artist Type (migrate4)', () => {
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible({ timeout: 8000 });
 
-    // The artist_type select defaults to "Tattoo Artist"
-    await expect(dialog.getByText(/tattoo artist/i)).toBeVisible({ timeout: 5000 });
+    // The artist_type select defaults to "Tattoo Artist".
+    // Use .first() because the Radix Select renders both a visible <span> and a hidden
+    // <option> inside a native <select> — both match the text, causing a strict-mode error.
+    await expect(dialog.getByText(/tattoo artist/i).first()).toBeVisible({ timeout: 5000 });
 
     // Open the select and verify all three options exist
     const typeTrigger = dialog.getByRole('combobox').filter({ hasText: /tattoo artist/i });
