@@ -22,8 +22,14 @@ test.describe('Artist Weekly Schedules (migrate4)', () => {
     if (await weeklySection.isVisible({ timeout: 8000 }).catch(() => false)) {
       await expect(weeklySection).toBeVisible();
     } else {
-      // Page may show "No Artist Profile" or "Access Restricted" — still passes
-      await expect(page.locator('[class*="CardContent"]').first()).toBeVisible({ timeout: 8000 });
+      // Page may show "No Artist Profile" or "Access Restricted" — still passes.
+      // NOTE: [class*="CardContent"] never matches the DOM — it is a React component name,
+      // not a CSS class. Shadcn CardContent renders with Tailwind classes like "p-6 pt-0".
+      const hasState =
+        await page.getByText(/no artist profile/i).isVisible({ timeout: 5000 }).catch(() => false) ||
+        await page.getByText(/access restricted/i).isVisible({ timeout: 5000 }).catch(() => false) ||
+        await page.getByRole('button', { name: /add day/i }).isVisible({ timeout: 5000 }).catch(() => false);
+      expect(hasState).toBe(true);
     }
   });
 
@@ -83,9 +89,12 @@ test.describe('Artist Weekly Schedules (migrate4)', () => {
     await saveBtn.click();
     await page.waitForLoadState('networkidle');
 
-    // Monday slot should appear in the weekly schedule card
+    // Monday slot should appear in the weekly schedule card.
+    // Scope the time check to .bg-green-50 chips — the calendar grid also renders time
+    // strings (e.g. "09:00 – 17:00" in indigo availability slots) causing strict-mode errors
+    // when using a bare page.getByText(/09:00/i) that matches 6+ elements.
     await expect(page.getByText(/monday/i).first()).toBeVisible({ timeout: 10000 });
-    await expect(page.getByText(/09:00/i)).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('.bg-green-50').filter({ hasText: /09:00/i }).first()).toBeVisible({ timeout: 5000 });
   });
 
   test('HP-SCHED-4: Create a Friday schedule and verify calendar shows weekly slots', async ({ page }) => {
@@ -159,7 +168,8 @@ test.describe('Artist Weekly Schedules (migrate4)', () => {
     }
 
     await page.waitForLoadState('networkidle');
-    await expect(page.getByText(/18:00/i)).toBeVisible({ timeout: 10000 });
+    // Scope to .bg-green-50 chips to avoid matching calendar time labels (strict-mode fix)
+    await expect(page.locator('.bg-green-50').filter({ hasText: /18:00/i }).first()).toBeVisible({ timeout: 10000 });
   });
 
   test('HP-SCHED-6: Delete weekly schedule removes it from list', async ({ page }) => {
@@ -224,9 +234,12 @@ test.describe('Artist Weekly Schedules (migrate4)', () => {
     const body = page.locator('body');
     await expect(body).not.toBeEmpty();
     // One of these two should be visible — either the schedule UI or the restriction notice
-    const hasSchedule = await page.getByText(/weekly schedule/i).isVisible({ timeout: 5000 }).catch(() => false);
+    // Wait longer for first check in case the page is still hydrating after networkidle
+    const hasSchedule = await page.getByText(/weekly schedule/i).isVisible({ timeout: 10000 }).catch(() => false);
     const hasRestriction = await page.getByText(/access restricted/i).isVisible({ timeout: 5000 }).catch(() => false);
     const hasNoProfile = await page.getByText(/no artist profile/i).isVisible({ timeout: 5000 }).catch(() => false);
-    expect(hasSchedule || hasRestriction || hasNoProfile).toBe(true);
+    // "Add Day" button is present whenever the schedule UI is shown (Admin with artist profile)
+    const hasAddDay = await page.getByRole('button', { name: /add day/i }).isVisible({ timeout: 3000 }).catch(() => false);
+    expect(hasSchedule || hasRestriction || hasNoProfile || hasAddDay).toBe(true);
   });
 });

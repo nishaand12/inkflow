@@ -9,6 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Save, Trash2 } from "lucide-react";
+import { ARTIST_PALETTE, autoAssignColor } from "@/utils/artistColors";
 
 export default function ArtistDialog({ open, onOpenChange, artist, locations }) {
   const queryClient = useQueryClient();
@@ -22,7 +23,8 @@ export default function ArtistDialog({ open, onOpenChange, artist, locations }) 
     instagram: '',
     hourly_rate: 150,
     primary_location_id: '',
-    is_active: true
+    is_active: true,
+    calendar_color: ARTIST_PALETTE[0]
   });
 
   const [currentUser, setCurrentUser] = React.useState(null);
@@ -73,11 +75,24 @@ export default function ArtistDialog({ open, onOpenChange, artist, locations }) 
 
   useEffect(() => {
     if (artist) {
-      setFormData(artist);
+      setFormData({ ...artist, calendar_color: artist.calendar_color || ARTIST_PALETTE[0] });
     } else {
-      resetForm();
+      const autoColor = autoAssignColor(artists);
+      setFormData({
+        user_id: '',
+        full_name: '',
+        artist_type: 'tattoo',
+        specialty: '',
+        bio: '',
+        phone: '',
+        instagram: '',
+        hourly_rate: 150,
+        primary_location_id: '',
+        is_active: true,
+        calendar_color: autoColor
+      });
     }
-  }, [artist]);
+  }, [artist, open, artists]);
 
   const createMutation = useMutation({
     mutationFn: (data) => base44.entities.Artist.create(data),
@@ -134,7 +149,8 @@ export default function ArtistDialog({ open, onOpenChange, artist, locations }) 
       instagram: '',
       hourly_rate: 150,
       primary_location_id: '',
-      is_active: true
+      is_active: true,
+      calendar_color: autoAssignColor(artists)
     });
   };
 
@@ -298,6 +314,45 @@ export default function ArtistDialog({ open, onOpenChange, artist, locations }) 
               rows={4}
               placeholder="Tell us about this artist..."
             />
+          </div>
+
+          <div className="space-y-3">
+            <Label>Calendar Color</Label>
+            <p className="text-xs text-gray-500 -mt-1">Used to color this artist's appointments on the calendar</p>
+            <div className="flex flex-wrap gap-2">
+              {ARTIST_PALETTE.map(color => (
+                <button
+                  key={color}
+                  type="button"
+                  onClick={() => setFormData({ ...formData, calendar_color: color })}
+                  className="w-7 h-7 rounded-full transition-transform hover:scale-110 focus:outline-none"
+                  style={{
+                    backgroundColor: color,
+                    ring: formData.calendar_color === color ? `3px solid ${color}` : 'none',
+                    boxShadow: formData.calendar_color === color
+                      ? `0 0 0 2px white, 0 0 0 4px ${color}`
+                      : 'none'
+                  }}
+                  title={color}
+                />
+              ))}
+            </div>
+            <div className="flex items-center gap-3">
+              <div
+                className="w-9 h-9 rounded-lg border-2 border-gray-200 shrink-0"
+                style={{ backgroundColor: formData.calendar_color }}
+              />
+              <div className="flex flex-col gap-1">
+                <Label htmlFor="custom_color" className="text-xs text-gray-500">Custom color</Label>
+                <input
+                  id="custom_color"
+                  type="color"
+                  value={formData.calendar_color || '#4f46e5'}
+                  onChange={(e) => setFormData({ ...formData, calendar_color: e.target.value })}
+                  className="h-8 w-20 cursor-pointer rounded border border-gray-200 bg-white p-0.5"
+                />
+              </div>
+            </div>
           </div>
 
             <div className="flex items-center justify-between p-4 rounded-lg border border-gray-200">

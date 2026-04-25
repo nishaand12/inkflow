@@ -42,6 +42,10 @@
         "type": "boolean",
         "default": true,
         "description": "Whether artist is active"
+      },
+      "calendar_color": {
+        "type": "string",
+        "description": "Hex color used for this artist's appointments in the calendar"
       }
     },
     "required": [

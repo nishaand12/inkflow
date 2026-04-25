@@ -9,15 +9,19 @@ test.describe('Public Booking Flow (migrate3 + migrate4)', () => {
   // ── Static / error states ───────────────────────────────────────────────────
 
   test('HP-PUB-1: /book without studio param shows "Booking Unavailable"', async ({ page }) => {
+    // When no studio param is provided the component sets loading=false immediately
+    // (else branch added to useEffect) and the !studioParam guard renders "Booking Unavailable".
     await page.goto('/book');
     await page.waitForLoadState('networkidle');
-    await expect(page.getByText(/booking unavailable|invalid.*link|not available/i)).toBeVisible({ timeout: 10000 });
+    // Use .first() — both the <h2> and <p> contain the text; strict mode needs a single match
+    await expect(page.getByText(/booking unavailable/i).first()).toBeVisible({ timeout: 10000 });
   });
 
   test('HP-PUB-2: /book?studio=invalid-uuid shows "Booking Unavailable"', async ({ page }) => {
     await page.goto('/book?studio=00000000-0000-0000-0000-000000000000');
     await page.waitForLoadState('networkidle');
-    await expect(page.getByText(/booking unavailable|invalid.*link|not available/i)).toBeVisible({ timeout: 10000 });
+    // .first() avoids strict-mode — both the <h2> heading and the <p> description contain the phrase
+    await expect(page.getByText(/booking unavailable/i).first()).toBeVisible({ timeout: 10000 });
   });
 
   test('HP-PUB-3: /book?studio=VALID loads studio name and service list', async ({ page }) => {
@@ -35,8 +39,8 @@ test.describe('Public Booking Flow (migrate3 + migrate4)', () => {
     // Should show "Book your appointment online" headline
     await expect(page.getByText(/book your appointment online/i)).toBeVisible({ timeout: 10000 });
 
-    // Step 1 should be active — "Select Service" card
-    await expect(page.getByRole('heading', { name: /select service/i })).toBeVisible({ timeout: 8000 });
+    // Step 1 — CardTitle renders as <div>, not <h*>; use getByText instead of getByRole('heading')
+    await expect(page.getByText('Select Service').first()).toBeVisible({ timeout: 8000 });
   });
 
   test('HP-PUB-4: Only is_public_bookable appointment types are shown in step 1', async ({ page }) => {
@@ -76,8 +80,8 @@ test.describe('Public Booking Flow (migrate3 + migrate4)', () => {
     }
     await firstService.click();
 
-    // Step 2 — Choose Artist & Location
-    await expect(page.getByRole('heading', { name: /choose artist/i })).toBeVisible({ timeout: 8000 });
+    // Step 2 — CardTitle is a <div> not <h*>; use getByText
+    await expect(page.getByText(/choose artist/i).first()).toBeVisible({ timeout: 8000 });
 
     // The artist select should say "Select piercer" or "Select artist" (for piercer-type services)
     const pierceLabel = page.getByText(/piercer/i);
@@ -103,7 +107,8 @@ test.describe('Public Booking Flow (migrate3 + migrate4)', () => {
     }
     await firstService.click();
 
-    await expect(page.getByRole('heading', { name: /choose artist/i })).toBeVisible({ timeout: 8000 });
+    // CardTitle is a <div> not <h*>; use getByText
+    await expect(page.getByText(/choose artist/i).first()).toBeVisible({ timeout: 8000 });
 
     // Continue button should be disabled while nothing is selected
     const continueBtn = page.getByRole('button', { name: /continue/i });
@@ -139,7 +144,8 @@ test.describe('Public Booking Flow (migrate3 + migrate4)', () => {
     }
     await firstService.click();
 
-    await expect(page.getByRole('heading', { name: /choose artist/i })).toBeVisible({ timeout: 8000 });
+    // CardTitle is a <div> not <h*>; use getByText
+    await expect(page.getByText(/choose artist/i).first()).toBeVisible({ timeout: 8000 });
 
     // Select location
     const locationTrigger = page.getByText(/select location/i);
@@ -165,8 +171,8 @@ test.describe('Public Booking Flow (migrate3 + migrate4)', () => {
       return;
     }
 
-    // Step 3 — time slot selection
-    await expect(page.getByRole('heading', { name: /select date/i })).toBeVisible({ timeout: 10000 });
+    // Step 3 — heading text is "Pick Date & Time" (CardTitle = <div>, not <h*>)
+    await expect(page.getByText(/pick date/i).first()).toBeVisible({ timeout: 10000 });
 
     // Before date selection no slots should be shown
     const dateInput = page.locator('input[type="date"]');

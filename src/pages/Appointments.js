@@ -23,6 +23,7 @@ export default function Appointments() {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [locationFilter, setLocationFilter] = useState('all');
+  const [typeFilter, setTypeFilter] = useState('all');
   const [showDialog, setShowDialog] = useState(false);
   const [selectedAppointment, setSelectedAppointment] = useState(null);
   const [user, setUser] = useState(null);
@@ -77,6 +78,15 @@ export default function Appointments() {
     enabled: !!user?.studio_id
   });
 
+  const { data: appointmentTypes = [] } = useQuery({
+    queryKey: ['appointmentTypes', user?.studio_id],
+    queryFn: async () => {
+      if (!user?.studio_id) return [];
+      return base44.entities.AppointmentType.filter({ studio_id: user.studio_id });
+    },
+    enabled: !!user?.studio_id
+  });
+
   useEffect(() => {
     if (user && artists.length > 0) {
       const artist = artists.find(a => a.user_id === user.id);
@@ -122,7 +132,11 @@ export default function Appointments() {
                          customerEmail?.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = statusFilter === 'all' || apt.status === statusFilter;
     const matchesLocation = locationFilter === 'all' || apt.location_id === locationFilter;
-    return matchesSearch && matchesStatus && matchesLocation;
+    const matchesType = typeFilter === 'all' || (() => {
+      const aptType = appointmentTypes.find(t => t.id === apt.appointment_type_id);
+      return aptType?.category === typeFilter;
+    })();
+    return matchesSearch && matchesStatus && matchesLocation && matchesType;
   });
 
   const handleEdit = (appointment) => {
@@ -159,7 +173,7 @@ export default function Appointments() {
         <Card className="bg-white border-none shadow-md">
           <CardContent className="p-6">
             <div className="rounded-xl bg-gray-50/80 p-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
                   <Input
@@ -169,6 +183,18 @@ export default function Appointments() {
                     className="pl-10"
                   />
                 </div>
+
+                <Select value={typeFilter} onValueChange={setTypeFilter}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="All Types" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Types</SelectItem>
+                    <SelectItem value="Tattoo">Tattoo</SelectItem>
+                    <SelectItem value="Piercing">Piercing</SelectItem>
+                    <SelectItem value="Other">Other</SelectItem>
+                  </SelectContent>
+                </Select>
 
                 <Select value={statusFilter} onValueChange={setStatusFilter}>
                   <SelectTrigger>

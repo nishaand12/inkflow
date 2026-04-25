@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import Stripe from "https://esm.sh/stripe@17?target=deno";
+import Stripe from "npm:stripe@17";
 
 const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY")!;
 const STRIPE_WEBHOOK_SECRET = Deno.env.get("STRIPE_WEBHOOK_SECRET")!;
@@ -82,7 +82,7 @@ serve(async (req) => {
           } else {
             await supabase
               .from("appointments")
-              .update({ deposit_status: "paid" })
+              .update({ status: "deposit_paid", deposit_status: "paid" })
               .eq("id", appointmentId);
           }
         }

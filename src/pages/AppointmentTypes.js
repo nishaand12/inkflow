@@ -11,7 +11,6 @@ import AppointmentTypeDialog from "../components/appointment-types/AppointmentTy
 const categoryColors = {
   'Tattoo': 'bg-purple-100 text-purple-800 border-purple-200',
   'Piercing': 'bg-pink-100 text-pink-800 border-pink-200',
-  'Deposit': 'bg-green-100 text-green-800 border-green-200',
   'Other': 'bg-gray-100 text-gray-800 border-gray-200'
 };
 
@@ -102,7 +101,7 @@ export default function AppointmentTypes() {
           </Button>
         </div>
 
-        {['Tattoo', 'Piercing', 'Deposit', 'Other'].map(category => {
+        {['Tattoo', 'Piercing', 'Other'].map(category => {
           const types = groupedTypes[category] || [];
           if (types.length === 0) return null;
 

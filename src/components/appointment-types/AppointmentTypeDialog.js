@@ -158,7 +158,6 @@ export default function AppointmentTypeDialog({ open, onOpenChange, appointmentT
                 <SelectContent>
                   <SelectItem value="Tattoo">Tattoo</SelectItem>
                   <SelectItem value="Piercing">Piercing</SelectItem>
-                  <SelectItem value="Deposit">Deposit</SelectItem>
                   <SelectItem value="Other">Other</SelectItem>
                 </SelectContent>
               </Select>

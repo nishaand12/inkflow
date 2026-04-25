@@ -1132,6 +1132,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                   <SelectContent>
                     <SelectItem value="scheduled">Scheduled</SelectItem>
                     <SelectItem value="confirmed">Confirmed</SelectItem>
+                    <SelectItem value="deposit_paid">Deposit Paid</SelectItem>
                     <SelectItem value="cancelled">Cancelled</SelectItem>
                     <SelectItem value="no_show">No Show</SelectItem>
                   </SelectContent>
