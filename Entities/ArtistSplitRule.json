@@ -1,0 +1,23 @@
+{
+  "name": "ArtistSplitRule",
+  "type": "object",
+  "properties": {
+    "studio_id": { "type": "string", "description": "Studio ID" },
+    "artist_id": { "type": "string", "description": "FK to artists" },
+    "split_percent": { "type": "number", "default": 50, "description": "Artist percentage of eligible revenue" },
+    "eligible_category_ids": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": [],
+      "description": "Reporting category IDs that participate in split"
+    },
+    "is_active": { "type": "boolean", "default": true }
+  },
+  "required": ["studio_id", "artist_id", "split_percent"],
+  "rls": {
+    "read": { "data.studio_id": "{{user.data.studio_id}}" },
+    "update": { "data.studio_id": "{{user.data.studio_id}}", "user_condition": { "data.user_role": ["Owner", "Admin"] } },
+    "delete": { "data.studio_id": "{{user.data.studio_id}}", "user_condition": { "data.user_role": ["Owner", "Admin"] } },
+    "write": { "user_condition": { "data.user_role": ["Owner", "Admin"] } }
+  }
+}

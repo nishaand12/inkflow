@@ -1,0 +1,21 @@
+{
+  "name": "Product",
+  "type": "object",
+  "properties": {
+    "studio_id": { "type": "string", "description": "Studio ID" },
+    "reporting_category_id": { "type": "string", "description": "FK to reporting_categories" },
+    "name": { "type": "string", "description": "Product name" },
+    "sku": { "type": "string", "description": "Stock-keeping unit code" },
+    "barcode": { "type": "string", "description": "Barcode value (scanner input)" },
+    "price": { "type": "number", "default": 0, "description": "Retail price" },
+    "cost": { "type": "number", "description": "Cost price (optional)" },
+    "is_active": { "type": "boolean", "default": true, "description": "Whether product is available for sale" }
+  },
+  "required": ["studio_id", "name", "price"],
+  "rls": {
+    "read": { "data.studio_id": "{{user.data.studio_id}}" },
+    "update": { "data.studio_id": "{{user.data.studio_id}}", "user_condition": { "data.user_role": ["Owner", "Admin"] } },
+    "delete": { "data.studio_id": "{{user.data.studio_id}}", "user_condition": { "data.user_role": ["Owner", "Admin"] } },
+    "write": { "user_condition": { "data.user_role": ["Owner", "Admin"] } }
+  }
+}

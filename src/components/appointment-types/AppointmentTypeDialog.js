@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,9 +28,20 @@ export default function AppointmentTypeDialog({ open, onOpenChange, appointmentT
     description: '',
     default_duration: 2,
     default_deposit: 100,
-    is_active: true
+    is_active: true,
+    is_public_bookable: false,
+    reporting_category_id: ''
   });
   const [showDeleteAlert, setShowDeleteAlert] = useState(false);
+
+  const { data: reportingCategories = [] } = useQuery({
+    queryKey: ['reportingCategories', currentUser?.studio_id],
+    queryFn: async () => {
+      if (!currentUser?.studio_id) return [];
+      return base44.entities.ReportingCategory.filter({ studio_id: currentUser.studio_id });
+    },
+    enabled: open && !!currentUser?.studio_id
+  });
 
   useEffect(() => {
     if (appointmentType) {
@@ -40,7 +51,9 @@ export default function AppointmentTypeDialog({ open, onOpenChange, appointmentT
         description: appointmentType.description || '',
         default_duration: appointmentType.default_duration || 2,
         default_deposit: appointmentType.default_deposit || 100,
-        is_active: appointmentType.is_active !== undefined ? appointmentType.is_active : true
+        is_active: appointmentType.is_active !== undefined ? appointmentType.is_active : true,
+        is_public_bookable: appointmentType.is_public_bookable || false,
+        reporting_category_id: appointmentType.reporting_category_id || ''
       });
     } else {
       setFormData({
@@ -49,7 +62,9 @@ export default function AppointmentTypeDialog({ open, onOpenChange, appointmentT
         description: '',
         default_duration: 2,
         default_deposit: 100,
-        is_active: true
+        is_active: true,
+        is_public_bookable: false,
+        reporting_category_id: ''
       });
     }
   }, [appointmentType, open]);
@@ -83,7 +98,8 @@ export default function AppointmentTypeDialog({ open, onOpenChange, appointmentT
     e.preventDefault();
     const submitData = {
       ...formData,
-      studio_id: currentUser?.studio_id
+      studio_id: currentUser?.studio_id,
+      reporting_category_id: formData.reporting_category_id || null
     };
 
     if (appointmentType) {
@@ -109,7 +125,9 @@ export default function AppointmentTypeDialog({ open, onOpenChange, appointmentT
       description: '',
       default_duration: 2,
       default_deposit: 100,
-      is_active: true
+      is_active: true,
+      is_public_bookable: false,
+      reporting_category_id: ''
     });
   };
 
@@ -140,7 +158,6 @@ export default function AppointmentTypeDialog({ open, onOpenChange, appointmentT
                 <SelectContent>
                   <SelectItem value="Tattoo">Tattoo</SelectItem>
                   <SelectItem value="Piercing">Piercing</SelectItem>
-                  <SelectItem value="Deposit">Deposit</SelectItem>
                   <SelectItem value="Other">Other</SelectItem>
                 </SelectContent>
               </Select>
@@ -194,6 +211,43 @@ export default function AppointmentTypeDialog({ open, onOpenChange, appointmentT
                   required
                 />
               </div>
+            </div>
+
+            {reportingCategories.length > 0 && (
+              <div className="space-y-2">
+                <Label htmlFor="reporting_category_id">Reporting Category</Label>
+                <Select
+                  value={formData.reporting_category_id}
+                  onValueChange={(value) => setFormData({ ...formData, reporting_category_id: value === '__none__' ? '' : value })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select reporting category (optional)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">None</SelectItem>
+                    {reportingCategories
+                      .filter(c => c.is_active)
+                      .sort((a, b) => a.display_order - b.display_order)
+                      .map(cat => (
+                        <SelectItem key={cat.id} value={cat.id}>
+                          {cat.name} ({cat.category_type})
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+
+            <div className="flex items-center justify-between p-4 rounded-lg border border-gray-200">
+              <div>
+                <Label htmlFor="is_public_bookable" className="cursor-pointer">Public Booking</Label>
+                <p className="text-sm text-gray-500">Allow customers to self-book this service online</p>
+              </div>
+              <Switch
+                id="is_public_bookable"
+                checked={formData.is_public_bookable}
+                onCheckedChange={(checked) => setFormData({ ...formData, is_public_bookable: checked })}
+              />
             </div>
 
             <div className="flex items-center justify-between p-4 rounded-lg border border-gray-200">

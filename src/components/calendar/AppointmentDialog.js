@@ -52,6 +52,8 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
   const [depositCheckoutUrl, setDepositCheckoutUrl] = useState(null);
   const [copiedDepositUrl, setCopiedDepositUrl] = useState(false);
 
+  const [healthFields, setHealthFields] = useState({});
+
   const [validationErrors, setValidationErrors] = useState({
     artistConflict: null,
     stationsFull: false
@@ -154,6 +156,15 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     enabled: open && !!currentUser?.studio_id
   });
 
+  const { data: weeklySchedules = EMPTY_ARRAY } = useQuery({
+    queryKey: ['weeklySchedules', currentUser?.studio_id],
+    queryFn: async () => {
+      if (!currentUser?.studio_id) return [];
+      return base44.entities.ArtistWeeklySchedule.filter({ studio_id: currentUser.studio_id });
+    },
+    enabled: open && !!currentUser?.studio_id
+  });
+
   const { data: studio } = useQuery({
     queryKey: ['studio', currentUser?.studio_id],
     queryFn: async () => {
@@ -194,7 +205,8 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
         tax_amount: appointment.tax_amount ?? 0,
       });
       
-      // Find and set the selected customer if customer_id exists
+      setHealthFields(appointment.health_fields || {});
+
       if (appointment.customer_id) {
         const customer = customers.find(c => c.id === appointment.customer_id);
         setSelectedCustomer(customer || null);
@@ -226,6 +238,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
         status: 'scheduled'
       });
       setSelectedCustomer(null);
+      setHealthFields({});
     }
     setValidationErrors({ artistConflict: null, stationsFull: false });
     setDepositLinkMessage(null);
@@ -328,21 +341,54 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
           : 'all locations';
         errors.artistConflict = `This artist is unavailable from ${unavailableSlot.start_time} to ${unavailableSlot.end_time} at ${location}.`;
       } else {
-        const conflictingAppointment = allAppointments.find(apt => {
-          if (appointment && apt.id === appointment.id) return false;
-          if (apt.artist_id !== formData.artist_id) return false;
-          if (apt.appointment_date !== formData.appointment_date) return false;
-          if (apt.status === 'cancelled' || apt.status === 'no_show') return false;
-
-          const aptStart = timeToMinutes(apt.start_time);
-          const aptEnd = aptStart + (apt.duration_hours * 60);
-
-          return (startMinutes < aptEnd && endMinutes > aptStart);
+        const dow = appointmentDate.getDay();
+        const artistWeeklyEntries = weeklySchedules.filter(
+          ws => ws.artist_id === formData.artist_id && ws.day_of_week === dow && ws.is_active
+        );
+        const artistOneOffAvail = availabilities.filter(avail => {
+          if (avail.artist_id !== formData.artist_id || avail.is_blocked) return false;
+          const sd = parseISO(avail.start_date + 'T00:00:00');
+          const ed = parseISO(avail.end_date + 'T00:00:00');
+          return appointmentDate >= sd && appointmentDate <= ed;
         });
 
-        if (conflictingAppointment) {
-          const conflictLocation = locations.find(l => l.id === conflictingAppointment.location_id);
-          errors.artistConflict = `This artist is already booked from ${conflictingAppointment.start_time} to ${calculateEndTime(conflictingAppointment.start_time, conflictingAppointment.duration_hours)} at ${conflictLocation?.name || 'another location'}.`;
+        const hasAnySchedule = artistWeeklyEntries.length > 0 || artistOneOffAvail.length > 0;
+
+        if (hasAnySchedule) {
+          const fitsWeekly = artistWeeklyEntries.some(ws => {
+            const wsStart = timeToMinutes(ws.start_time);
+            const wsEnd = timeToMinutes(ws.end_time);
+            if (ws.location_id && ws.location_id !== formData.location_id) return false;
+            return startMinutes >= wsStart && endMinutes <= wsEnd;
+          });
+          const fitsOneOff = artistOneOffAvail.some(avail => {
+            const aStart = timeToMinutes(avail.start_time);
+            const aEnd = timeToMinutes(avail.end_time);
+            if (avail.location_id && avail.location_id !== formData.location_id) return false;
+            return startMinutes >= aStart && endMinutes <= aEnd;
+          });
+          if (!fitsWeekly && !fitsOneOff) {
+            errors.artistConflict = `This artist is not scheduled to work at this time. Check their weekly schedule or one-off availability.`;
+          }
+        }
+
+        if (!errors.artistConflict) {
+          const conflictingAppointment = allAppointments.find(apt => {
+            if (appointment && apt.id === appointment.id) return false;
+            if (apt.artist_id !== formData.artist_id) return false;
+            if (apt.appointment_date !== formData.appointment_date) return false;
+            if (apt.status === 'cancelled' || apt.status === 'no_show') return false;
+
+            const aptStart = timeToMinutes(apt.start_time);
+            const aptEnd = aptStart + (apt.duration_hours * 60);
+
+            return (startMinutes < aptEnd && endMinutes > aptStart);
+          });
+
+          if (conflictingAppointment) {
+            const conflictLocation = locations.find(l => l.id === conflictingAppointment.location_id);
+            errors.artistConflict = `This artist is already booked from ${conflictingAppointment.start_time} to ${calculateEndTime(conflictingAppointment.start_time, conflictingAppointment.duration_hours)} at ${conflictLocation?.name || 'another location'}.`;
+          }
         }
       }
     }
@@ -476,6 +522,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
       work_station_id: sanitizeUuid(formData.work_station_id),
       artist_id: sanitizeUuid(formData.artist_id),
       location_id: sanitizeUuid(formData.location_id),
+      health_fields: Object.keys(healthFields).length > 0 ? healthFields : {},
     };
 
     if (appointment) {
@@ -590,6 +637,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     : artists;
 
   const activeAppointmentTypes = appointmentTypes.filter(t => t.is_active);
+  const selectedAppointmentType = appointmentTypes.find(t => t.id === formData.appointment_type_id);
 
   return (
     <>
@@ -995,6 +1043,82 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
               />
             </div>
 
+            {(selectedAppointmentType?.category === 'Piercing' || selectedAppointmentType?.category === 'Tattoo') && (
+              <details className="border border-gray-200 rounded-lg p-3">
+                <summary className="cursor-pointer text-sm font-medium text-gray-700">Health & Clinical Fields</summary>
+                <div className="grid grid-cols-2 gap-3 mt-3">
+                  {selectedAppointmentType?.category === 'Piercing' && (
+                    <>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Needle Lot #</Label>
+                        <Input
+                          value={healthFields.needle_lot || ''}
+                          onChange={(e) => setHealthFields({ ...healthFields, needle_lot: e.target.value })}
+                          disabled={!canEdit()}
+                          className="text-sm"
+                          placeholder="Lot number"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Jewellery Lot #</Label>
+                        <Input
+                          value={healthFields.jewellery_lot || ''}
+                          onChange={(e) => setHealthFields({ ...healthFields, jewellery_lot: e.target.value })}
+                          disabled={!canEdit()}
+                          className="text-sm"
+                          placeholder="Lot number"
+                        />
+                      </div>
+                    </>
+                  )}
+                  {selectedAppointmentType?.category === 'Tattoo' && (
+                    <>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Ink Brand / Lot #</Label>
+                        <Input
+                          value={healthFields.ink_lot || ''}
+                          onChange={(e) => setHealthFields({ ...healthFields, ink_lot: e.target.value })}
+                          disabled={!canEdit()}
+                          className="text-sm"
+                          placeholder="Brand and lot number"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs">Needle Cartridge Lot #</Label>
+                        <Input
+                          value={healthFields.needle_cartridge_lot || ''}
+                          onChange={(e) => setHealthFields({ ...healthFields, needle_cartridge_lot: e.target.value })}
+                          disabled={!canEdit()}
+                          className="text-sm"
+                          placeholder="Cartridge lot number"
+                        />
+                      </div>
+                    </>
+                  )}
+                  <div className="space-y-1 col-span-2">
+                    <Label className="text-xs">Sterilization Notes</Label>
+                    <Input
+                      value={healthFields.sterilization_notes || ''}
+                      onChange={(e) => setHealthFields({ ...healthFields, sterilization_notes: e.target.value })}
+                      disabled={!canEdit()}
+                      className="text-sm"
+                      placeholder="Autoclave cycle, spore test, etc."
+                    />
+                  </div>
+                  <div className="space-y-1 col-span-2">
+                    <Label className="text-xs">Skin Prep / Aftercare Notes</Label>
+                    <Input
+                      value={healthFields.skin_prep_notes || ''}
+                      onChange={(e) => setHealthFields({ ...healthFields, skin_prep_notes: e.target.value })}
+                      disabled={!canEdit()}
+                      className="text-sm"
+                      placeholder="Skin prep method, aftercare instructions given, etc."
+                    />
+                  </div>
+                </div>
+              </details>
+            )}
+
             {appointment && canEdit() && appointment.status !== 'completed' && (
               <div className="space-y-2">
                 <Label htmlFor="status">Status</Label>
@@ -1008,6 +1132,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                   <SelectContent>
                     <SelectItem value="scheduled">Scheduled</SelectItem>
                     <SelectItem value="confirmed">Confirmed</SelectItem>
+                    <SelectItem value="deposit_paid">Deposit Paid</SelectItem>
                     <SelectItem value="cancelled">Cancelled</SelectItem>
                     <SelectItem value="no_show">No Show</SelectItem>
                   </SelectContent>

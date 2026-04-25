@@ -52,6 +52,7 @@ create table if not exists artists (
   studio_id uuid references studios (id),
   user_id uuid references users (id),
   full_name text not null,
+  artist_type text not null default 'tattoo',
   specialty text,
   bio text,
   phone text,
@@ -119,6 +120,19 @@ create table if not exists customers (
   updated_at timestamptz default now()
 );
 
+create table if not exists reporting_categories (
+  id uuid primary key default gen_random_uuid(),
+  studio_id uuid references studios (id),
+  name text not null,
+  category_type text not null default 'item',
+  display_order integer default 0,
+  is_active boolean default true,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+create index if not exists reporting_categories_studio_idx on reporting_categories(studio_id);
+
 create table if not exists appointment_types (
   id uuid primary key default gen_random_uuid(),
   studio_id uuid references studios (id),
@@ -128,6 +142,8 @@ create table if not exists appointment_types (
   default_duration numeric not null,
   default_deposit numeric not null,
   is_active boolean default true,
+  is_public_bookable boolean default false,
+  reporting_category_id uuid references reporting_categories (id),
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );
@@ -156,6 +172,8 @@ create table if not exists appointments (
   notes text,
   invitees jsonb,
   deposit_status text default 'none',
+  discount_amount numeric default 0,
+  health_fields jsonb default '{}',
   status text default 'scheduled',
   email_send_status text default 'pending',
   email_send_failed_reason text,
@@ -205,6 +223,116 @@ create table if not exists email_events (
 
 create index if not exists email_events_email_idx on email_events (email);
 create index if not exists email_events_appointment_idx on email_events (appointment_id);
+
+create table if not exists products (
+  id uuid primary key default gen_random_uuid(),
+  studio_id uuid references studios (id),
+  reporting_category_id uuid references reporting_categories (id),
+  name text not null,
+  sku text,
+  barcode text,
+  price numeric not null default 0,
+  cost numeric,
+  is_active boolean default true,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+create index if not exists products_studio_idx on products(studio_id);
+create index if not exists products_barcode_idx on products(studio_id, barcode);
+create index if not exists products_sku_idx on products(studio_id, sku);
+
+create table if not exists appointment_charges (
+  id uuid primary key default gen_random_uuid(),
+  studio_id uuid references studios (id),
+  appointment_id uuid references appointments (id) on delete cascade,
+  line_type text not null default 'product',
+  reporting_category_id uuid references reporting_categories (id),
+  reporting_category_name text,
+  product_id uuid references products (id),
+  description text not null,
+  quantity integer not null default 1,
+  unit_price numeric not null default 0,
+  discount_amount numeric not null default 0,
+  line_total numeric not null default 0,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+create index if not exists appointment_charges_appointment_idx on appointment_charges(appointment_id);
+create index if not exists appointment_charges_studio_idx on appointment_charges(studio_id);
+
+create table if not exists artist_split_rules (
+  id uuid primary key default gen_random_uuid(),
+  studio_id uuid references studios (id),
+  artist_id uuid references artists (id),
+  split_percent numeric not null default 50,
+  eligible_category_ids uuid[] default '{}',
+  is_active boolean default true,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+create index if not exists artist_split_rules_studio_idx on artist_split_rules(studio_id);
+create index if not exists artist_split_rules_artist_idx on artist_split_rules(artist_id);
+
+create table if not exists daily_settlements (
+  id uuid primary key default gen_random_uuid(),
+  studio_id uuid references studios (id),
+  location_id uuid references locations (id),
+  settlement_date date not null,
+  status text not null default 'draft',
+  gross_total numeric not null default 0,
+  tax_total numeric not null default 0,
+  discount_total numeric not null default 0,
+  net_total numeric not null default 0,
+  pos_collected numeric not null default 0,
+  online_collected numeric not null default 0,
+  gift_card_sales numeric not null default 0,
+  gift_card_returns numeric not null default 0,
+  locked_at timestamptz,
+  locked_by uuid references users (id),
+  notes text,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+create unique index if not exists daily_settlements_unique_idx
+  on daily_settlements(studio_id, location_id, settlement_date);
+create index if not exists daily_settlements_studio_date_idx
+  on daily_settlements(studio_id, settlement_date);
+
+create table if not exists daily_settlement_lines (
+  id uuid primary key default gen_random_uuid(),
+  studio_id uuid references studios (id),
+  settlement_id uuid references daily_settlements (id) on delete cascade,
+  artist_id uuid references artists (id),
+  appointment_id uuid references appointments (id),
+  gross_amount numeric not null default 0,
+  artist_share numeric not null default 0,
+  shop_share numeric not null default 0,
+  split_percent numeric not null default 0,
+  created_at timestamptz default now()
+);
+
+create index if not exists daily_settlement_lines_settlement_idx on daily_settlement_lines(settlement_id);
+create index if not exists daily_settlement_lines_artist_idx on daily_settlement_lines(artist_id);
+
+create table if not exists artist_weekly_schedules (
+  id uuid primary key default gen_random_uuid(),
+  studio_id uuid references studios (id),
+  artist_id uuid references artists (id),
+  day_of_week integer not null,
+  start_time text not null,
+  end_time text not null,
+  location_id uuid references locations (id),
+  is_active boolean default true,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+create index if not exists artist_weekly_schedules_studio_idx on artist_weekly_schedules(studio_id);
+create index if not exists artist_weekly_schedules_artist_idx on artist_weekly_schedules(artist_id);
 
 create or replace function set_updated_at()
 returns trigger as $$
@@ -256,4 +384,28 @@ for each row execute procedure set_updated_at();
 
 create trigger set_payments_updated_at
 before update on payments
+for each row execute procedure set_updated_at();
+
+create trigger set_reporting_categories_updated_at
+before update on reporting_categories
+for each row execute procedure set_updated_at();
+
+create trigger set_products_updated_at
+before update on products
+for each row execute procedure set_updated_at();
+
+create trigger set_appointment_charges_updated_at
+before update on appointment_charges
+for each row execute procedure set_updated_at();
+
+create trigger set_artist_split_rules_updated_at
+before update on artist_split_rules
+for each row execute procedure set_updated_at();
+
+create trigger set_daily_settlements_updated_at
+before update on daily_settlements
+for each row execute procedure set_updated_at();
+
+create trigger set_artist_weekly_schedules_updated_at
+before update on artist_weekly_schedules
 for each row execute procedure set_updated_at();

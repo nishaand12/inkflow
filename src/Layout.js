@@ -16,7 +16,10 @@ import {
   Wrench,
   Palette,
   ClipboardList,
-  BarChart3
+  BarChart3,
+  Package,
+  Tags,
+  Wallet
 } from "lucide-react";
 import {
   Sidebar,
@@ -178,9 +181,27 @@ export default function Layout({ children, currentPageName = null }) {
         roles: ["Owner", "Admin"]
       },
       {
+        title: "Products",
+        url: createPageUrl("Products"),
+        icon: Package,
+        roles: ["Owner", "Admin"]
+      },
+      {
+        title: "Categories",
+        url: createPageUrl("ReportingCategories"),
+        icon: Tags,
+        roles: ["Owner", "Admin"]
+      },
+      {
         title: "Reports",
         url: createPageUrl("Reports"),
         icon: BarChart3,
+        roles: ["Owner", "Admin"]
+      },
+      {
+        title: "Settlements",
+        url: createPageUrl("Settlements"),
+        icon: Wallet,
         roles: ["Owner", "Admin"]
       },
       {
@@ -193,7 +214,7 @@ export default function Layout({ children, currentPageName = null }) {
 
     const artistItems = [
       {
-        title: "My Availability",
+        title: "Availability",
         url: createPageUrl("MyAvailability"),
         icon: Clock,
         roles: ["Artist", "Owner", "Admin"]

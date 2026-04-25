@@ -1,0 +1,23 @@
+{
+  "name": "ReportingCategory",
+  "type": "object",
+  "properties": {
+    "studio_id": { "type": "string", "description": "Studio ID" },
+    "name": { "type": "string", "description": "Category display name" },
+    "category_type": {
+      "type": "string",
+      "enum": ["service", "item", "store_credit"],
+      "default": "item",
+      "description": "Groups categories for reporting (service, item, store_credit)"
+    },
+    "display_order": { "type": "number", "default": 0, "description": "Sort order in reports and UI" },
+    "is_active": { "type": "boolean", "default": true, "description": "Whether this category is active" }
+  },
+  "required": ["studio_id", "name", "category_type"],
+  "rls": {
+    "read": { "data.studio_id": "{{user.data.studio_id}}" },
+    "update": { "data.studio_id": "{{user.data.studio_id}}", "user_condition": { "data.user_role": ["Owner", "Admin"] } },
+    "delete": { "data.studio_id": "{{user.data.studio_id}}", "user_condition": { "data.user_role": ["Owner", "Admin"] } },
+    "write": { "user_condition": { "data.user_role": ["Owner", "Admin"] } }
+  }
+}

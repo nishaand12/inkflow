@@ -1,0 +1,28 @@
+{
+  "name": "DailySettlement",
+  "type": "object",
+  "properties": {
+    "studio_id": { "type": "string", "description": "Studio ID" },
+    "location_id": { "type": "string", "description": "FK to locations" },
+    "settlement_date": { "type": "string", "format": "date" },
+    "status": { "type": "string", "enum": ["draft", "locked"], "default": "draft" },
+    "gross_total": { "type": "number", "default": 0 },
+    "tax_total": { "type": "number", "default": 0 },
+    "discount_total": { "type": "number", "default": 0 },
+    "net_total": { "type": "number", "default": 0 },
+    "pos_collected": { "type": "number", "default": 0 },
+    "online_collected": { "type": "number", "default": 0 },
+    "gift_card_sales": { "type": "number", "default": 0 },
+    "gift_card_returns": { "type": "number", "default": 0 },
+    "locked_at": { "type": "string", "format": "date-time" },
+    "locked_by": { "type": "string" },
+    "notes": { "type": "string" }
+  },
+  "required": ["studio_id", "location_id", "settlement_date"],
+  "rls": {
+    "read": { "data.studio_id": "{{user.data.studio_id}}" },
+    "update": { "data.studio_id": "{{user.data.studio_id}}", "user_condition": { "data.user_role": ["Owner", "Admin"] } },
+    "delete": { "data.studio_id": "{{user.data.studio_id}}", "user_condition": { "data.user_role": ["Owner", "Admin"] } },
+    "write": { "user_condition": { "data.user_role": ["Owner", "Admin"] } }
+  }
+}

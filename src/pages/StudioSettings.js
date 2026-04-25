@@ -19,6 +19,7 @@ export default function StudioSettings() {
   const [user, setUser] = useState(null);
   const [studio, setStudio] = useState(null);
   const [copied, setCopied] = useState(false);
+  const [copiedBookingLink, setCopiedBookingLink] = useState(false);
   const [saved, setSaved] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
   const [emailSettings, setEmailSettings] = useState({
@@ -130,6 +131,18 @@ export default function StudioSettings() {
       navigator.clipboard.writeText(studio.invite_code);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  const getBookingUrl = () =>
+    studio?.id ? `${window.location.origin}/book?studio=${studio.id}` : '';
+
+  const handleCopyBookingLink = () => {
+    const url = getBookingUrl();
+    if (url) {
+      navigator.clipboard.writeText(url);
+      setCopiedBookingLink(true);
+      setTimeout(() => setCopiedBookingLink(false), 2000);
     }
   };
 
@@ -263,6 +276,41 @@ export default function StudioSettings() {
                     <li>They enter this invite code to join your studio</li>
                     <li>Set their role by contacting ceteasystems@gmail.com</li>
                   </ol>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="bg-white border-none shadow-lg">
+              <CardHeader className="border-b border-gray-100">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 bg-green-100 rounded-xl flex items-center justify-center">
+                    <ExternalLink className="w-6 h-6 text-green-600" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-xl text-gray-900">Online Booking Link</CardTitle>
+                    <p className="text-sm text-gray-600">Share this link so clients can book appointments online</p>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="p-6">
+                <div className="flex items-center gap-3">
+                  <div className="flex-1 bg-white border-2 border-green-200 rounded-xl px-4 py-3 font-mono text-sm text-gray-700 truncate">
+                    {getBookingUrl()}
+                  </div>
+                  <Button
+                    onClick={handleCopyBookingLink}
+                    className="bg-green-600 hover:bg-green-700 shrink-0"
+                    size="lg"
+                  >
+                    {copiedBookingLink ? (
+                      <><Check className="w-4 h-4 mr-2" />Copied!</>
+                    ) : (
+                      <><Copy className="w-4 h-4 mr-2" />Copy Link</>
+                    )}
+                  </Button>
+                </div>
+                <div className="mt-4 bg-white/70 rounded-lg p-4 text-sm text-gray-600">
+                  Share this link on your website or social media. Clients can browse your services and book directly without creating an account.
                 </div>
               </CardContent>
             </Card>
