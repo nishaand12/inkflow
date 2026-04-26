@@ -47,9 +47,9 @@
         "type": "string",
         "description": "Start time (HH:MM format)"
       },
-      "duration_hours": {
-        "type": "number",
-        "description": "Duration in hours"
+      "end_time": {
+        "type": "string",
+        "description": "End time (HH:MM format)"
       },
       "deposit_amount": {
         "type": "number",
@@ -132,7 +132,7 @@
       "location_id",
       "appointment_date",
       "start_time",
-      "duration_hours"
+      "end_time"
     ],
     "rls": {
       "read": {

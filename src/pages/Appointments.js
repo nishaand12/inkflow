@@ -273,7 +273,7 @@ export default function Appointments() {
                             </div>
                             <div className="flex items-center gap-2 text-gray-600">
                               <Clock className="w-4 h-4" />
-                              {appointment.start_time} ({appointment.duration_hours}h)
+                              {appointment.start_time}{appointment.end_time ? `–${appointment.end_time}` : ''}
                             </div>
                             <div className="flex items-center gap-2 text-gray-600">
                               <User className="w-4 h-4" />

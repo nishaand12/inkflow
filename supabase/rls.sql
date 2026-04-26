@@ -459,7 +459,7 @@ begin
       select json_agg(row_to_json(ap))
       from (
         select id, artist_id, location_id, appointment_date,
-               start_time, duration_hours, work_station_id, status
+               start_time, end_time, work_station_id, status
         from appointments
         where studio_id = p_studio_id
           and status not in ('cancelled', 'no_show')

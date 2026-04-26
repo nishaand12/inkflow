@@ -91,7 +91,7 @@ export default function AppointmentCard({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 sm:gap-3 text-xs sm:text-sm">
             <div className="flex items-center gap-2 text-gray-600">
               <Clock className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
-              <span className="truncate">{appointment.start_time} ({appointment.duration_hours}h)</span>
+              <span className="truncate">{appointment.start_time}{appointment.end_time ? `–${appointment.end_time}` : ''}</span>
             </div>
             <div className="flex items-center gap-2 text-gray-600">
               <MapPin className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />

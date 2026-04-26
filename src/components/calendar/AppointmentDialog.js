@@ -17,6 +17,7 @@ import CustomerDialog from "../customers/CustomerDialog";
 import AdvancedSearchDialog from "../customers/AdvancedSearchDialog";
 import CheckoutDialog from "./CheckoutDialog";
 import { normalizeUserRole } from "@/utils/roles";
+import { addMinutesToTime, formatDuration, PIERCING_CATEGORIES } from "@/utils/index";
 
 // Stable empty array to prevent new references on each render
 const EMPTY_ARRAY = [];
@@ -34,7 +35,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     client_phone: '',
     appointment_date: defaultDate ? format(defaultDate, 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'),
     start_time: '10:00',
-    duration_hours: 2,
+    end_time: '12:00',
     deposit_amount: 0,
     total_estimate: 0,
     design_description: '',
@@ -198,8 +199,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
         placement: appointment.placement || '',
         notes: appointment.notes || '',
         status: appointment.status || 'scheduled',
-        // Ensure numeric fields have 0 defaults (not null/undefined/NaN)
-        duration_hours: appointment.duration_hours ?? 2,
+        end_time: appointment.end_time || '12:00',
         deposit_amount: appointment.deposit_amount ?? 0,
         total_estimate: appointment.total_estimate ?? 0,
         tax_amount: appointment.tax_amount ?? 0,
@@ -228,7 +228,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
         client_phone: '',
         appointment_date: defaultDate ? format(defaultDate, 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'),
         start_time: '10:00',
-        duration_hours: 2,
+        end_time: '12:00',
         deposit_amount: 0,
         total_estimate: 0,
         tax_amount: 0,
@@ -254,7 +254,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
       setValidationErrors({ artistConflict: null, stationsFull: false });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [formData.artist_id, formData.appointment_date, formData.start_time, formData.duration_hours, formData.location_id, open, allAppointments, workStations, availabilities]);
+  }, [formData.artist_id, formData.appointment_date, formData.start_time, formData.end_time, formData.location_id, open, allAppointments, workStations, availabilities]);
 
   const handleCustomerSelect = (customer) => {
     setSelectedCustomer(customer);
@@ -297,10 +297,11 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
   const handleAppointmentTypeSelect = (typeId) => {
     const type = appointmentTypes.find(t => t.id === typeId);
     if (type) {
+      const newEnd = addMinutesToTime(formData.start_time, type.default_duration_minutes || 120);
       setFormData(prev => ({
         ...prev,
         appointment_type_id: typeId,
-        duration_hours: type.default_duration,
+        end_time: newEnd,
         deposit_amount: type.default_deposit
       }));
     }
@@ -312,9 +313,9 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
       stationsFull: false
     };
 
-    if (formData.artist_id && formData.appointment_date && formData.start_time) {
+    if (formData.artist_id && formData.appointment_date && formData.start_time && formData.end_time) {
       const startMinutes = timeToMinutes(formData.start_time);
-      const endMinutes = startMinutes + (formData.duration_hours * 60);
+      const endMinutes = timeToMinutes(formData.end_time);
       const appointmentDate = parseISO(formData.appointment_date + 'T00:00:00');
 
       const unavailableSlot = availabilities.find(avail => {
@@ -380,14 +381,14 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
             if (apt.status === 'cancelled' || apt.status === 'no_show') return false;
 
             const aptStart = timeToMinutes(apt.start_time);
-            const aptEnd = aptStart + (apt.duration_hours * 60);
+            const aptEnd = apt.end_time ? timeToMinutes(apt.end_time) : aptStart + 60;
 
             return (startMinutes < aptEnd && endMinutes > aptStart);
           });
 
           if (conflictingAppointment) {
             const conflictLocation = locations.find(l => l.id === conflictingAppointment.location_id);
-            errors.artistConflict = `This artist is already booked from ${conflictingAppointment.start_time} to ${calculateEndTime(conflictingAppointment.start_time, conflictingAppointment.duration_hours)} at ${conflictLocation?.name || 'another location'}.`;
+            errors.artistConflict = `This artist is already booked from ${conflictingAppointment.start_time} to ${conflictingAppointment.end_time} at ${conflictLocation?.name || 'another location'}.`;
           }
         }
       }
@@ -410,14 +411,6 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     return hours * 60 + minutes;
   };
 
-  const calculateEndTime = (startTime, duration) => {
-    const startMinutes = timeToMinutes(startTime);
-    const endMinutes = startMinutes + (duration * 60);
-    const hours = Math.floor(endMinutes / 60);
-    const minutes = endMinutes % 60;
-    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
-  };
-
   const getAvailableStations = () => {
     if (!formData.location_id || !formData.appointment_date || !formData.start_time) {
       return [];
@@ -428,7 +421,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     );
 
     const startMinutes = timeToMinutes(formData.start_time);
-    const endMinutes = startMinutes + (formData.duration_hours * 60);
+    const endMinutes = formData.end_time ? timeToMinutes(formData.end_time) : startMinutes + 60;
 
     const occupiedStationIds = allAppointments
       .filter(apt => {
@@ -438,7 +431,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
         if (apt.status === 'cancelled' || apt.status === 'no_show') return false;
 
         const aptStart = timeToMinutes(apt.start_time);
-        const aptEnd = aptStart + (apt.duration_hours * 60);
+        const aptEnd = apt.end_time ? timeToMinutes(apt.end_time) : aptStart + 60;
 
         return (startMinutes < aptEnd && endMinutes > aptStart);
       })
@@ -617,7 +610,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
       client_phone: '',
       appointment_date: format(new Date(), 'yyyy-MM-dd'),
       start_time: '10:00',
-      duration_hours: 2,
+      end_time: '12:00',
       deposit_amount: 0,
       total_estimate: 0,
       design_description: '',
@@ -728,7 +721,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                     <SelectItem value={null}>No Type</SelectItem>
                     {activeAppointmentTypes.map(type => (
                       <SelectItem key={type.id} value={type.id}>
-                        {type.name} - {type.default_duration}h, ${type.default_deposit}
+                        {type.name} — {formatDuration(type.default_duration_minutes)}, ${type.default_deposit} deposit
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -801,7 +794,12 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                   id="start_time"
                   type="time"
                   value={formData.start_time}
-                  onChange={(e) => setFormData({ ...formData, start_time: e.target.value, work_station_id: '' })}
+                  onChange={(e) => {
+                    const newStart = e.target.value;
+                    const currentDuration = timeToMinutes(formData.end_time) - timeToMinutes(formData.start_time);
+                    const newEnd = addMinutesToTime(newStart, Math.max(currentDuration, 15));
+                    setFormData({ ...formData, start_time: newStart, end_time: newEnd, work_station_id: '' });
+                  }}
                   required
                   disabled={!canEdit()}
                   className="text-sm"
@@ -809,14 +807,12 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="duration_hours" className="text-sm">Duration (h) *</Label>
+                <Label htmlFor="end_time" className="text-sm">End Time *</Label>
                 <Input
-                  id="duration_hours"
-                  type="number"
-                  min="0.5"
-                  step="0.5"
-                  value={formData.duration_hours}
-                  onChange={(e) => setFormData({ ...formData, duration_hours: parseFloat(e.target.value), work_station_id: '' })}
+                  id="end_time"
+                  type="time"
+                  value={formData.end_time}
+                  onChange={(e) => setFormData({ ...formData, end_time: e.target.value, work_station_id: '' })}
                   required
                   disabled={!canEdit()}
                   className="text-sm"
@@ -1043,11 +1039,11 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
               />
             </div>
 
-            {(selectedAppointmentType?.category === 'Piercing' || selectedAppointmentType?.category === 'Tattoo') && (
+            {(PIERCING_CATEGORIES.has(selectedAppointmentType?.category) || selectedAppointmentType?.category === 'Tattoo') && (
               <details className="border border-gray-200 rounded-lg p-3">
                 <summary className="cursor-pointer text-sm font-medium text-gray-700">Health & Clinical Fields</summary>
                 <div className="grid grid-cols-2 gap-3 mt-3">
-                  {selectedAppointmentType?.category === 'Piercing' && (
+                  {PIERCING_CATEGORIES.has(selectedAppointmentType?.category) && (
                     <>
                       <div className="space-y-1">
                         <Label className="text-xs">Needle Lot #</Label>

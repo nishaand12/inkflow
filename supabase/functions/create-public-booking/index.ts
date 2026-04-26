@@ -23,7 +23,7 @@ serve(async (req) => {
   try {
     const {
       studioId, appointmentTypeId, artistId, locationId, workStationId,
-      date, startTime, durationHours, depositAmount,
+      date, startTime, endTime, depositAmount,
       customerName, customerEmail, customerPhone
     } = await req.json();
 
@@ -103,7 +103,7 @@ serve(async (req) => {
         client_phone: customerPhone,
         appointment_date: date,
         start_time: startTime,
-        duration_hours: durationHours || aptType.default_duration,
+        end_time: endTime,
         deposit_amount: depositAmount ?? aptType.default_deposit,
         status: "scheduled",
       })

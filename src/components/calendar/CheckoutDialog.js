@@ -284,14 +284,6 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
   const stripeConnected = studio?.stripe_account_id && studio?.stripe_charges_enabled;
   const activeProducts = products.filter(p => p.is_active);
 
-  const calculateEndTime = (startTime, duration) => {
-    const [hours, minutes] = startTime.split(':').map(Number);
-    const totalMinutes = hours * 60 + minutes + (duration * 60);
-    const endHours = Math.floor(totalMinutes / 60);
-    const endMinutes = totalMinutes % 60;
-    return `${String(endHours).padStart(2, '0')}:${String(endMinutes).padStart(2, '0')}`;
-  };
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl bg-white max-h-[95vh] overflow-y-auto">
@@ -323,7 +315,7 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
               </div>
               <div>
                 <span className="text-gray-500">Time:</span>
-                <p className="font-medium">{appointment.start_time} - {calculateEndTime(appointment.start_time, appointment.duration_hours)}</p>
+                <p className="font-medium">{appointment.start_time}{appointment.end_time ? ` – ${appointment.end_time}` : ''}</p>
               </div>
               <div>
                 <span className="text-gray-500">Service:</span>

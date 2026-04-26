@@ -6,12 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Plus, Clock, DollarSign } from "lucide-react";
 import { normalizeUserRole } from "@/utils/roles";
+import { APPOINTMENT_CATEGORIES, PIERCING_CATEGORIES, formatDuration } from "@/utils/index";
 import AppointmentTypeDialog from "../components/appointment-types/AppointmentTypeDialog";
 
-const categoryColors = {
-  'Tattoo': 'bg-purple-100 text-purple-800 border-purple-200',
-  'Piercing': 'bg-pink-100 text-pink-800 border-pink-200',
-  'Other': 'bg-gray-100 text-gray-800 border-gray-200'
+const getCategoryStyle = (category) => {
+  if (category === 'Tattoo') return 'bg-purple-100 text-purple-800 border-purple-200';
+  if (PIERCING_CATEGORIES.has(category)) return 'bg-pink-100 text-pink-800 border-pink-200';
+  return 'bg-gray-100 text-gray-800 border-gray-200';
 };
 
 export default function AppointmentTypes() {
@@ -101,7 +102,7 @@ export default function AppointmentTypes() {
           </Button>
         </div>
 
-        {['Tattoo', 'Piercing', 'Other'].map(category => {
+        {[...APPOINTMENT_CATEGORIES, 'Piercing', 'Other', 'Deposit'].map(category => {
           const types = groupedTypes[category] || [];
           if (types.length === 0) return null;
 
@@ -109,7 +110,7 @@ export default function AppointmentTypes() {
             <Card key={category} className="bg-white border-none shadow-lg">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <Badge className={`${categoryColors[category]} border`}>
+                  <Badge className={`${getCategoryStyle(category)} border`}>
                     {category}
                   </Badge>
                   <span className="text-gray-500 text-sm font-normal">
@@ -134,15 +135,21 @@ export default function AppointmentTypes() {
                       {type.description && (
                         <p className="text-sm text-gray-600 mb-3 line-clamp-2">{type.description}</p>
                       )}
-                      <div className="flex items-center gap-4 text-sm">
+                      <div className="flex items-center gap-4 text-sm flex-wrap">
                         <div className="flex items-center gap-1 text-gray-600">
                           <Clock className="w-4 h-4" />
-                          <span>{type.default_duration}h</span>
+                          <span>{formatDuration(type.default_duration_minutes)}</span>
                         </div>
                         <div className="flex items-center gap-1 text-gray-600">
                           <DollarSign className="w-4 h-4" />
-                          <span>${type.default_deposit}</span>
+                          <span>Deposit: ${type.default_deposit}</span>
                         </div>
+                        {type.service_cost != null && (
+                          <div className="flex items-center gap-1 text-indigo-600 font-medium">
+                            <DollarSign className="w-4 h-4" />
+                            <span>${type.service_cost}</span>
+                          </div>
+                        )}
                       </div>
                     </div>
                   ))}

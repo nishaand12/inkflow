@@ -10,7 +10,14 @@
         "type": "string",
         "enum": [
           "Tattoo",
-          "Piercing",
+          "Ear Lobe Piercing",
+          "Ear Cartilage Piercing",
+          "Facial Piercing",
+          "Oral Piercing",
+          "Body Piercing",
+          "Genital Piercing",
+          "Other Piercings",
+          "Other Piercing Services",
           "Deposit",
           "Other"
         ],
@@ -24,13 +31,17 @@
         "type": "string",
         "description": "Detailed description"
       },
-      "default_duration": {
-        "type": "number",
-        "description": "Default duration in hours"
+      "default_duration_minutes": {
+        "type": "integer",
+        "description": "Default duration in minutes"
       },
       "default_deposit": {
         "type": "number",
         "description": "Default deposit amount"
+      },
+      "service_cost": {
+        "type": "number",
+        "description": "Optional fixed service cost shown to customers at booking"
       },
       "is_active": {
         "type": "boolean",
@@ -42,7 +53,7 @@
       "studio_id",
       "category",
       "name",
-      "default_duration",
+      "default_duration_minutes",
       "default_deposit"
     ],
     "rls": {

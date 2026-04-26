@@ -20,18 +20,25 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
+import { APPOINTMENT_CATEGORIES, PIERCING_CATEGORIES, formatDuration } from "@/utils/index";
+
+const DURATION_PRESETS = [10, 15, 20, 30, 45, 60, 90, 120, 150, 180, 240, 300, 360];
+
+const DEFAULT_FORM = {
+  category: 'Tattoo',
+  name: '',
+  description: '',
+  default_duration_minutes: 120,
+  default_deposit: 10,
+  service_cost: '',
+  is_active: true,
+  is_public_bookable: false,
+  reporting_category_id: ''
+};
+
 export default function AppointmentTypeDialog({ open, onOpenChange, appointmentType, currentUser }) {
   const queryClient = useQueryClient();
-  const [formData, setFormData] = useState({
-    category: 'Tattoo',
-    name: '',
-    description: '',
-    default_duration: 2,
-    default_deposit: 100,
-    is_active: true,
-    is_public_bookable: false,
-    reporting_category_id: ''
-  });
+  const [formData, setFormData] = useState(DEFAULT_FORM);
   const [showDeleteAlert, setShowDeleteAlert] = useState(false);
 
   const { data: reportingCategories = [] } = useQuery({
@@ -49,23 +56,15 @@ export default function AppointmentTypeDialog({ open, onOpenChange, appointmentT
         category: appointmentType.category || 'Tattoo',
         name: appointmentType.name || '',
         description: appointmentType.description || '',
-        default_duration: appointmentType.default_duration || 2,
-        default_deposit: appointmentType.default_deposit || 100,
+        default_duration_minutes: appointmentType.default_duration_minutes || 120,
+        default_deposit: appointmentType.default_deposit ?? 10,
+        service_cost: appointmentType.service_cost ?? '',
         is_active: appointmentType.is_active !== undefined ? appointmentType.is_active : true,
         is_public_bookable: appointmentType.is_public_bookable || false,
         reporting_category_id: appointmentType.reporting_category_id || ''
       });
     } else {
-      setFormData({
-        category: 'Tattoo',
-        name: '',
-        description: '',
-        default_duration: 2,
-        default_deposit: 100,
-        is_active: true,
-        is_public_bookable: false,
-        reporting_category_id: ''
-      });
+      setFormData(DEFAULT_FORM);
     }
   }, [appointmentType, open]);
 
@@ -99,7 +98,8 @@ export default function AppointmentTypeDialog({ open, onOpenChange, appointmentT
     const submitData = {
       ...formData,
       studio_id: currentUser?.studio_id,
-      reporting_category_id: formData.reporting_category_id || null
+      reporting_category_id: formData.reporting_category_id || null,
+      service_cost: formData.service_cost !== '' ? parseFloat(formData.service_cost) : null
     };
 
     if (appointmentType) {
@@ -119,16 +119,7 @@ export default function AppointmentTypeDialog({ open, onOpenChange, appointmentT
   };
 
   const resetForm = () => {
-    setFormData({
-      category: 'Tattoo',
-      name: '',
-      description: '',
-      default_duration: 2,
-      default_deposit: 100,
-      is_active: true,
-      is_public_bookable: false,
-      reporting_category_id: ''
-    });
+    setFormData(DEFAULT_FORM);
   };
 
   return (
@@ -156,9 +147,9 @@ export default function AppointmentTypeDialog({ open, onOpenChange, appointmentT
                   <SelectValue placeholder="Select category" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Tattoo">Tattoo</SelectItem>
-                  <SelectItem value="Piercing">Piercing</SelectItem>
-                  <SelectItem value="Other">Other</SelectItem>
+                  {APPOINTMENT_CATEGORIES.map(cat => (
+                    <SelectItem key={cat} value={cat}>{cat}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -186,17 +177,41 @@ export default function AppointmentTypeDialog({ open, onOpenChange, appointmentT
             </div>
 
             <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="default_duration">Default Duration (hours) *</Label>
-                <Input
-                  id="default_duration"
-                  type="number"
-                  min="0.5"
-                  step="0.5"
-                  value={formData.default_duration}
-                  onChange={(e) => setFormData({ ...formData, default_duration: parseFloat(e.target.value) })}
-                  required
-                />
+              <div className="space-y-2 col-span-2">
+                <Label htmlFor="default_duration_minutes">Default Duration *</Label>
+                <Select
+                  value={DURATION_PRESETS.includes(formData.default_duration_minutes)
+                    ? String(formData.default_duration_minutes)
+                    : '__custom__'}
+                  onValueChange={(val) => {
+                    if (val !== '__custom__') {
+                      setFormData({ ...formData, default_duration_minutes: parseInt(val) });
+                    }
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select duration" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {DURATION_PRESETS.map(m => (
+                      <SelectItem key={m} value={String(m)}>{formatDuration(m)}</SelectItem>
+                    ))}
+                    <SelectItem value="__custom__">Custom…</SelectItem>
+                  </SelectContent>
+                </Select>
+                {!DURATION_PRESETS.includes(formData.default_duration_minutes) && (
+                  <div className="flex items-center gap-2 mt-1">
+                    <Input
+                      type="number"
+                      min="1"
+                      step="1"
+                      value={formData.default_duration_minutes}
+                      onChange={(e) => setFormData({ ...formData, default_duration_minutes: parseInt(e.target.value) || 1 })}
+                      className="w-28"
+                    />
+                    <span className="text-sm text-gray-500">minutes</span>
+                  </div>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -210,6 +225,27 @@ export default function AppointmentTypeDialog({ open, onOpenChange, appointmentT
                   onChange={(e) => setFormData({ ...formData, default_deposit: parseFloat(e.target.value) })}
                   required
                 />
+              </div>
+
+              <div className="space-y-2 col-span-2">
+                <Label htmlFor="service_cost">
+                  Service Cost ($)
+                  <span className="ml-1 text-xs font-normal text-gray-400">(optional — shown to customers at booking)</span>
+                </Label>
+                <Input
+                  id="service_cost"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={formData.service_cost}
+                  onChange={(e) => setFormData({ ...formData, service_cost: e.target.value })}
+                  placeholder="e.g., 40.00"
+                />
+                {PIERCING_CATEGORIES.has(formData.category) && (
+                  <p className="text-xs text-gray-500">
+                    Piercing appointments will show this price to customers. The ${formData.default_deposit} deposit applies toward the total.
+                  </p>
+                )}
               </div>
             </div>
 

@@ -14,6 +14,11 @@
         "type": "string",
         "description": "Artist full name"
       },
+      "artist_type": {
+        "type": "string",
+        "enum": ["tattoo", "piercer", "both"],
+        "description": "Type of artist: tattoo artist, piercer, or both"
+      },
       "specialty": {
         "type": "string",
         "description": "Tattoo specialty (e.g., Traditional, Realism, Japanese)"

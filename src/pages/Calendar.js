@@ -61,8 +61,7 @@ function layoutDayAppointments(apts) {
 
   for (const apt of sorted) {
     const start = parseTimeToMinutes(apt.start_time);
-    const end   = start + Math.round((apt.duration_hours || 1) * 60);
-    let col = 0;
+    const end   = apt.end_time ? parseTimeToMinutes(apt.end_time) : start + 60;
     while (col < colEnds.length && colEnds[col] > start) col++;
     if (col >= colEnds.length) colEnds.push(end); else colEnds[col] = end;
     layout.push({ apt, col });
@@ -70,11 +69,11 @@ function layoutDayAppointments(apts) {
 
   return layout.map(({ apt, col }) => {
     const start = parseTimeToMinutes(apt.start_time);
-    const end   = start + Math.round((apt.duration_hours || 1) * 60);
+    const end   = apt.end_time ? parseTimeToMinutes(apt.end_time) : start + 60;
     let maxCol  = col;
     for (const { apt: other, col: oc } of layout) {
       const os = parseTimeToMinutes(other.start_time);
-      const oe = os + Math.round((other.duration_hours || 1) * 60);
+      const oe = other.end_time ? parseTimeToMinutes(other.end_time) : os + 60;
       if (start < oe && end > os) maxCol = Math.max(maxCol, oc);
     }
     return { apt, col, totalCols: maxCol + 1 };
@@ -555,7 +554,10 @@ export default function Calendar() {
                         {/* Appointment blocks */}
                         {laid.map(({ apt, col, totalCols }) => {
                           const top    = topFromTime(apt.start_time);
-                          const height = Math.max(HOUR_HEIGHT * 0.45, (apt.duration_hours || 1) * HOUR_HEIGHT - 2);
+                          const durationMins = apt.end_time
+                            ? parseTimeToMinutes(apt.end_time) - parseTimeToMinutes(apt.start_time)
+                            : 60;
+                          const height = Math.max(HOUR_HEIGHT * 0.45, (durationMins / 60) * HOUR_HEIGHT - 2);
                           const widthPct = 100 / totalCols;
                           const leftPct  = (col / totalCols) * 100;
                           const color    = getAptColor(apt);
@@ -591,9 +593,9 @@ export default function Calendar() {
                                     {typeName}
                                   </div>
                                 )}
-                                {height >= 58 && apt.duration_hours && (
+                                {height >= 58 && apt.end_time && (
                                   <div className="text-[10px] text-gray-400 leading-tight">
-                                    {apt.duration_hours}h
+                                    {apt.start_time}–{apt.end_time}
                                   </div>
                                 )}
                               </div>

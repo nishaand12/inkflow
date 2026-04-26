@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Calendar, Clock, CreditCard, CheckCircle, Loader2, AlertCircle } from "lucide-react";
+import { addMinutesToTime, formatDuration } from "@/utils/index";
 import { format, addDays } from "date-fns";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
@@ -87,8 +88,7 @@ export default function PublicBooking() {
 
   const getSlotsForArtist = (artistId, date) => {
     if (!selectedType || !selectedLocation || !date) return [];
-    const duration = selectedType.default_duration;
-    const durationMinutes = duration * 60;
+    const durationMinutes = selectedType.default_duration_minutes || 60;
 
     const dateObj = new Date(date + 'T00:00:00');
     const dayOfWeek = dateObj.getDay();
@@ -142,7 +142,7 @@ export default function PublicBooking() {
 
         const hasConflict = dayAppointments.some(apt => {
           const as = timeToMinutes(apt.start_time);
-          const ae = as + (apt.duration_hours * 60);
+          const ae = apt.end_time ? timeToMinutes(apt.end_time) : as + 60;
           return slotStart < ae && slotEnd > as;
         });
         if (hasConflict) continue;
@@ -151,7 +151,7 @@ export default function PublicBooking() {
           .filter(apt => {
             if (apt.location_id !== selectedLocation) return false;
             const as = timeToMinutes(apt.start_time);
-            const ae = as + (apt.duration_hours * 60);
+            const ae = apt.end_time ? timeToMinutes(apt.end_time) : as + 60;
             return slotStart < ae && slotEnd > as;
           })
           .map(apt => apt.work_station_id)
@@ -212,7 +212,7 @@ export default function PublicBooking() {
           workStationId: slot?.stationId || null,
           date: selectedDate,
           startTime: selectedTime,
-          durationHours: selectedType.default_duration,
+          endTime: addMinutesToTime(selectedTime, selectedType.default_duration_minutes || 60),
           depositAmount: selectedType.default_deposit,
           customerName: customerInfo.name,
           customerEmail: customerInfo.email,
@@ -339,7 +339,7 @@ export default function PublicBooking() {
                       <div className="text-right">
                         <div className="flex items-center gap-1 text-sm text-gray-500">
                           <Clock className="w-4 h-4" />
-                          {type.default_duration}h
+                          {formatDuration(type.default_duration_minutes)}
                         </div>
                         {type.default_deposit > 0 && (
                           <Badge className="bg-indigo-100 text-indigo-700 mt-1">
@@ -462,7 +462,7 @@ export default function PublicBooking() {
                 <p><span className="font-medium">Piercer:</span> {selectedArtist === '__any__' ? 'Any Available Piercer' : piercers.find(a => a.id === selectedArtist)?.full_name}</p>
                 <p><span className="font-medium">Location:</span> {locations.find(l => l.id === selectedLocation)?.name}</p>
                 <p><span className="font-medium">Date:</span> {selectedDate} at {selectedTime}</p>
-                <p><span className="font-medium">Duration:</span> {selectedType?.default_duration}h</p>
+                <p><span className="font-medium">Duration:</span> {formatDuration(selectedType?.default_duration_minutes)}</p>
                 {selectedType?.default_deposit > 0 && (
                   <p><span className="font-medium">Deposit:</span> ${selectedType.default_deposit}</p>
                 )}

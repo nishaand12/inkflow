@@ -8,11 +8,12 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Save, Trash2 } from "lucide-react";
+import { Save, Trash2, AlertCircle } from "lucide-react";
 import { ARTIST_PALETTE, autoAssignColor } from "@/utils/artistColors";
 
 export default function ArtistDialog({ open, onOpenChange, artist, locations }) {
   const queryClient = useQueryClient();
+  const [errorMessage, setErrorMessage] = useState(null);
   const [formData, setFormData] = useState({
     user_id: '',
     full_name: '',
@@ -31,6 +32,7 @@ export default function ArtistDialog({ open, onOpenChange, artist, locations }) 
 
   React.useEffect(() => {
     if (open) {
+      setErrorMessage(null);
       loadUser();
     }
   }, [open]);
@@ -100,6 +102,9 @@ export default function ArtistDialog({ open, onOpenChange, artist, locations }) 
       queryClient.invalidateQueries({ queryKey: ['artists'] });
       onOpenChange(false);
       resetForm();
+    },
+    onError: (error) => {
+      setErrorMessage(error?.message || 'Failed to create artist. Please try again.');
     }
   });
 
@@ -108,6 +113,9 @@ export default function ArtistDialog({ open, onOpenChange, artist, locations }) 
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['artists'] });
       onOpenChange(false);
+    },
+    onError: (error) => {
+      setErrorMessage(error?.message || 'Failed to update artist. Please try again.');
     }
   });
 
@@ -116,11 +124,22 @@ export default function ArtistDialog({ open, onOpenChange, artist, locations }) 
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['artists'] });
       onOpenChange(false);
+    },
+    onError: (error) => {
+      const msg = error?.message || '';
+      if (msg.includes('foreign key') || msg.includes('violates') || msg.includes('constraint')) {
+        setErrorMessage(
+          'This artist cannot be deleted because they have related records (e.g. availability, appointments). Remove those first, then delete the artist.'
+        );
+      } else {
+        setErrorMessage(msg || 'Failed to delete artist. Please try again.');
+      }
     }
   });
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setErrorMessage(null);
     const submitData = {
       ...formData,
       studio_id: currentUser?.studio_id
@@ -134,6 +153,7 @@ export default function ArtistDialog({ open, onOpenChange, artist, locations }) 
 
   const handleDelete = () => {
     if (window.confirm('Are you sure you want to delete this artist?')) {
+      setErrorMessage(null);
       deleteMutation.mutate(artist.id);
     }
   };
@@ -369,6 +389,12 @@ export default function ArtistDialog({ open, onOpenChange, artist, locations }) 
           </div>
 
           <DialogFooter className="flex justify-between gap-2">
+            {errorMessage && (
+              <div className="col-span-2 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 w-full mb-2">
+                <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+                <span>{errorMessage}</span>
+              </div>
+            )}
             {artist && isAdmin && (
               <Button
                 type="button"

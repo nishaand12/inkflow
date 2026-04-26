@@ -361,20 +361,25 @@ function generateCalendarInvite({
   const [hour, minute] = appointment.start_time.split(':').map(Number);
   
   // Calculate end time
-  const durationMs = (appointment.duration_hours || 1) * 60 * 60 * 1000;
-  
+  let endHour: number;
+  let endMinute: number;
+  let endDay = day;
+  if (appointment.end_time) {
+    const [eh, em] = appointment.end_time.split(':').map(Number);
+    endHour = eh;
+    endMinute = em;
+    if (endHour < hour || (endHour === hour && endMinute < minute)) endDay = day + 1;
+  } else {
+    const fallbackEnd = hour * 60 + minute + 60;
+    endHour = Math.floor(fallbackEnd / 60) % 24;
+    endMinute = fallbackEnd % 60;
+  }
+
   // Format date/time for iCal with timezone (TZID format)
   const formatLocalTime = (y: number, m: number, d: number, h: number, min: number) => {
     const pad = (n: number) => n.toString().padStart(2, '0');
     return `${y}${pad(m)}${pad(d)}T${pad(h)}${pad(min)}00`;
   };
-  
-  // Calculate end hour/minute
-  const startMinutes = hour * 60 + minute;
-  const endMinutes = startMinutes + (appointment.duration_hours || 1) * 60;
-  const endHour = Math.floor(endMinutes / 60) % 24;
-  const endMinute = endMinutes % 60;
-  const endDay = day + Math.floor(endMinutes / (24 * 60));
   
   const startStr = formatLocalTime(year, month, day, hour, minute);
   const endStr = formatLocalTime(year, month, endDay, endHour, endMinute);
