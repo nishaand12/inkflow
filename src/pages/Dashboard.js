@@ -6,7 +6,7 @@ import { createPageUrl } from "@/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Calendar, Users, MapPin, Clock, TrendingUp, Plus } from "lucide-react";
-import { format, startOfWeek, endOfWeek, isWithinInterval } from "date-fns";
+import { format, parseISO, startOfWeek, endOfWeek, isWithinInterval, startOfDay } from "date-fns";
 import AppointmentDialog from "../components/calendar/AppointmentDialog";
 import { normalizeUserRole } from "@/utils/roles";
 
@@ -85,7 +85,7 @@ export default function Dashboard() {
     : appointments;
 
   const thisWeekAppointments = filteredAppointments.filter(apt => {
-    const aptDate = new Date(apt.appointment_date);
+    const aptDate = parseISO(apt.appointment_date + 'T00:00:00');
     return isWithinInterval(aptDate, {
       start: startOfWeek(new Date()),
       end: endOfWeek(new Date())
@@ -93,7 +93,10 @@ export default function Dashboard() {
   });
 
   const upcomingAppointments = filteredAppointments
-    .filter(apt => new Date(apt.appointment_date) >= new Date() && apt.status !== 'cancelled')
+    .filter(apt => parseISO(apt.appointment_date + 'T00:00:00') >= startOfDay(new Date()) && apt.status !== 'cancelled')
+    .sort((a, b) => a.appointment_date !== b.appointment_date
+      ? a.appointment_date.localeCompare(b.appointment_date)
+      : (a.start_time || '').localeCompare(b.start_time || ''))
     .slice(0, 5);
 
   const totalRevenue = filteredAppointments
@@ -235,7 +238,7 @@ export default function Dashboard() {
                         <div>
                           <p className="font-semibold text-gray-900">{customerName}</p>
                           <p className="text-sm text-gray-500">
-                            {format(new Date(appointment.appointment_date), 'MMM d, yyyy')} at {appointment.start_time}
+                            {format(parseISO(appointment.appointment_date + 'T00:00:00'), 'MMM d, yyyy')} at {appointment.start_time}
                           </p>
                         </div>
                       </div>

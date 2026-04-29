@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ChevronLeft, ChevronRight, Plus } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, SlidersHorizontal, ChevronDown, ChevronUp, Search } from "lucide-react";
 import {
   format,
   startOfMonth, endOfMonth, eachDayOfInterval,
@@ -16,6 +16,9 @@ import AppointmentCard from "../components/calendar/AppointmentCard";
 import { normalizeUserRole } from "@/utils/roles";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { ARTIST_PALETTE, hexToRgba } from "@/utils/artistColors";
+import { PIERCING_CATEGORIES } from "@/utils/index";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
 
 // ─── Time grid constants ───────────────────────────────────────────────────
 const HOUR_HEIGHT = 64;   // px per hour
@@ -62,6 +65,7 @@ function layoutDayAppointments(apts) {
   for (const apt of sorted) {
     const start = parseTimeToMinutes(apt.start_time);
     const end   = apt.end_time ? parseTimeToMinutes(apt.end_time) : start + 60;
+    let col = 0;
     while (col < colEnds.length && colEnds[col] > start) col++;
     if (col >= colEnds.length) colEnds.push(end); else colEnds[col] = end;
     layout.push({ apt, col });
@@ -86,14 +90,25 @@ export default function Calendar() {
   const scrollRef = useRef(null);
   const [currentDate, setCurrentDate]             = useState(new Date());
   const [view, setView]                           = useState('day');
-  const [selectedLocation, setSelectedLocation]   = useState('all');
-  const [selectedArtist, setSelectedArtist]       = useState('all');
+  // Standard filters
   const [selectedTypeCategory, setSelectedTypeCategory] = useState('all');
+  const [statusFilter, setStatusFilter]           = useState('all');
+  const [selectedArtist, setSelectedArtist]       = useState('all');
+  // Advanced filters
+  const [showAdvanced, setShowAdvanced]           = useState(false);
+  const [customerSearch, setCustomerSearch]       = useState('');
+  const [selectedLocation, setSelectedLocation]   = useState('all');
+  const [workStationFilter, setWorkStationFilter] = useState('all');
+  const [specificTypeFilter, setSpecificTypeFilter] = useState('all');
+
   const [showAppointmentDialog, setShowAppointmentDialog] = useState(false);
   const [selectedAppointment, setSelectedAppointment]     = useState(null);
   const [selectedDate, setSelectedDate]           = useState(null);
   const [user, setUser]                           = useState(null);
   const [userArtist, setUserArtist]               = useState(null);
+
+  const advancedActiveCount = [selectedLocation, workStationFilter, specificTypeFilter]
+    .filter(v => v && v !== 'all').length + (customerSearch ? 1 : 0);
 
   // On mobile, force off month view
   useEffect(() => {
@@ -149,6 +164,12 @@ export default function Calendar() {
     enabled: !!user?.studio_id
   });
 
+  const { data: workStations = [] } = useQuery({
+    queryKey: ['workStations', user?.studio_id],
+    queryFn: () => base44.entities.WorkStation.filter({ studio_id: user.studio_id }),
+    enabled: !!user?.studio_id
+  });
+
   useEffect(() => {
     if (user && artists.length > 0) {
       setUserArtist(artists.find(a => a.user_id === user.id));
@@ -181,12 +202,26 @@ export default function Calendar() {
     if (isArtist && !isAdmin) {
       if (!userArtist || apt.artist_id !== userArtist.id) return false;
     }
-    if (selectedLocation !== 'all' && apt.location_id !== selectedLocation) return false;
-    if ((isAdmin || userRole === 'Front_Desk') && selectedArtist !== 'all' && apt.artist_id !== selectedArtist) return false;
+
+    const aptType = appointmentTypes.find(t => t.id === apt.appointment_type_id);
+
     if (selectedTypeCategory !== 'all') {
-      const t = appointmentTypes.find(t => t.id === apt.appointment_type_id);
-      if (t?.category !== selectedTypeCategory) return false;
+      if (selectedTypeCategory === 'Tattoo' && aptType?.category !== 'Tattoo') return false;
+      if (selectedTypeCategory === 'Piercing' && !PIERCING_CATEGORIES.has(aptType?.category)) return false;
+      if (selectedTypeCategory === 'Other' && (aptType?.category === 'Tattoo' || PIERCING_CATEGORIES.has(aptType?.category))) return false;
     }
+    if (statusFilter !== 'all' && apt.status !== statusFilter) return false;
+    if ((isAdmin || userRole === 'Front_Desk') && selectedArtist !== 'all' && apt.artist_id !== selectedArtist) return false;
+
+    // Advanced filters
+    if (selectedLocation !== 'all' && apt.location_id !== selectedLocation) return false;
+    if (workStationFilter !== 'all' && apt.work_station_id !== workStationFilter) return false;
+    if (specificTypeFilter !== 'all' && apt.appointment_type_id !== specificTypeFilter) return false;
+    if (customerSearch) {
+      const name = getCustomerName(apt).toLowerCase();
+      if (!name.includes(customerSearch.toLowerCase())) return false;
+    }
+
     return true;
   });
 
@@ -282,11 +317,12 @@ export default function Calendar() {
 
         {/* ── Filter bar ── */}
         <Card className="bg-white border-none shadow-md">
-          <CardContent className="p-3 sm:p-6">
-            <div className="rounded-xl bg-gray-50/80 p-3 sm:p-4">
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-4">
+          <CardContent className="p-3 sm:p-4">
+            <div className="rounded-xl bg-gray-50/80 p-3 sm:p-4 space-y-3">
+              {/* Calendar controls row */}
+              <div className="flex gap-2 items-center">
                 <Select value={view} onValueChange={setView}>
-                  <SelectTrigger className="text-sm">
+                  <SelectTrigger className="text-sm w-36 shrink-0">
                     <SelectValue placeholder="View" />
                   </SelectTrigger>
                   <SelectContent>
@@ -297,11 +333,23 @@ export default function Calendar() {
                     {!isMobile && <SelectItem value="month">Month View</SelectItem>}
                   </SelectContent>
                 </Select>
+                <div className="flex gap-1 flex-1 sm:flex-none">
+                  <Button variant="outline" onClick={handlePrevious} className="flex-1 sm:flex-none px-3">
+                    <ChevronLeft className="w-4 h-4" />
+                  </Button>
+                  <Button variant="outline" onClick={handleToday} className="flex-1 sm:flex-none px-3 text-sm">
+                    Today
+                  </Button>
+                  <Button variant="outline" onClick={handleNext} className="flex-1 sm:flex-none px-3">
+                    <ChevronRight className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
 
+              {/* Standard filters row */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 <Select value={selectedTypeCategory} onValueChange={setSelectedTypeCategory}>
-                  <SelectTrigger className="text-sm">
-                    <SelectValue placeholder="All Types" />
-                  </SelectTrigger>
+                  <SelectTrigger className="text-sm"><SelectValue placeholder="All Types" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Types</SelectItem>
                     <SelectItem value="Tattoo">Tattoo</SelectItem>
@@ -310,23 +358,22 @@ export default function Calendar() {
                   </SelectContent>
                 </Select>
 
-                <Select value={selectedLocation} onValueChange={setSelectedLocation}>
-                  <SelectTrigger className="text-sm">
-                    <SelectValue placeholder="All Locations" />
-                  </SelectTrigger>
+                <Select value={statusFilter} onValueChange={setStatusFilter}>
+                  <SelectTrigger className="text-sm"><SelectValue placeholder="All Statuses" /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">All Locations</SelectItem>
-                    {locations.map(loc => (
-                      <SelectItem key={loc.id} value={loc.id}>{loc.name}</SelectItem>
-                    ))}
+                    <SelectItem value="all">All Statuses</SelectItem>
+                    <SelectItem value="scheduled">Scheduled</SelectItem>
+                    <SelectItem value="confirmed">Confirmed</SelectItem>
+                    <SelectItem value="deposit_paid">Deposit Paid</SelectItem>
+                    <SelectItem value="completed">Completed</SelectItem>
+                    <SelectItem value="cancelled">Cancelled</SelectItem>
+                    <SelectItem value="no_show">No Show</SelectItem>
                   </SelectContent>
                 </Select>
 
                 {(isAdmin || userRole === 'Front_Desk') && (
                   <Select value={selectedArtist} onValueChange={setSelectedArtist}>
-                    <SelectTrigger className="text-sm">
-                      <SelectValue placeholder="All Artists" />
-                    </SelectTrigger>
+                    <SelectTrigger className="text-sm"><SelectValue placeholder="All Artists" /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Artists</SelectItem>
                       {artists.filter(a => a.is_active).map(a => (
@@ -344,18 +391,64 @@ export default function Calendar() {
                   </Select>
                 )}
 
-                <div className="flex gap-1 sm:gap-2 col-span-2 sm:col-span-1 lg:col-span-1">
-                  <Button variant="outline" onClick={handlePrevious} className="flex-1 px-2 sm:px-4">
-                    <ChevronLeft className="w-4 h-4" />
-                  </Button>
-                  <Button variant="outline" onClick={handleToday} className="flex-1 px-2 sm:px-4 text-sm">
-                    Today
-                  </Button>
-                  <Button variant="outline" onClick={handleNext} className="flex-1 px-2 sm:px-4">
-                    <ChevronRight className="w-4 h-4" />
-                  </Button>
-                </div>
+                <Button
+                  variant="outline"
+                  onClick={() => setShowAdvanced(v => !v)}
+                  className={`text-sm flex items-center gap-2 ${advancedActiveCount > 0 ? 'border-indigo-400 text-indigo-700 bg-indigo-50' : ''}`}
+                >
+                  <SlidersHorizontal className="w-4 h-4" />
+                  Advanced
+                  {advancedActiveCount > 0 && (
+                    <Badge className="bg-indigo-600 text-white text-xs px-1.5 py-0 h-4 min-w-4">{advancedActiveCount}</Badge>
+                  )}
+                  {showAdvanced ? <ChevronUp className="w-3 h-3 ml-auto" /> : <ChevronDown className="w-3 h-3 ml-auto" />}
+                </Button>
               </div>
+
+              {/* Advanced filters row */}
+              {showAdvanced && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 pt-2 border-t border-gray-200">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    <Input
+                      placeholder="Search by client..."
+                      value={customerSearch}
+                      onChange={(e) => setCustomerSearch(e.target.value)}
+                      className="pl-9 text-sm"
+                    />
+                  </div>
+
+                  <Select value={selectedLocation} onValueChange={setSelectedLocation}>
+                    <SelectTrigger className="text-sm"><SelectValue placeholder="All Locations" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Locations</SelectItem>
+                      {locations.map(loc => (
+                        <SelectItem key={loc.id} value={loc.id}>{loc.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
+                  <Select value={workStationFilter} onValueChange={setWorkStationFilter}>
+                    <SelectTrigger className="text-sm"><SelectValue placeholder="All Workstations" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Workstations</SelectItem>
+                      {workStations.map(ws => (
+                        <SelectItem key={ws.id} value={ws.id}>{ws.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
+                  <Select value={specificTypeFilter} onValueChange={setSpecificTypeFilter}>
+                    <SelectTrigger className="text-sm"><SelectValue placeholder="All Appointment Types" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Appointment Types</SelectItem>
+                      {[...appointmentTypes].sort((a, b) => a.name.localeCompare(b.name)).map(t => (
+                        <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>

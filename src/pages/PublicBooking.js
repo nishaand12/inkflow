@@ -7,8 +7,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Calendar, Clock, CreditCard, CheckCircle, Loader2, AlertCircle } from "lucide-react";
-import { addMinutesToTime, formatDuration } from "@/utils/index";
+import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion";
+import { Calendar, Clock, CreditCard, CheckCircle, Loader2, AlertCircle, Tag } from "lucide-react";
+import { addMinutesToTime, formatDuration, APPOINTMENT_CATEGORIES } from "@/utils/index";
 import { format, addDays } from "date-fns";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
@@ -170,6 +171,27 @@ export default function PublicBooking() {
     return slots;
   };
 
+  // Group appointment types by category, sorted A-Z within each group.
+  // Categories follow APPOINTMENT_CATEGORIES order; any unknown category falls into "Other".
+  const groupedTypes = useMemo(() => {
+    const byCategory = {};
+    for (const type of appointmentTypes) {
+      const cat = type.category || 'Other';
+      if (!byCategory[cat]) byCategory[cat] = [];
+      byCategory[cat].push(type);
+    }
+    for (const cat of Object.keys(byCategory)) {
+      byCategory[cat].sort((a, b) => a.name.localeCompare(b.name));
+    }
+    const knownOrder = [...APPOINTMENT_CATEGORIES].sort((a, b) => a.localeCompare(b));
+    const extraCats = Object.keys(byCategory)
+      .filter(c => !APPOINTMENT_CATEGORIES.includes(c))
+      .sort((a, b) => a.localeCompare(b));
+    return [...knownOrder, ...extraCats]
+      .filter(cat => byCategory[cat])
+      .map(cat => ({ category: cat, types: byCategory[cat] }));
+  }, [appointmentTypes]);
+
   const availableSlots = useMemo(() => {
     if (!selectedType || !selectedLocation || !selectedDate) return [];
 
@@ -285,7 +307,6 @@ export default function PublicBooking() {
     );
   }
 
-  const publicTypes = appointmentTypes;
   const minDate = format(addDays(new Date(), 1), 'yyyy-MM-dd');
 
   return (
@@ -319,37 +340,59 @@ export default function PublicBooking() {
             <CardHeader>
               <CardTitle className="text-xl">Select Service</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-3">
-              {publicTypes.length === 0 ? (
+            <CardContent>
+              {groupedTypes.length === 0 ? (
                 <p className="text-gray-500 text-center py-6">No services available for online booking at this time.</p>
               ) : (
-                publicTypes.map(type => (
-                  <button
-                    key={type.id}
-                    onClick={() => { setSelectedType(type); setStep(2); setError(null); }}
-                    className={`w-full p-4 rounded-xl border-2 text-left transition-all hover:border-indigo-300 hover:bg-indigo-50 ${
-                      selectedType?.id === type.id ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="font-semibold text-gray-900">{type.name}</p>
-                        {type.description && <p className="text-sm text-gray-500 mt-1">{type.description}</p>}
-                      </div>
-                      <div className="text-right">
-                        <div className="flex items-center gap-1 text-sm text-gray-500">
-                          <Clock className="w-4 h-4" />
-                          {formatDuration(type.default_duration_minutes)}
+                <Accordion type="single" collapsible className="w-full">
+                  {groupedTypes.map(({ category, types }) => (
+                    <AccordionItem key={category} value={category}>
+                      <AccordionTrigger className="text-base font-semibold text-gray-800 hover:no-underline px-1">
+                        <span className="flex items-center gap-2">
+                          <Tag className="w-4 h-4 text-indigo-500 shrink-0" />
+                          {category}
+                          <span className="text-xs font-normal text-gray-400 ml-1">({types.length})</span>
+                        </span>
+                      </AccordionTrigger>
+                      <AccordionContent className="px-1">
+                        <div className="space-y-2 pt-1">
+                          {types.map(type => (
+                            <button
+                              key={type.id}
+                              onClick={() => { setSelectedType(type); setStep(2); setError(null); }}
+                              className={`w-full p-4 rounded-xl border-2 text-left transition-all hover:border-indigo-300 hover:bg-indigo-50 ${
+                                selectedType?.id === type.id ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200'
+                              }`}
+                            >
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="flex-1 min-w-0">
+                                  <p className="font-semibold text-gray-900">{type.name}</p>
+                                  {type.description && (
+                                    <p className="text-sm text-gray-500 mt-0.5">{type.description}</p>
+                                  )}
+                                </div>
+                                <div className="text-right shrink-0 space-y-1">
+                                  <div className="flex items-center gap-1 text-sm text-gray-500 justify-end">
+                                    <Clock className="w-3.5 h-3.5" />
+                                    {formatDuration(type.default_duration_minutes)}
+                                  </div>
+                                  {type.service_cost > 0 && (
+                                    <p className="text-sm font-semibold text-gray-900">${type.service_cost}</p>
+                                  )}
+                                  {type.default_deposit > 0 && (
+                                    <Badge className="bg-indigo-100 text-indigo-700 text-xs">
+                                      ${type.default_deposit} deposit
+                                    </Badge>
+                                  )}
+                                </div>
+                              </div>
+                            </button>
+                          ))}
                         </div>
-                        {type.default_deposit > 0 && (
-                          <Badge className="bg-indigo-100 text-indigo-700 mt-1">
-                            ${type.default_deposit} deposit
-                          </Badge>
-                        )}
-                      </div>
-                    </div>
-                  </button>
-                ))
+                      </AccordionContent>
+                    </AccordionItem>
+                  ))}
+                </Accordion>
               )}
             </CardContent>
           </Card>
@@ -463,8 +506,11 @@ export default function PublicBooking() {
                 <p><span className="font-medium">Location:</span> {locations.find(l => l.id === selectedLocation)?.name}</p>
                 <p><span className="font-medium">Date:</span> {selectedDate} at {selectedTime}</p>
                 <p><span className="font-medium">Duration:</span> {formatDuration(selectedType?.default_duration_minutes)}</p>
+                {selectedType?.service_cost > 0 && (
+                  <p><span className="font-medium">Service Cost:</span> ${selectedType.service_cost}</p>
+                )}
                 {selectedType?.default_deposit > 0 && (
-                  <p><span className="font-medium">Deposit:</span> ${selectedType.default_deposit}</p>
+                  <p><span className="font-medium">Deposit Due Now:</span> ${selectedType.default_deposit}</p>
                 )}
               </div>
 

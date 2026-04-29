@@ -6,28 +6,38 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Search, Plus, Calendar, Clock, MapPin, User } from "lucide-react";
+import { Search, Plus, Calendar, Clock, MapPin, User, SlidersHorizontal, ChevronDown, ChevronUp, History } from "lucide-react";
 import { format, parseISO } from "date-fns";
+import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion";
 import AppointmentDialog from "../components/calendar/AppointmentDialog";
 import { normalizeUserRole } from "@/utils/roles";
+import { PIERCING_CATEGORIES } from "@/utils/index";
 
 const statusColors = {
-  scheduled: "bg-blue-100 text-blue-800 border-blue-200",
-  confirmed: "bg-green-100 text-green-800 border-green-200",
-  completed: "bg-gray-100 text-gray-800 border-gray-200",
-  cancelled: "bg-red-100 text-red-800 border-red-200",
-  no_show: "bg-orange-100 text-orange-800 border-orange-200"
+  scheduled:     "bg-blue-100 text-blue-800 border-blue-200",
+  confirmed:     "bg-green-100 text-green-800 border-green-200",
+  deposit_paid:  "bg-purple-100 text-purple-800 border-purple-200",
+  completed:     "bg-gray-100 text-gray-800 border-gray-200",
+  cancelled:     "bg-red-100 text-red-800 border-red-200",
+  no_show:       "bg-orange-100 text-orange-800 border-orange-200",
 };
 
 export default function Appointments() {
-  const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
-  const [locationFilter, setLocationFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [artistFilter, setArtistFilter] = useState('all');
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [locationFilter, setLocationFilter] = useState('all');
+  const [workStationFilter, setWorkStationFilter] = useState('all');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [specificTypeFilter, setSpecificTypeFilter] = useState('all');
   const [showDialog, setShowDialog] = useState(false);
   const [selectedAppointment, setSelectedAppointment] = useState(null);
   const [user, setUser] = useState(null);
   const [userArtist, setUserArtist] = useState(null);
+
+  const advancedActiveCount = [locationFilter, workStationFilter, searchTerm, specificTypeFilter]
+    .filter(v => v && v !== 'all' && v !== '').length;
 
   useEffect(() => {
     loadUser();
@@ -87,6 +97,15 @@ export default function Appointments() {
     enabled: !!user?.studio_id
   });
 
+  const { data: workStations = [] } = useQuery({
+    queryKey: ['workStations', user?.studio_id],
+    queryFn: async () => {
+      if (!user?.studio_id) return [];
+      return base44.entities.WorkStation.filter({ studio_id: user.studio_id });
+    },
+    enabled: !!user?.studio_id
+  });
+
   useEffect(() => {
     if (user && artists.length > 0) {
       const artist = artists.find(a => a.user_id === user.id);
@@ -124,19 +143,29 @@ export default function Appointments() {
       if (!userArtist) return false;
       if (apt.artist_id !== userArtist.id) return false;
     }
-    
-    const customerName = getCustomerName(apt);
-    const customerEmail = getCustomerEmail(apt);
-    
-    const matchesSearch = customerName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         customerEmail?.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus = statusFilter === 'all' || apt.status === statusFilter;
-    const matchesLocation = locationFilter === 'all' || apt.location_id === locationFilter;
-    const matchesType = typeFilter === 'all' || (() => {
-      const aptType = appointmentTypes.find(t => t.id === apt.appointment_type_id);
-      return aptType?.category === typeFilter;
-    })();
-    return matchesSearch && matchesStatus && matchesLocation && matchesType;
+
+    const aptType = appointmentTypes.find(t => t.id === apt.appointment_type_id);
+
+    if (typeFilter !== 'all') {
+      if (typeFilter === 'Tattoo' && aptType?.category !== 'Tattoo') return false;
+      if (typeFilter === 'Piercing' && !PIERCING_CATEGORIES.has(aptType?.category)) return false;
+      if (typeFilter === 'Other' && (aptType?.category === 'Tattoo' || PIERCING_CATEGORIES.has(aptType?.category))) return false;
+    }
+    if (statusFilter !== 'all' && apt.status !== statusFilter) return false;
+    if (artistFilter !== 'all' && apt.artist_id !== artistFilter) return false;
+
+    // Advanced filters
+    if (locationFilter !== 'all' && apt.location_id !== locationFilter) return false;
+    if (workStationFilter !== 'all' && apt.work_station_id !== workStationFilter) return false;
+    if (specificTypeFilter !== 'all' && apt.appointment_type_id !== specificTypeFilter) return false;
+    if (searchTerm) {
+      const name = getCustomerName(apt).toLowerCase();
+      const email = getCustomerEmail(apt).toLowerCase();
+      const q = searchTerm.toLowerCase();
+      if (!name.includes(q) && !email.includes(q)) return false;
+    }
+
+    return true;
   });
 
   const handleEdit = (appointment) => {
@@ -171,23 +200,12 @@ export default function Appointments() {
         </div>
 
         <Card className="bg-white border-none shadow-md">
-          <CardContent className="p-6">
-            <div className="rounded-xl bg-gray-50/80 p-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
-                  <Input
-                    placeholder="Search by client name or email..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="pl-10"
-                  />
-                </div>
-
+          <CardContent className="p-4 sm:p-6">
+            <div className="rounded-xl bg-gray-50/80 p-3 sm:p-4 space-y-3">
+              {/* Standard filters */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
                 <Select value={typeFilter} onValueChange={setTypeFilter}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="All Types" />
-                  </SelectTrigger>
+                  <SelectTrigger className="text-sm"><SelectValue placeholder="All Types" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Types</SelectItem>
                     <SelectItem value="Tattoo">Tattoo</SelectItem>
@@ -197,126 +215,207 @@ export default function Appointments() {
                 </Select>
 
                 <Select value={statusFilter} onValueChange={setStatusFilter}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="All Statuses" />
-                  </SelectTrigger>
+                  <SelectTrigger className="text-sm"><SelectValue placeholder="All Statuses" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Statuses</SelectItem>
                     <SelectItem value="scheduled">Scheduled</SelectItem>
                     <SelectItem value="confirmed">Confirmed</SelectItem>
+                    <SelectItem value="deposit_paid">Deposit Paid</SelectItem>
                     <SelectItem value="completed">Completed</SelectItem>
                     <SelectItem value="cancelled">Cancelled</SelectItem>
                     <SelectItem value="no_show">No Show</SelectItem>
                   </SelectContent>
                 </Select>
 
-                <Select value={locationFilter} onValueChange={setLocationFilter}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="All Locations" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Locations</SelectItem>
-                    {locations.map(location => (
-                      <SelectItem key={location.id} value={location.id}>
-                        {location.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                {!isArtist && (
+                  <Select value={artistFilter} onValueChange={setArtistFilter}>
+                    <SelectTrigger className="text-sm"><SelectValue placeholder="All Artists" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Artists</SelectItem>
+                      {artists.filter(a => a.is_active).map(a => (
+                        <SelectItem key={a.id} value={a.id}>{a.full_name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+
+                <Button
+                  variant="outline"
+                  onClick={() => setShowAdvanced(v => !v)}
+                  className={`text-sm flex items-center gap-2 ${advancedActiveCount > 0 ? 'border-indigo-400 text-indigo-700 bg-indigo-50' : ''}`}
+                >
+                  <SlidersHorizontal className="w-4 h-4" />
+                  Advanced
+                  {advancedActiveCount > 0 && (
+                    <Badge className="bg-indigo-600 text-white text-xs px-1.5 py-0 h-4 min-w-4">{advancedActiveCount}</Badge>
+                  )}
+                  {showAdvanced ? <ChevronUp className="w-3 h-3 ml-auto" /> : <ChevronDown className="w-3 h-3 ml-auto" />}
+                </Button>
               </div>
+
+              {/* Advanced filters */}
+              {showAdvanced && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 pt-2 border-t border-gray-200">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    <Input
+                      placeholder="Search by client..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="pl-9 text-sm"
+                    />
+                  </div>
+
+                  <Select value={locationFilter} onValueChange={setLocationFilter}>
+                    <SelectTrigger className="text-sm"><SelectValue placeholder="All Locations" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Locations</SelectItem>
+                      {locations.map(l => (
+                        <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
+                  <Select value={workStationFilter} onValueChange={setWorkStationFilter}>
+                    <SelectTrigger className="text-sm"><SelectValue placeholder="All Workstations" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Workstations</SelectItem>
+                      {workStations.map(ws => (
+                        <SelectItem key={ws.id} value={ws.id}>{ws.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
+                  <Select value={specificTypeFilter} onValueChange={setSpecificTypeFilter}>
+                    <SelectTrigger className="text-sm"><SelectValue placeholder="All Appointment Types" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Appointment Types</SelectItem>
+                      {[...appointmentTypes].sort((a, b) => a.name.localeCompare(b.name)).map(t => (
+                        <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>
 
-        <Card className="bg-white border-none shadow-lg">
-          <CardHeader>
-            <CardTitle>
-              {(isArtist && !isAdmin) ? 'My Appointments' : 'All Appointments'} ({filteredAppointments.length})
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {filteredAppointments.length === 0 ? (
-              <div className="text-center py-12">
-                <Calendar className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                <p className="text-gray-500">No appointments found</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {filteredAppointments.map(appointment => {
-                  const artist = artists.find(a => a.id === appointment.artist_id);
-                  const location = locations.find(l => l.id === appointment.location_id);
-                  const customerName = getCustomerName(appointment);
-                  const customerEmail = getCustomerEmail(appointment);
+        {(() => {
+          const today = format(new Date(), 'yyyy-MM-dd');
+          const upcoming = filteredAppointments
+            .filter(apt => apt.appointment_date >= today)
+            .sort((a, b) => a.appointment_date !== b.appointment_date
+              ? a.appointment_date.localeCompare(b.appointment_date)
+              : (a.start_time || '').localeCompare(b.start_time || ''));
+          const past = filteredAppointments
+            .filter(apt => apt.appointment_date < today)
+            .sort((a, b) => b.appointment_date.localeCompare(a.appointment_date));
 
-                  return (
-                    <div
-                      key={appointment.id}
-                      onClick={() => handleEdit(appointment)}
-                      className="p-4 rounded-xl border-2 border-gray-100 hover:border-indigo-200 hover:shadow-md transition-all duration-200 cursor-pointer"
-                    >
-                      <div className="flex flex-col lg:flex-row justify-between gap-4">
-                        <div className="flex-1 space-y-2">
-                          <div className="flex items-center gap-3">
-                            <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-600 flex items-center justify-center text-white font-bold text-lg">
-                              {customerName?.charAt(0) || 'C'}
-                            </div>
-                            <div>
-                              <h3 className="font-semibold text-gray-900">{customerName}</h3>
-                              <p className="text-sm text-gray-500">{customerEmail}</p>
-                            </div>
-                          </div>
-
-                          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
-                            <div className="flex items-center gap-2 text-gray-600">
-                              <Calendar className="w-4 h-4" />
-                              {format(parseISO(appointment.appointment_date + 'T00:00:00'), 'MMM d, yyyy')}
-                            </div>
-                            <div className="flex items-center gap-2 text-gray-600">
-                              <Clock className="w-4 h-4" />
-                              {appointment.start_time}{appointment.end_time ? `–${appointment.end_time}` : ''}
-                            </div>
-                            <div className="flex items-center gap-2 text-gray-600">
-                              <User className="w-4 h-4" />
-                              {artist?.full_name}
-                            </div>
-                            <div className="flex items-center gap-2 text-gray-600">
-                              <MapPin className="w-4 h-4" />
-                              {location?.name}
-                            </div>
-                          </div>
-
-                          {appointment.design_description && (
-                            <p className="text-sm text-gray-500 line-clamp-2">
-                              {appointment.design_description}
-                            </p>
-                          )}
-                        </div>
-
-                        <div className="flex flex-col items-end justify-between">
-                          <Badge className={`${statusColors[appointment.status]} border`}>
-                            {appointment.status}
-                          </Badge>
-                          {appointment.total_estimate > 0 && (
-                            <div className="text-right mt-2">
-                              <div className="text-lg font-bold text-gray-900">
-                                ${appointment.total_estimate}
-                              </div>
-                              {appointment.deposit_amount > 0 && (
-                                <div className="text-xs text-gray-500">
-                                  Deposit: ${appointment.deposit_amount}
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </div>
+          const renderRow = (appointment) => {
+            const artist = artists.find(a => a.id === appointment.artist_id);
+            const location = locations.find(l => l.id === appointment.location_id);
+            const customerName = getCustomerName(appointment);
+            const customerEmail = getCustomerEmail(appointment);
+            return (
+              <div
+                key={appointment.id}
+                onClick={() => handleEdit(appointment)}
+                className="p-4 rounded-xl border-2 border-gray-100 hover:border-indigo-200 hover:shadow-md transition-all duration-200 cursor-pointer"
+              >
+                <div className="flex flex-col lg:flex-row justify-between gap-4">
+                  <div className="flex-1 space-y-2">
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-600 flex items-center justify-center text-white font-bold text-lg">
+                        {customerName?.charAt(0) || 'C'}
+                      </div>
+                      <div>
+                        <h3 className="font-semibold text-gray-900">{customerName}</h3>
+                        <p className="text-sm text-gray-500">{customerEmail}</p>
                       </div>
                     </div>
-                  );
-                })}
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
+                      <div className="flex items-center gap-2 text-gray-600">
+                        <Calendar className="w-4 h-4" />
+                        {format(parseISO(appointment.appointment_date + 'T00:00:00'), 'MMM d, yyyy')}
+                      </div>
+                      <div className="flex items-center gap-2 text-gray-600">
+                        <Clock className="w-4 h-4" />
+                        {appointment.start_time}{appointment.end_time ? `–${appointment.end_time}` : ''}
+                      </div>
+                      <div className="flex items-center gap-2 text-gray-600">
+                        <User className="w-4 h-4" />
+                        {artist?.full_name}
+                      </div>
+                      <div className="flex items-center gap-2 text-gray-600">
+                        <MapPin className="w-4 h-4" />
+                        {location?.name}
+                      </div>
+                    </div>
+                    {appointment.design_description && (
+                      <p className="text-sm text-gray-500 line-clamp-2">{appointment.design_description}</p>
+                    )}
+                  </div>
+                  <div className="flex flex-col items-end justify-between">
+                    <Badge className={`${statusColors[appointment.status] || 'bg-gray-100 text-gray-800 border-gray-200'} border`}>
+                      {appointment.status?.replace('_', ' ')}
+                    </Badge>
+                    {appointment.total_estimate > 0 && (
+                      <div className="text-right mt-2">
+                        <div className="text-lg font-bold text-gray-900">${appointment.total_estimate}</div>
+                        {appointment.deposit_amount > 0 && (
+                          <div className="text-xs text-gray-500">Deposit: ${appointment.deposit_amount}</div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
-            )}
-          </CardContent>
-        </Card>
+            );
+          };
+
+          return (
+            <>
+              <Card className="bg-white border-none shadow-lg">
+                <CardHeader>
+                  <CardTitle>
+                    {(isArtist && !isAdmin) ? 'My Upcoming Appointments' : 'Upcoming Appointments'} ({upcoming.length})
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {upcoming.length === 0 ? (
+                    <div className="text-center py-12">
+                      <Calendar className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                      <p className="text-gray-500">No upcoming appointments found</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">{upcoming.map(renderRow)}</div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {past.length > 0 && (
+                <Card className="bg-white border-none shadow-lg">
+                  <CardContent className="pt-4">
+                    <Accordion type="single" collapsible>
+                      <AccordionItem value="past" className="border-none">
+                        <AccordionTrigger className="hover:no-underline px-2 py-2 text-gray-600">
+                          <span className="flex items-center gap-2 text-sm font-medium">
+                            <History className="w-4 h-4" />
+                            Past Appointments ({past.length})
+                          </span>
+                        </AccordionTrigger>
+                        <AccordionContent>
+                          <div className="space-y-3 pt-2">{past.map(renderRow)}</div>
+                        </AccordionContent>
+                      </AccordionItem>
+                    </Accordion>
+                  </CardContent>
+                </Card>
+              )}
+            </>
+          );
+        })()}
       </div>
 
       <AppointmentDialog

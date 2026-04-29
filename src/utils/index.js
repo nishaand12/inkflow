@@ -25,25 +25,25 @@ export const createPageUrl = (pageName) => {
 
 export const APPOINTMENT_CATEGORIES = [
   'Tattoo',
-  'Ear Lobe Piercing',
-  'Ear Cartilage Piercing',
-  'Facial Piercing',
-  'Oral Piercing',
-  'Body Piercing',
-  'Genital Piercing',
+  'Ear Lobe Piercings',
+  'Ear Cartilage Piercings',
+  'Facial Piercings',
+  'Oral Piercings',
+  'Body Piercings',
+  'Genital Piercings',
   'Other Piercings',
-  'Other Piercing Services',
+  'Piercing Services',
 ];
 
 export const PIERCING_CATEGORIES = new Set([
-  'Ear Lobe Piercing',
-  'Ear Cartilage Piercing',
-  'Facial Piercing',
-  'Oral Piercing',
-  'Body Piercing',
-  'Genital Piercing',
+  'Ear Lobe Piercings',
+  'Ear Cartilage Piercings',
+  'Facial Piercings',
+  'Oral Piercings',
+  'Body Piercings',
+  'Genital Piercings',
   'Other Piercings',
-  'Other Piercing Services',
+  'Piercing Services',
 ]);
 
 /** Format an integer number of minutes into a human-readable string. */

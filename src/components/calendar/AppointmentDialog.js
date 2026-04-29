@@ -3,6 +3,7 @@ import { base44 } from "@/api/base44Client";
 import { supabase } from "@/utils/supabase";
 import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -930,77 +931,82 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
             </div>
 
             {appointment && studio?.stripe_charges_enabled && formData.deposit_amount > 0 && (
-              <div className="border border-gray-200 rounded-lg p-3 space-y-3">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <CreditCard className="w-4 h-4 text-purple-600" />
-                    <span className="text-sm font-medium text-gray-700">Online Deposit</span>
-                  </div>
-                  {appointment.deposit_status === 'paid' && (
-                    <Badge className="bg-green-100 text-green-800 text-xs">Paid</Badge>
-                  )}
-                  {appointment.deposit_status === 'pending' && (
-                    <Badge className="bg-amber-100 text-amber-800 text-xs">Link Sent</Badge>
-                  )}
-                  {appointment.deposit_status === 'failed' && (
-                    <Badge className="bg-red-100 text-red-800 text-xs">Failed</Badge>
-                  )}
-                  {(!appointment.deposit_status || appointment.deposit_status === 'none') && (
-                    <Badge className="bg-gray-100 text-gray-600 text-xs">Not Requested</Badge>
-                  )}
-                </div>
-
-                {appointment.deposit_status !== 'paid' && canEdit() && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="w-full text-purple-700 border-purple-200 hover:bg-purple-50"
-                    onClick={handleSendDepositLink}
-                    disabled={depositLinkLoading}
-                  >
-                    {depositLinkLoading ? (
-                      <>
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        Creating link...
-                      </>
-                    ) : (
-                      <>
-                        <Link2 className="w-4 h-4 mr-2" />
-                        {appointment.deposit_status === 'pending' ? 'Resend Deposit Link' : 'Create Deposit Link'}
-                      </>
+              <Accordion type="single" collapsible>
+                <AccordionItem value="deposit" className="border border-gray-200 rounded-lg overflow-hidden">
+                  <AccordionTrigger className="px-3 py-2.5 hover:no-underline hover:bg-gray-50 [&[data-state=open]]:bg-gray-50">
+                    <div className="flex items-center justify-between w-full pr-2">
+                      <div className="flex items-center gap-2">
+                        <CreditCard className="w-4 h-4 text-purple-600" />
+                        <span className="text-sm font-medium text-gray-700">Online Deposit</span>
+                      </div>
+                      {appointment.deposit_status === 'paid' && (
+                        <Badge className="bg-green-100 text-green-800 text-xs">Paid</Badge>
+                      )}
+                      {appointment.deposit_status === 'pending' && (
+                        <Badge className="bg-amber-100 text-amber-800 text-xs">Link Sent</Badge>
+                      )}
+                      {appointment.deposit_status === 'failed' && (
+                        <Badge className="bg-red-100 text-red-800 text-xs">Failed</Badge>
+                      )}
+                      {(!appointment.deposit_status || appointment.deposit_status === 'none') && (
+                        <Badge className="bg-gray-100 text-gray-600 text-xs">Not Requested</Badge>
+                      )}
+                    </div>
+                  </AccordionTrigger>
+                  <AccordionContent className="px-3 pb-3 pt-0 space-y-2">
+                    {appointment.deposit_status !== 'paid' && canEdit() && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="w-full text-purple-700 border-purple-200 hover:bg-purple-50"
+                        onClick={handleSendDepositLink}
+                        disabled={depositLinkLoading}
+                      >
+                        {depositLinkLoading ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            Creating link...
+                          </>
+                        ) : (
+                          <>
+                            <Link2 className="w-4 h-4 mr-2" />
+                            {appointment.deposit_status === 'pending' ? 'Resend Deposit Link' : 'Create Deposit Link'}
+                          </>
+                        )}
+                      </Button>
                     )}
-                  </Button>
-                )}
 
-                {depositLinkMessage && (
-                  <p className={`text-xs ${depositLinkMessage.type === 'success' ? 'text-green-700' : 'text-red-700'}`}>
-                    {depositLinkMessage.text}
-                  </p>
-                )}
+                    {depositLinkMessage && (
+                      <p className={`text-xs ${depositLinkMessage.type === 'success' ? 'text-green-700' : 'text-red-700'}`}>
+                        {depositLinkMessage.text}
+                      </p>
+                    )}
 
-                {depositCheckoutUrl && (
-                  <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-md px-2 py-1.5">
-                    <input
-                      readOnly
-                      value={depositCheckoutUrl}
-                      className="text-xs text-gray-600 flex-1 bg-transparent min-w-0 truncate outline-none"
-                      onFocus={e => e.target.select()}
-                    />
-                    <button
-                      type="button"
-                      onClick={handleCopyDepositUrl}
-                      className="shrink-0 text-gray-400 hover:text-gray-700 transition-colors"
-                      title="Copy link"
-                    >
-                      {copiedDepositUrl
-                        ? <Check className="w-3.5 h-3.5 text-green-600" />
-                        : <Copy className="w-3.5 h-3.5" />
-                      }
-                    </button>
-                  </div>
-                )}
-              </div>
+                    {depositCheckoutUrl && (
+                      <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-md px-2 py-1.5">
+                        <input
+                          readOnly
+                          value={depositCheckoutUrl}
+                          className="text-xs text-gray-600 flex-1 bg-transparent min-w-0 truncate outline-none"
+                          onFocus={e => e.target.select()}
+                        />
+                        <button
+                          type="button"
+                          onClick={handleCopyDepositUrl}
+                          className="shrink-0 text-gray-400 hover:text-gray-700 transition-colors"
+                          title="Copy link"
+                        >
+                          {copiedDepositUrl
+                            ? <Check className="w-3.5 h-3.5 text-green-600" />
+                            : <Copy className="w-3.5 h-3.5" />
+                          }
+                        </button>
+                      </div>
+                    )}
+                  </AccordionContent>
+                </AccordionItem>
+              </Accordion>
             )}
 
             <div className="space-y-2">
