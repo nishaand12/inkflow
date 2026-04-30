@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -34,6 +35,13 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Tags, Plus, Trash2, Save, GripVertical } from "lucide-react";
 import { normalizeUserRole } from "@/utils/roles";
+import {
+  CATEGORY_ROLE_REPORTING,
+  CATEGORY_ROLE_APPOINTMENT_KIND,
+  flattenCategoryTree,
+  filterCategoriesByRole,
+  getCategoryPathLabel,
+} from "@/utils/reportingCategories";
 
 const categoryTypeLabels = {
   service: "Service",
@@ -47,20 +55,51 @@ const categoryTypeBadgeStyles = {
   store_credit: "bg-emerald-100 text-emerald-800 border-emerald-200",
 };
 
-const defaultFormState = {
-  name: "",
-  category_type: "service",
-  display_order: 0,
-  is_active: true,
-};
+function collectDescendantIds(categories, rootId) {
+  const byParent = new Map();
+  for (const c of categories) {
+    const p = c.parent_id || "";
+    if (!byParent.has(p)) byParent.set(p, []);
+    byParent.get(p).push(c);
+  }
+  const out = new Set();
+  const stack = [...(byParent.get(rootId) || [])];
+  while (stack.length) {
+    const n = stack.pop();
+    out.add(n.id);
+    for (const ch of byParent.get(n.id) || []) stack.push(ch);
+  }
+  return out;
+}
+
+function buildParentSelectOptions(categories, role, excludeCategoryId) {
+  const roleCats = filterCategoriesByRole(categories, role);
+  const exclude = new Set();
+  if (excludeCategoryId) {
+    exclude.add(excludeCategoryId);
+    for (const id of collectDescendantIds(roleCats, excludeCategoryId)) exclude.add(id);
+  }
+  return roleCats
+    .filter((c) => !exclude.has(c.id))
+    .sort((a, b) => (a.display_order ?? 0) - (b.display_order ?? 0) || (a.name || "").localeCompare(b.name || ""));
+}
 
 export default function ReportingCategories() {
   const queryClient = useQueryClient();
   const [user, setUser] = useState(null);
+  const [roleTab, setRoleTab] = useState(CATEGORY_ROLE_REPORTING);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState(null);
-  const [formData, setFormData] = useState(defaultFormState);
+  const [formData, setFormData] = useState({
+    name: "",
+    category_type: "service",
+    category_role: CATEGORY_ROLE_REPORTING,
+    parent_id: "",
+    clinical_profile: "",
+    display_order: 0,
+    is_active: true,
+  });
 
   useEffect(() => {
     loadUser();
@@ -114,27 +153,43 @@ export default function ReportingCategories() {
 
   const getUserRole = () => {
     if (!user) return null;
-    return normalizeUserRole(user.user_role || (user.role === 'admin' ? 'Admin' : 'Front_Desk'));
+    return normalizeUserRole(user.user_role || (user.role === "admin" ? "Admin" : "Front_Desk"));
   };
   const userRole = getUserRole();
-  const isAdmin = userRole === 'Admin' || userRole === 'Owner';
+  const isAdmin = userRole === "Admin" || userRole === "Owner";
+
+  const defaultFormForRole = (r) => ({
+    name: "",
+    category_type: r === CATEGORY_ROLE_REPORTING ? "service" : "service",
+    category_role: r,
+    parent_id: "",
+    clinical_profile: "",
+    display_order: 0,
+    is_active: true,
+  });
 
   const openNewDialog = () => {
     setSelectedCategory(null);
+    const siblings = filterCategoriesByRole(categories, roleTab);
+    const nextOrder =
+      siblings.length > 0 ? Math.max(...siblings.map((c) => c.display_order ?? 0)) + 1 : 0;
     setFormData({
-      ...defaultFormState,
-      display_order: categories.length > 0
-        ? Math.max(...categories.map((c) => c.display_order ?? 0)) + 1
-        : 0,
+      ...defaultFormForRole(roleTab),
+      category_role: roleTab,
+      display_order: nextOrder,
     });
     setDialogOpen(true);
   };
 
   const openEditDialog = (category) => {
     setSelectedCategory(category);
+    const cr = category.category_role || CATEGORY_ROLE_REPORTING;
     setFormData({
       name: category.name || "",
       category_type: category.category_type || "service",
+      category_role: cr,
+      parent_id: category.parent_id || "",
+      clinical_profile: category.clinical_profile || "",
       display_order: category.display_order ?? 0,
       is_active: category.is_active !== false,
     });
@@ -144,16 +199,29 @@ export default function ReportingCategories() {
   const closeDialog = () => {
     setDialogOpen(false);
     setSelectedCategory(null);
-    setFormData(defaultFormState);
+    setFormData(defaultFormForRole(roleTab));
   };
 
   const handleSave = () => {
     if (!formData.name.trim()) return;
 
+    const payload = {
+      name: formData.name.trim(),
+      category_type: formData.category_type,
+      category_role: formData.category_role,
+      display_order: formData.display_order,
+      is_active: formData.is_active,
+      parent_id: formData.parent_id || null,
+      clinical_profile:
+        formData.category_role === CATEGORY_ROLE_APPOINTMENT_KIND && formData.clinical_profile
+          ? formData.clinical_profile
+          : null,
+    };
+
     if (selectedCategory) {
-      updateMutation.mutate({ id: selectedCategory.id, data: formData });
+      updateMutation.mutate({ id: selectedCategory.id, data: payload });
     } else {
-      createMutation.mutate({ ...formData, studio_id: user.studio_id });
+      createMutation.mutate({ ...payload, studio_id: user.studio_id });
     }
   };
 
@@ -170,6 +238,11 @@ export default function ReportingCategories() {
   };
 
   const isSaving = createMutation.isPending || updateMutation.isPending;
+
+  const parentOptions = useMemo(
+    () => buildParentSelectOptions(categories, formData.category_role, selectedCategory?.id),
+    [categories, formData.category_role, selectedCategory?.id]
+  );
 
   if (!isAdmin) {
     return (
@@ -195,109 +268,72 @@ export default function ReportingCategories() {
           <div className="flex items-center gap-3">
             <Tags className="w-8 h-8 text-indigo-600" />
             <div>
-              <h1 className="text-3xl font-bold text-gray-900">Reporting Categories</h1>
-              <p className="text-gray-500 mt-1">Manage categories used in studio reports</p>
+              <h1 className="text-3xl font-bold text-gray-900">Categories</h1>
+              <p className="text-gray-500 mt-1">
+                Reporting hierarchy for revenue and products; appointment kinds for booking and
+                calendars
+              </p>
             </div>
           </div>
-          <Button
-            onClick={openNewDialog}
-            className="bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-200"
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            Add Category
-          </Button>
         </div>
 
-        <Card className="bg-white border-none shadow-lg">
-          <CardHeader>
-            <CardTitle className="text-xl flex items-center gap-2">
-              Categories
-              <span className="text-sm font-normal text-gray-500">
-                ({categories.length})
-              </span>
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {isLoading ? (
-              <div className="py-12 text-center text-gray-500">Loading categories...</div>
-            ) : categories.length === 0 ? (
-              <div className="py-12 text-center">
-                <p className="text-gray-500 mb-4">No reporting categories configured</p>
-                <Button
-                  onClick={openNewDialog}
-                  className="bg-indigo-600 hover:bg-indigo-700"
-                >
-                  <Plus className="w-4 h-4 mr-2" />
-                  Add First Category
-                </Button>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <div className="grid grid-cols-[auto_1fr_auto_auto_auto_auto] gap-4 px-4 py-2 text-sm font-medium text-gray-500 border-b border-gray-100">
-                  <div className="w-6" />
-                  <div>Name</div>
-                  <div className="w-28 text-center">Type</div>
-                  <div className="w-20 text-center">Order</div>
-                  <div className="w-20 text-center">Status</div>
-                  <div className="w-10" />
-                </div>
-                {categories.map((category) => (
-                  <div
-                    key={category.id}
-                    onClick={() => openEditDialog(category)}
-                    className="grid grid-cols-[auto_1fr_auto_auto_auto_auto] gap-4 items-center px-4 py-3 rounded-lg border border-gray-100 hover:border-indigo-200 hover:shadow-md transition-all duration-200 cursor-pointer group"
-                  >
-                    <GripVertical className="w-4 h-4 text-gray-300 group-hover:text-gray-400" />
-                    <div className="font-medium text-gray-900">{category.name}</div>
-                    <div className="w-28 flex justify-center">
-                      <Badge
-                        className={`${categoryTypeBadgeStyles[category.category_type] || "bg-gray-100 text-gray-800"} border text-xs`}
-                      >
-                        {categoryTypeLabels[category.category_type] || category.category_type}
-                      </Badge>
-                    </div>
-                    <div className="w-20 text-center text-sm text-gray-600">
-                      {category.display_order ?? "—"}
-                    </div>
-                    <div className="w-20 flex justify-center">
-                      <Badge
-                        className={
-                          category.is_active !== false
-                            ? "bg-green-100 text-green-800 border-green-200 border"
-                            : "bg-gray-100 text-gray-500 border-gray-200 border"
-                        }
-                      >
-                        {category.is_active !== false ? "Active" : "Inactive"}
-                      </Badge>
-                    </div>
-                    <div className="w-10 flex justify-center">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-gray-400 hover:text-red-600 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity"
-                        onClick={(e) => handleDeleteClick(e, category)}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        <Tabs value={roleTab} onValueChange={setRoleTab} className="space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <TabsList className="bg-white border border-gray-200">
+              <TabsTrigger value={CATEGORY_ROLE_REPORTING}>Reporting &amp; products</TabsTrigger>
+              <TabsTrigger value={CATEGORY_ROLE_APPOINTMENT_KIND}>Appointment kinds</TabsTrigger>
+            </TabsList>
+            <Button
+              onClick={openNewDialog}
+              className="bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-200 shrink-0"
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Add {roleTab === CATEGORY_ROLE_REPORTING ? "category" : "kind"}
+            </Button>
+          </div>
+
+          <TabsContent value={CATEGORY_ROLE_REPORTING} className="mt-0">
+            <CategoryTable
+              isLoading={isLoading}
+              treeRows={flattenCategoryTree(categories, CATEGORY_ROLE_REPORTING)}
+              count={filterCategoriesByRole(categories, CATEGORY_ROLE_REPORTING).length}
+              emptyLabel="No reporting categories configured"
+              onAdd={openNewDialog}
+              onRowClick={openEditDialog}
+              onDelete={handleDeleteClick}
+              categoryTypeLabels={categoryTypeLabels}
+              categoryTypeBadgeStyles={categoryTypeBadgeStyles}
+              showTypeColumn
+            />
+          </TabsContent>
+
+          <TabsContent value={CATEGORY_ROLE_APPOINTMENT_KIND} className="mt-0">
+            <CategoryTable
+              isLoading={isLoading}
+              treeRows={flattenCategoryTree(categories, CATEGORY_ROLE_APPOINTMENT_KIND)}
+              count={filterCategoriesByRole(categories, CATEGORY_ROLE_APPOINTMENT_KIND).length}
+              emptyLabel="No appointment kind categories — add a parent (e.g. Piercing) then sub-kinds"
+              onAdd={openNewDialog}
+              onRowClick={openEditDialog}
+              onDelete={handleDeleteClick}
+              categoryTypeLabels={categoryTypeLabels}
+              categoryTypeBadgeStyles={categoryTypeBadgeStyles}
+              showTypeColumn={false}
+            />
+          </TabsContent>
+        </Tabs>
       </div>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="sm:max-w-md bg-white">
           <DialogHeader>
             <DialogTitle>
-              {selectedCategory ? "Edit Category" : "Add Category"}
+              {selectedCategory ? "Edit category" : "Add category"}
             </DialogTitle>
             <DialogDescription>
-              {selectedCategory
-                ? "Update the reporting category details below."
-                : "Fill in the details to create a new reporting category."}
+              {formData.category_role === CATEGORY_ROLE_APPOINTMENT_KIND
+                ? "Appointment kinds appear when creating appointment types and on the public booking page. Use sub-categories for detail (e.g. Piercing › Ear)."
+                : "Reporting categories classify revenue, checkout lines, and products."}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
@@ -307,29 +343,92 @@ export default function ReportingCategories() {
                 id="name"
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                placeholder="e.g. Tattoo Services"
+                placeholder={
+                  formData.category_role === CATEGORY_ROLE_APPOINTMENT_KIND
+                    ? "e.g. Ear piercings"
+                    : "e.g. Tattoo services"
+                }
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="category_type">Category Type</Label>
+              <Label htmlFor="parent_id">Parent (optional)</Label>
               <Select
-                value={formData.category_type}
+                value={formData.parent_id || "__root__"}
                 onValueChange={(value) =>
-                  setFormData({ ...formData, category_type: value })
+                  setFormData({
+                    ...formData,
+                    parent_id: value === "__root__" ? "" : value,
+                  })
                 }
               >
-                <SelectTrigger id="category_type">
-                  <SelectValue placeholder="Select type" />
+                <SelectTrigger id="parent_id">
+                  <SelectValue placeholder="Top level" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="service">Service</SelectItem>
-                  <SelectItem value="item">Item</SelectItem>
-                  <SelectItem value="store_credit">Store Credit</SelectItem>
+                  <SelectItem value="__root__">Top level</SelectItem>
+                  {parentOptions.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {getCategoryPathLabel(
+                        filterCategoriesByRole(categories, formData.category_role),
+                        p.id
+                      ) || p.name}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
+              <p className="text-xs text-gray-500">
+                Choose a parent to create a sub-category. Revenue can be rolled up to parents in
+                reports.
+              </p>
             </div>
+            {formData.category_role === CATEGORY_ROLE_REPORTING && (
+              <div className="space-y-2">
+                <Label htmlFor="category_type">Category type</Label>
+                <Select
+                  value={formData.category_type}
+                  onValueChange={(value) =>
+                    setFormData({ ...formData, category_type: value })
+                  }
+                >
+                  <SelectTrigger id="category_type">
+                    <SelectValue placeholder="Select type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="service">Service</SelectItem>
+                    <SelectItem value="item">Item</SelectItem>
+                    <SelectItem value="store_credit">Store Credit</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            {formData.category_role === CATEGORY_ROLE_APPOINTMENT_KIND && (
+              <div className="space-y-2">
+                <Label htmlFor="clinical_profile">Clinical fields (optional)</Label>
+                <Select
+                  value={formData.clinical_profile || "__none__"}
+                  onValueChange={(value) =>
+                    setFormData({
+                      ...formData,
+                      clinical_profile: value === "__none__" ? "" : value,
+                    })
+                  }
+                >
+                  <SelectTrigger id="clinical_profile">
+                    <SelectValue placeholder="None" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">None</SelectItem>
+                    <SelectItem value="tattoo">Tattoo (ink / cartridge lots)</SelectItem>
+                    <SelectItem value="piercing">Piercing (needle / jewellery lots)</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-gray-500">
+                  Applies to this node and descendants when editing appointments.
+                </p>
+              </div>
+            )}
             <div className="space-y-2">
-              <Label htmlFor="display_order">Display Order</Label>
+              <Label htmlFor="display_order">Display order</Label>
               <Input
                 id="display_order"
                 type="number"
@@ -372,10 +471,10 @@ export default function ReportingCategories() {
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete Category</AlertDialogTitle>
+            <AlertDialogTitle>Delete category</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete "{selectedCategory?.name}"? This action
-              cannot be undone.
+              Are you sure you want to delete &quot;{selectedCategory?.name}&quot;? Child categories
+              become top-level. This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -393,5 +492,129 @@ export default function ReportingCategories() {
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  );
+}
+
+function CategoryTable({
+  isLoading,
+  treeRows,
+  count,
+  emptyLabel,
+  onAdd,
+  onRowClick,
+  onDelete,
+  categoryTypeLabels,
+  categoryTypeBadgeStyles,
+  showTypeColumn,
+}) {
+  return (
+    <Card className="bg-white border-none shadow-lg">
+      <CardHeader>
+        <CardTitle className="text-xl flex items-center gap-2">
+          Categories
+          <span className="text-sm font-normal text-gray-500">({count})</span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <div className="py-12 text-center text-gray-500">Loading categories...</div>
+        ) : count === 0 ? (
+          <div className="py-12 text-center">
+            <p className="text-gray-500 mb-4">{emptyLabel}</p>
+            <Button onClick={onAdd} className="bg-indigo-600 hover:bg-indigo-700">
+              <Plus className="w-4 h-4 mr-2" />
+              Add first category
+            </Button>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <div
+              className={`grid gap-4 px-4 py-2 text-sm font-medium text-gray-500 border-b border-gray-100 ${
+                showTypeColumn
+                  ? "grid-cols-[auto_1fr_auto_auto_auto_auto]"
+                  : "grid-cols-[auto_1fr_auto_auto_auto]"
+              }`}
+            >
+              <div className="w-6" />
+              <div>Name</div>
+              {showTypeColumn && <div className="w-28 text-center">Type</div>}
+              <div className="w-20 text-center">Order</div>
+              <div className="w-20 text-center">Status</div>
+              <div className="w-10" />
+            </div>
+            {treeRows.map(({ node: category, depth }) => (
+              <div
+                key={category.id}
+                role="button"
+                tabIndex={0}
+                data-testid="category-row"
+                onClick={() => onRowClick(category)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    onRowClick(category);
+                  }
+                }}
+                className={`grid gap-4 items-center px-4 py-3 rounded-lg border border-gray-100 hover:border-indigo-200 hover:shadow-md transition-all duration-200 cursor-pointer group ${
+                  showTypeColumn
+                    ? "grid-cols-[auto_1fr_auto_auto_auto_auto]"
+                    : "grid-cols-[auto_1fr_auto_auto_auto]"
+                }`}
+              >
+                <GripVertical className="w-4 h-4 text-gray-300 group-hover:text-gray-400" />
+                <div
+                  className="font-medium text-gray-900 min-w-0"
+                  style={{ paddingLeft: depth * 16 }}
+                >
+                  {category.name}
+                  {category.clinical_profile && (
+                    <span className="text-xs font-normal text-gray-500 ml-2">
+                      ({category.clinical_profile})
+                    </span>
+                  )}
+                </div>
+                {showTypeColumn && (
+                  <div className="w-28 flex justify-center">
+                    <Badge
+                      className={`${
+                        categoryTypeBadgeStyles[category.category_type] ||
+                        "bg-gray-100 text-gray-800"
+                      } border text-xs`}
+                    >
+                      {categoryTypeLabels[category.category_type] ||
+                        category.category_type}
+                    </Badge>
+                  </div>
+                )}
+                <div className="w-20 text-center text-sm text-gray-600">
+                  {category.display_order ?? "—"}
+                </div>
+                <div className="w-20 flex justify-center">
+                  <Badge
+                    className={
+                      category.is_active !== false
+                        ? "bg-green-100 text-green-800 border-green-200 border"
+                        : "bg-gray-100 text-gray-500 border-gray-200 border"
+                    }
+                  >
+                    {category.is_active !== false ? "Active" : "Inactive"}
+                  </Badge>
+                </div>
+                <div className="w-10 flex justify-center">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8 text-gray-400 hover:text-red-600 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity"
+                    onClick={(e) => onDelete(e, category)}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }

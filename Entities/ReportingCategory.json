@@ -3,6 +3,7 @@
   "type": "object",
   "properties": {
     "studio_id": { "type": "string", "description": "Studio ID" },
+    "parent_id": { "type": "string", "description": "Parent category ID for sub-categories (same role tree)" },
     "name": { "type": "string", "description": "Category display name" },
     "category_type": {
       "type": "string",
@@ -10,7 +11,18 @@
       "default": "item",
       "description": "Groups categories for reporting (service, item, store_credit)"
     },
-    "display_order": { "type": "number", "default": 0, "description": "Sort order in reports and UI" },
+    "category_role": {
+      "type": "string",
+      "enum": ["reporting", "appointment_kind"],
+      "default": "reporting",
+      "description": "reporting: revenue/products; appointment_kind: configurable appointment type grouping"
+    },
+    "clinical_profile": {
+      "type": "string",
+      "enum": ["tattoo", "piercing"],
+      "description": "Optional: for appointment_kind nodes, drives clinical/health fields on appointments"
+    },
+    "display_order": { "type": "number", "default": 0, "description": "Sort order among siblings" },
     "is_active": { "type": "boolean", "default": true, "description": "Whether this category is active" }
   },
   "required": ["studio_id", "name", "category_type"],

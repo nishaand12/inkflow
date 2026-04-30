@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
@@ -11,6 +11,11 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Plus, Search, MapPin, Instagram, Trash, Percent } from "lucide-react";
 import { normalizeUserRole } from "@/utils/roles";
+import {
+  CATEGORY_ROLE_REPORTING,
+  filterCategoriesByRole,
+  getCategoryPathLabel,
+} from "@/utils/reportingCategories";
 import ArtistDialog from "../components/artists/ArtistDialog";
 import {
   AlertDialog,
@@ -34,6 +39,11 @@ function SplitRuleDialog({ open, onOpenChange, artist, studioId }) {
     queryFn: () => base44.entities.ReportingCategory.filter({ studio_id: studioId }),
     enabled: open && !!studioId
   });
+
+  const reportingListForPaths = useMemo(
+    () => filterCategoriesByRole(reportingCategories, CATEGORY_ROLE_REPORTING),
+    [reportingCategories]
+  );
 
   const { data: splitRules = [] } = useQuery({
     queryKey: ['artistSplitRules', studioId],
@@ -97,7 +107,7 @@ function SplitRuleDialog({ open, onOpenChange, artist, studioId }) {
               <Label>Eligible Categories</Label>
               <p className="text-xs text-gray-500">Select which revenue categories this split applies to</p>
               <div className="grid grid-cols-2 gap-2">
-                {reportingCategories.filter(c => c.is_active).map(cat => (
+                {reportingCategories.filter(c => c.is_active && (c.category_role || CATEGORY_ROLE_REPORTING) === CATEGORY_ROLE_REPORTING).map(cat => (
                   <label key={cat.id} className="flex items-center gap-2 text-sm cursor-pointer">
                     <Checkbox
                       checked={eligibleCategoryIds.includes(cat.id)}
@@ -107,7 +117,7 @@ function SplitRuleDialog({ open, onOpenChange, artist, studioId }) {
                         );
                       }}
                     />
-                    {cat.name}
+                    {getCategoryPathLabel(reportingListForPaths, cat.id) || cat.name}
                   </label>
                 ))}
               </div>

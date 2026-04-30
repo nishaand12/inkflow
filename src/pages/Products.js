@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -34,6 +34,12 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Package, Plus, Upload, Search, Trash2, Save } from "lucide-react";
 import { normalizeUserRole } from "@/utils/roles";
+import {
+  CATEGORY_ROLE_REPORTING,
+  filterCategoriesByRole,
+  getCategoryPathLabel,
+  getLeafCategoryOptions,
+} from "@/utils/reportingCategories";
 
 const emptyForm = {
   name: "",
@@ -96,6 +102,16 @@ export default function Products() {
     enabled: !!user?.studio_id,
   });
 
+  const reportingLeaves = useMemo(
+    () => getLeafCategoryOptions(categories, CATEGORY_ROLE_REPORTING),
+    [categories]
+  );
+
+  const reportingListForPaths = useMemo(
+    () => filterCategoriesByRole(categories, CATEGORY_ROLE_REPORTING),
+    [categories]
+  );
+
   const createMutation = useMutation({
     mutationFn: (data) => base44.entities.Product.create(data),
     onSuccess: () => {
@@ -143,8 +159,12 @@ export default function Products() {
   });
 
   const getCategoryName = (categoryId) => {
-    const cat = categories.find((c) => c.id === categoryId);
-    return cat?.name || "—";
+    if (!categoryId) return "—";
+    return (
+      getCategoryPathLabel(reportingListForPaths, categoryId) ||
+      categories.find((c) => c.id === categoryId)?.name ||
+      "—"
+    );
   };
 
   const handleNew = () => {
@@ -261,16 +281,25 @@ export default function Products() {
 
         let matchedCategoryId = null;
         if (row.category_name) {
-          const match = categories.find(
+          const match = reportingLeaves.find(
             (c) => c.name?.toLowerCase() === row.category_name.toLowerCase()
           );
           if (!match) {
-            errors.push(
-              `Row ${lineNum}: category "${row.category_name}" not found.`
+            const loose = categories.find(
+              (c) =>
+                (c.category_role || CATEGORY_ROLE_REPORTING) === CATEGORY_ROLE_REPORTING &&
+                c.name?.toLowerCase() === row.category_name.toLowerCase()
             );
-            return;
+            if (!loose) {
+              errors.push(
+                `Row ${lineNum}: category "${row.category_name}" not found (use a leaf name, e.g. full path leaf).`
+              );
+              return;
+            }
+            matchedCategoryId = loose.id;
+          } else {
+            matchedCategoryId = match.id;
           }
-          matchedCategoryId = match.id;
         }
 
         let taxRate = 0.13;
@@ -719,9 +748,9 @@ export default function Products() {
                   <SelectValue placeholder="Select a category" />
                 </SelectTrigger>
                 <SelectContent>
-                  {categories.map((cat) => (
+                  {reportingLeaves.map((cat) => (
                     <SelectItem key={cat.id} value={cat.id}>
-                      {cat.name}
+                      {getCategoryPathLabel(reportingListForPaths, cat.id)}
                     </SelectItem>
                   ))}
                 </SelectContent>
