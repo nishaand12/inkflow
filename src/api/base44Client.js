@@ -3,6 +3,7 @@ import { supabase } from "@/utils/supabase";
 const tableMap = {
   Appointment: "appointments",
   AppointmentCharge: "appointment_charges",
+  AppointmentRefund: "appointment_refunds",
   AppointmentType: "appointment_types",
   Artist: "artists",
   ArtistLocation: "artist_locations",
@@ -159,6 +160,7 @@ export const base44 = {
   entities: {
     Appointment: createEntityClient("Appointment"),
     AppointmentCharge: createEntityClient("AppointmentCharge"),
+    AppointmentRefund: createEntityClient("AppointmentRefund"),
     AppointmentType: createEntityClient("AppointmentType"),
     Artist: createEntityClient("Artist"),
     ArtistLocation: createEntityClient("ArtistLocation"),

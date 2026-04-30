@@ -48,6 +48,13 @@ serve(async (req) => {
         const session = event.data.object as Stripe.Checkout.Session;
         const appointmentId = session.metadata?.appointment_id;
         const paymentType = session.metadata?.payment_type || "deposit";
+        const studioIdMeta = session.metadata?.studio_id || null;
+
+        const { data: paymentRow } = await supabase
+          .from("payments")
+          .select("metadata")
+          .eq("stripe_checkout_session_id", session.id)
+          .maybeSingle();
 
         await supabase
           .from("payments")
@@ -70,14 +77,95 @@ serve(async (req) => {
               ? parseFloat(session.metadata.tax_amount)
               : null;
 
+            const { data: aptBefore } = await supabase
+              .from("appointments")
+              .select("status")
+              .eq("id", appointmentId)
+              .maybeSingle();
+
+            const rawLines = paymentRow?.metadata?.checkout_line_items;
+            const lineItems = Array.isArray(rawLines) ? rawLines : [];
+
+            if (
+              aptBefore?.status !== "completed" &&
+              lineItems.length > 0 &&
+              studioIdMeta
+            ) {
+              await supabase
+                .from("appointment_charges")
+                .delete()
+                .eq("appointment_id", appointmentId);
+
+              const rows = lineItems.map((line: Record<string, unknown>) => ({
+                studio_id: studioIdMeta,
+                appointment_id: appointmentId,
+                line_type: String(line.line_type ?? "adjustment"),
+                reporting_category_id: line.reporting_category_id ?? null,
+                reporting_category_name: line.reporting_category_name ?? null,
+                product_id: line.product_id ?? null,
+                description: String(line.description ?? "Line item"),
+                quantity: Number(line.quantity) || 1,
+                unit_price: Number(line.unit_price) || 0,
+                discount_amount: Number(line.discount_amount) || 0,
+                line_total: Number(line.line_total) || 0,
+              }));
+
+              const stockPayload = lineItems
+                .filter(
+                  (line: Record<string, unknown>) =>
+                    line.line_type === "product" && line.product_id,
+                )
+                .reduce(
+                  (
+                    acc: { product_id: string; quantity: number }[],
+                    line: Record<string, unknown>,
+                  ) => {
+                    const pid = String(line.product_id);
+                    const qty = Number(line.quantity) || 0;
+                    const idx = acc.findIndex((x) => x.product_id === pid);
+                    if (idx >= 0) acc[idx].quantity += qty;
+                    else acc.push({ product_id: pid, quantity: qty });
+                    return acc;
+                  },
+                  [],
+                );
+
+              const { error: insertErr } = await supabase
+                .from("appointment_charges")
+                .insert(rows);
+              if (insertErr) {
+                console.error("appointment_charges insert:", insertErr);
+              } else if (stockPayload.length > 0) {
+                const { error: stockErr } = await supabase.rpc(
+                  "apply_product_checkout_stock_system",
+                  { p_studio_id: studioIdMeta, p_lines: stockPayload },
+                );
+                if (stockErr) {
+                  console.error("apply_product_checkout_stock_system:", stockErr);
+                }
+              }
+            }
+
+            const aptPatch: Record<string, unknown> = {
+              status: "completed",
+              charge_amount: chargeAmount,
+              tax_amount: taxAmount,
+              payment_method: "Stripe",
+            };
+            if (
+              lineItems.length > 0 &&
+              aptBefore?.status !== "completed"
+            ) {
+              aptPatch.discount_amount = lineItems.reduce(
+                (s, line: Record<string, unknown>) =>
+                  s + (Number(line.discount_amount) || 0),
+                0,
+              );
+            }
+
             await supabase
               .from("appointments")
-              .update({
-                status: "completed",
-                charge_amount: chargeAmount,
-                tax_amount: taxAmount,
-                payment_method: "Card",
-              })
+              .update(aptPatch)
               .eq("id", appointmentId);
           } else {
             await supabase

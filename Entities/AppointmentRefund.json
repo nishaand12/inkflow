@@ -1,0 +1,22 @@
+{
+  "name": "AppointmentRefund",
+  "type": "object",
+  "properties": {
+    "studio_id": { "type": "string", "description": "Studio ID" },
+    "appointment_id": { "type": "string", "description": "FK to appointments (completed sale)" },
+    "amount": { "type": "number", "description": "Refund amount in studio currency" },
+    "refund_method": {
+      "type": "string",
+      "enum": ["card", "cash", "store_credit"],
+      "description": "How the customer was reimbursed"
+    },
+    "notes": { "type": "string", "description": "Optional note (e.g. reason, reference)" }
+  },
+  "required": ["studio_id", "appointment_id", "amount", "refund_method"],
+  "rls": {
+    "read": { "data.studio_id": "{{user.data.studio_id}}" },
+    "update": { "data.studio_id": "{{user.data.studio_id}}" },
+    "delete": { "data.studio_id": "{{user.data.studio_id}}" },
+    "write": {}
+  }
+}

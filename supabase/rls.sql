@@ -705,3 +705,36 @@ using (studio_id = public.current_user_studio());
 
 -- artist_weekly_schedules anon access is handled by get_public_booking_data().
 drop policy if exists aws_select_anon on public.artist_weekly_schedules;
+
+-- Appointment refunds (linked to completed checkout; studio members record)
+alter table public.appointment_refunds enable row level security;
+
+drop policy if exists appointment_refunds_select on public.appointment_refunds;
+create policy appointment_refunds_select
+on public.appointment_refunds
+for select
+using (studio_id = public.current_user_studio());
+
+drop policy if exists appointment_refunds_insert on public.appointment_refunds;
+create policy appointment_refunds_insert
+on public.appointment_refunds
+for insert
+with check (studio_id = public.current_user_studio());
+
+drop policy if exists appointment_refunds_update on public.appointment_refunds;
+create policy appointment_refunds_update
+on public.appointment_refunds
+for update
+using (
+  studio_id = public.current_user_studio()
+  and public.current_user_role() in ('Owner', 'Admin')
+);
+
+drop policy if exists appointment_refunds_delete on public.appointment_refunds;
+create policy appointment_refunds_delete
+on public.appointment_refunds
+for delete
+using (
+  studio_id = public.current_user_studio()
+  and public.current_user_role() in ('Owner', 'Admin')
+);

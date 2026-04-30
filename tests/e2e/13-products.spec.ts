@@ -52,8 +52,12 @@ test.describe('Products', () => {
     await expect(dialog).toBeVisible({ timeout: 8000 });
 
     await expect(dialog.locator('#name')).toBeVisible();
+    await expect(dialog.locator('#supplier_name')).toBeVisible();
+    await expect(dialog.locator('#supplier_sku')).toBeVisible();
     await expect(dialog.locator('#sku')).toBeVisible();
     await expect(dialog.locator('#barcode')).toBeVisible();
+    await expect(dialog.locator('#stock_quantity')).toBeVisible();
+    await expect(dialog.locator('#tax_rate_percent')).toBeVisible();
     await expect(dialog.locator('#price')).toBeVisible();
     await expect(dialog.locator('#cost')).toBeVisible();
 

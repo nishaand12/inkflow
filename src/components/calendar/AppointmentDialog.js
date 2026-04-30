@@ -17,6 +17,7 @@ import CustomerSearch from "../customers/CustomerSearch";
 import CustomerDialog from "../customers/CustomerDialog";
 import AdvancedSearchDialog from "../customers/AdvancedSearchDialog";
 import CheckoutDialog from "./CheckoutDialog";
+import RefundDialog from "./RefundDialog";
 import { normalizeUserRole } from "@/utils/roles";
 import { addMinutesToTime, formatDuration, PIERCING_CATEGORIES } from "@/utils/index";
 
@@ -49,6 +50,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
   const [showCustomerDialog, setShowCustomerDialog] = useState(false);
   const [showAdvancedSearch, setShowAdvancedSearch] = useState(false);
   const [showCheckoutDialog, setShowCheckoutDialog] = useState(false);
+  const [showRefundDialog, setShowRefundDialog] = useState(false);
   const [depositLinkLoading, setDepositLinkLoading] = useState(false);
   const [depositLinkMessage, setDepositLinkMessage] = useState(null);
   const [depositCheckoutUrl, setDepositCheckoutUrl] = useState(null);
@@ -96,6 +98,12 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
   const canUnlockAppointment = () => {
     if (!currentUser || !appointment) return false;
     return isAdmin && appointment.status === 'completed';
+  };
+
+  const canRecordRefund = () => {
+    if (!currentUser || !appointment) return false;
+    if (appointment.status !== 'completed') return false;
+    return isAdmin || userRole === 'Front_Desk';
   };
 
   const canDelete = () => {
@@ -298,13 +306,17 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
   const handleAppointmentTypeSelect = (typeId) => {
     const type = appointmentTypes.find(t => t.id === typeId);
     if (type) {
-      const newEnd = addMinutesToTime(formData.start_time, type.default_duration_minutes || 120);
-      setFormData(prev => ({
-        ...prev,
-        appointment_type_id: typeId,
-        end_time: newEnd,
-        deposit_amount: type.default_deposit
-      }));
+      setFormData(prev => {
+        const newEnd = addMinutesToTime(prev.start_time, type.default_duration_minutes || 120);
+        const svc = type.service_cost != null ? Number(type.service_cost) : NaN;
+        return {
+          ...prev,
+          appointment_type_id: typeId,
+          end_time: newEnd,
+          deposit_amount: type.default_deposit,
+          ...(Number.isFinite(svc) && svc > 0 ? { total_estimate: svc } : {}),
+        };
+      });
     }
   };
 
@@ -596,6 +608,51 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
       } else {
         deleteMutation.mutate(appointment.id);
       }
+    }
+  };
+
+  /**
+   * Unhook a completed visit from revenue: reports only count completed appointments, but
+   * appointment_charges rows persist. Without deleting them, a second checkout would double-count.
+   */
+  const handleUnlockAppointment = async () => {
+    if (!appointment) return;
+    if (
+      !window.confirm(
+        "Unlock this appointment? All checkout line items will be deleted, sale totals cleared, and status set to Scheduled. It will not appear in revenue reports until checked out again. Deposits already collected are unchanged."
+      )
+    ) {
+      return;
+    }
+    setSaveError(null);
+    try {
+      const { error: delErr } = await supabase
+        .from("appointment_charges")
+        .delete()
+        .eq("appointment_id", appointment.id);
+      if (delErr) throw delErr;
+
+      const sanitizeUuid = (v) => (v === "" || v == null ? null : v);
+      const data = {
+        ...formData,
+        studio_id: currentUser?.studio_id,
+        appointment_type_id: sanitizeUuid(formData.appointment_type_id),
+        customer_id: sanitizeUuid(formData.customer_id),
+        work_station_id: sanitizeUuid(formData.work_station_id),
+        artist_id: sanitizeUuid(formData.artist_id),
+        location_id: sanitizeUuid(formData.location_id),
+        health_fields: Object.keys(healthFields).length > 0 ? healthFields : {},
+        status: "scheduled",
+        charge_amount: 0,
+        tax_amount: 0,
+        discount_amount: 0,
+        payment_method: null,
+      };
+
+      await updateMutation.mutateAsync({ id: appointment.id, data });
+      queryClient.invalidateQueries({ queryKey: ["appointmentCharges"] });
+    } catch (e) {
+      setSaveError(e?.message || "Could not unlock appointment.");
     }
   };
 
@@ -1162,6 +1219,17 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                     <p className="font-medium text-emerald-900">{appointment.payment_method || 'N/A'}</p>
                   </div>
                 </div>
+                {canRecordRefund() && studio && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="mt-3 border-amber-300 text-amber-900 hover:bg-amber-50"
+                    onClick={() => setShowRefundDialog(true)}
+                  >
+                    Record refund
+                  </Button>
+                )}
               </div>
             )}
 
@@ -1199,11 +1267,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                   <Button
                     type="button"
                     variant="outline"
-                    onClick={() => {
-                      if (window.confirm('Unlock this appointment? It will be set to Scheduled and removed from revenue reports.')) {
-                        updateMutation.mutate({ id: appointment.id, data: { ...formData, status: 'scheduled' } });
-                      }
-                    }}
+                    onClick={handleUnlockAppointment}
                     disabled={updateMutation.isPending}
                     className="w-full sm:w-auto text-sm"
                   >
@@ -1261,6 +1325,13 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
         onOpenChange={setShowAdvancedSearch}
         customers={customers}
         onSelectCustomer={handleCustomerSelect}
+      />
+
+      <RefundDialog
+        open={showRefundDialog}
+        onOpenChange={setShowRefundDialog}
+        appointment={appointment}
+        studio={studio}
       />
 
       <CheckoutDialog

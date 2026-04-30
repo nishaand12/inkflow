@@ -98,7 +98,11 @@ export default function Settlements() {
           taxTotal += apt.tax_amount || 0;
           discountTotal += apt.discount_amount || 0;
 
-          if (apt.payment_method === 'Card' || apt.deposit_status === 'paid') {
+          const paidOnline =
+            apt.payment_method === "Stripe" ||
+            apt.payment_method === "Card" ||
+            apt.deposit_status === "paid";
+          if (paidOnline) {
             onlineCollected += serviceAmount + (apt.deposit_amount || 0);
           } else {
             posCollected += serviceAmount + (apt.deposit_amount || 0);

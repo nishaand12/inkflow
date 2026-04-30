@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Download, TrendingUp, DollarSign, BarChart3, Users } from "lucide-react";
-import { format, startOfMonth, endOfMonth } from "date-fns";
+import { format, startOfMonth, endOfMonth, parseISO } from "date-fns";
 import { normalizeUserRole } from "@/utils/roles";
 
 export default function Reports() {
@@ -37,6 +37,9 @@ export default function Reports() {
   const { data: charges = [] } = useQuery(qOpts('appointmentCharges', () => base44.entities.AppointmentCharge.filter({ studio_id: user.studio_id })));
   const { data: reportingCategories = [] } = useQuery(qOpts('reportingCategories', () => base44.entities.ReportingCategory.filter({ studio_id: user.studio_id })));
   const { data: splitRules = [] } = useQuery(qOpts('artistSplitRules', () => base44.entities.ArtistSplitRule.filter({ studio_id: user.studio_id })));
+  const { data: appointmentRefunds = [] } = useQuery(
+    qOpts('appointmentRefunds', () => base44.entities.AppointmentRefund.filter({ studio_id: user.studio_id }))
+  );
   useQuery(qOpts('settlements', () => base44.entities.DailySettlement.filter({ studio_id: user.studio_id })));
 
   const getUserRole = () => {
@@ -83,7 +86,7 @@ export default function Reports() {
       const d = apt.appointment_date;
       if (!dayMap[d]) dayMap[d] = {
         date: d, gross: 0, tax: 0, discounts: 0, net: 0,
-        pos_collected: 0, online_collected: 0, gift_card_sales: 0, gift_card_returns: 0, count: 0
+        pos_collected: 0, online_collected: 0, gift_card_sales: 0, gift_card_returns: 0, returns: 0, count: 0
       };
 
       const aptCharges = charges.filter(c => c.appointment_id === apt.id);
@@ -96,7 +99,10 @@ export default function Reports() {
       dayMap[d].discounts += apt.discount_amount || 0;
       dayMap[d].count += 1;
 
-      const isOnline = apt.payment_method === 'Card' || apt.deposit_status === 'paid';
+      const isOnline =
+        apt.payment_method === "Stripe" ||
+        apt.payment_method === "Card" ||
+        apt.deposit_status === "paid";
       if (isOnline) dayMap[d].online_collected += gross;
       else dayMap[d].pos_collected += gross;
 
@@ -107,6 +113,30 @@ export default function Reports() {
           else dayMap[d].gift_card_returns += Math.abs(ch.line_total);
         }
       }
+    }
+
+    for (const ref of appointmentRefunds) {
+      const amt = parseFloat(ref.amount) || 0;
+      if (amt <= 0) continue;
+      const apt = appointments.find(a => a.id === ref.appointment_id);
+      if (!apt) continue;
+      if (filterLocation !== 'all' && apt.location_id !== filterLocation) continue;
+      if (filterArtist !== 'all' && apt.artist_id !== filterArtist) continue;
+      let refundDay = '';
+      try {
+        refundDay = ref.created_at ? format(parseISO(ref.created_at), 'yyyy-MM-dd') : '';
+      } catch {
+        refundDay = typeof ref.created_at === 'string' ? ref.created_at.slice(0, 10) : '';
+      }
+      if (!refundDay || refundDay < startDate || refundDay > endDate) continue;
+
+      if (!dayMap[refundDay]) {
+        dayMap[refundDay] = {
+          date: refundDay, gross: 0, tax: 0, discounts: 0, net: 0,
+          pos_collected: 0, online_collected: 0, gift_card_sales: 0, gift_card_returns: 0, returns: 0, count: 0
+        };
+      }
+      dayMap[refundDay].returns += amt;
     }
 
     return Object.values(dayMap)
@@ -299,7 +329,7 @@ export default function Reports() {
                           <th className="px-3 py-3 text-right text-sm font-semibold text-gray-900">POS</th>
                           <th className="px-3 py-3 text-right text-sm font-semibold text-gray-900">Online</th>
                           <th className="px-3 py-3 text-right text-sm font-semibold text-gray-900">GC Sales</th>
-                          <th className="px-3 py-3 text-right text-sm font-semibold text-gray-900">GC Returns</th>
+                          <th className="px-3 py-3 text-right text-sm font-semibold text-gray-900">Returns</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-200">
@@ -314,7 +344,7 @@ export default function Reports() {
                             <td className="px-3 py-3 text-sm text-gray-900 text-right">${d.pos_collected.toFixed(2)}</td>
                             <td className="px-3 py-3 text-sm text-gray-900 text-right">${d.online_collected.toFixed(2)}</td>
                             <td className="px-3 py-3 text-sm text-gray-900 text-right">${d.gift_card_sales.toFixed(2)}</td>
-                            <td className="px-3 py-3 text-sm text-gray-900 text-right">${d.gift_card_returns.toFixed(2)}</td>
+                            <td className="px-3 py-3 text-sm text-amber-800 text-right">${(d.returns || 0).toFixed(2)}</td>
                           </tr>
                         ))}
                       </tbody>

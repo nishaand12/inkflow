@@ -9,20 +9,94 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { CheckCircle, Loader2, Mail, ExternalLink, Plus, Trash2, ScanBarcode, Package } from "lucide-react";
 import { supabase } from "@/utils/supabase";
 
+const LEGACY_PAYMENT_METHOD_MAP = {
+  Card: "Stripe",
+  POS: "Other",
+  "POS Terminal": "Other",
+};
+
+function normalizePaymentMethodForSelect(raw) {
+  if (!raw) return "";
+  return LEGACY_PAYMENT_METHOD_MAP[raw] || raw;
+}
+
+const DEFAULT_SERVICE_TAX_RATE = 0.13;
+
+function aggregateProductCheckoutQuantities(lineItems) {
+  const map = new Map();
+  for (const li of lineItems) {
+    if (li.line_type === "product" && li.product_id) {
+      map.set(li.product_id, (map.get(li.product_id) || 0) + (li.quantity || 0));
+    }
+  }
+  return [...map.entries()].map(([product_id, quantity]) => ({ product_id, quantity }));
+}
+
+/** Snapshot for Stripe payment row + webhook materialization (no client-only keys). */
+function buildCheckoutLineItemsPayload(lineItems, resolveReportingCategoryName) {
+  return lineItems.map((li) => {
+    const lineTotal = (li.quantity * li.unit_price) - (li.discount_amount || 0);
+    return {
+      line_type: li.line_type,
+      description: li.description,
+      quantity: li.quantity,
+      unit_price: li.unit_price,
+      discount_amount: li.discount_amount || 0,
+      line_total: lineTotal,
+      reporting_category_id: li.reporting_category_id || null,
+      reporting_category_name: resolveReportingCategoryName(li.reporting_category_id) || null,
+      product_id: li.product_id || null,
+    };
+  });
+}
+
+function getProductTaxRate(product) {
+  const r = product?.tax_rate;
+  if (r != null && !Number.isNaN(Number(r))) return Number(r);
+  return DEFAULT_SERVICE_TAX_RATE;
+}
+
+function roundMoney2(n) {
+  return Math.round(Number(n) * 100) / 100;
+}
+
+/** Prefer saved charge, then appointment estimate, then type service_cost for piercing-style pricing. */
+function initialServiceLineUnitPrice(appointment, aptType) {
+  const charge = parseFloat(appointment?.charge_amount);
+  if (!Number.isNaN(charge) && charge > 0) return charge;
+  const estimate = parseFloat(appointment?.total_estimate);
+  if (!Number.isNaN(estimate) && estimate > 0) return estimate;
+  const svc = aptType?.service_cost != null ? Number(aptType.service_cost) : NaN;
+  if (!Number.isNaN(svc) && svc > 0) return svc;
+  return 0;
+}
+
+/** Split pretax vs tax for Stripe when deposit reduces amount due (proportional). */
+function amountDueStripeSplit(lineSubtotal, computedTax, depositCredited) {
+  const grandTotal = roundMoney2(lineSubtotal + computedTax);
+  const amountDue = roundMoney2(Math.max(0, grandTotal - (depositCredited || 0)));
+  if (grandTotal <= 0 || amountDue <= 0) {
+    return { stripePretax: 0, stripeTax: 0, amountDue, grandTotal };
+  }
+  let stripePretax = roundMoney2((lineSubtotal / grandTotal) * amountDue);
+  let stripeTax = roundMoney2((computedTax / grandTotal) * amountDue);
+  const drift = roundMoney2(amountDue - stripePretax - stripeTax);
+  stripeTax = roundMoney2(stripeTax + drift);
+  return { stripePretax, stripeTax, amountDue, grandTotal };
+}
+
 export default function CheckoutDialog({ open, onOpenChange, appointment, artists, locations, appointmentTypes, customers, studio }) {
   const queryClient = useQueryClient();
   const barcodeInputRef = useRef(null);
   const [barcodeBuffer, setBarcodeBuffer] = useState('');
 
   const [lineItems, setLineItems] = useState([]);
-  const [taxAmount, setTaxAmount] = useState('');
-  const [discountAmount, setDiscountAmount] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('');
   const [openLinkLoading, setOpenLinkLoading] = useState(false);
   const [emailLinkLoading, setEmailLinkLoading] = useState(false);
   const [stripeMessage, setStripeMessage] = useState(null);
   const [showManualAdd, setShowManualAdd] = useState(false);
-  const [manualLine, setManualLine] = useState({ description: '', unit_price: '', quantity: 1, reporting_category_id: '' });
+  const [manualLine, setManualLine] = useState({ description: '', unit_price: '', quantity: 1, reporting_category_id: '', discount: '' });
 
   const { data: products = [] } = useQuery({
     queryKey: ['products', studio?.id],
@@ -41,27 +115,34 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
       const initialLines = [];
       const aptType = appointmentTypes?.find(t => t.id === appointment.appointment_type_id);
       if (aptType) {
+        const legacyDisc = parseFloat(appointment.discount_amount) || 0;
         initialLines.push({
           _key: 'service-' + Date.now(),
           line_type: 'service',
           description: aptType.name,
           quantity: 1,
-          unit_price: appointment.charge_amount || appointment.total_estimate || 0,
-          discount_amount: 0,
+          unit_price: initialServiceLineUnitPrice(appointment, aptType),
+          discount_amount: legacyDisc > 0 ? legacyDisc : 0,
           reporting_category_id: aptType.reporting_category_id || '',
           reporting_category_name: '',
-          product_id: null
+          product_id: null,
+          tax_rate: DEFAULT_SERVICE_TAX_RATE,
         });
       }
       setLineItems(initialLines);
-      setTaxAmount(appointment.tax_amount || '');
-      setDiscountAmount(appointment.discount_amount || '');
-      setPaymentMethod(appointment.payment_method || '');
+      setPaymentMethod(normalizePaymentMethodForSelect(appointment.payment_method));
       setStripeMessage(null);
       setShowManualAdd(false);
-      setManualLine({ description: '', unit_price: '', quantity: 1, reporting_category_id: '' });
+      setManualLine({ description: '', unit_price: '', quantity: 1, reporting_category_id: '', discount: '' });
     }
   }, [appointment, open, appointmentTypes]);
+
+  useEffect(() => {
+    if (open && barcodeInputRef.current) {
+      const t = setTimeout(() => barcodeInputRef.current?.focus(), 50);
+      return () => clearTimeout(t);
+    }
+  }, [open]);
 
   const resolveReportingCategoryName = (catId) => {
     if (!catId) return '';
@@ -88,6 +169,7 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
           updated[existingIdx] = {
             ...updated[existingIdx],
             quantity: updated[existingIdx].quantity + 1,
+            tax_rate: getProductTaxRate(product),
           };
           setLineItems(updated);
         } else {
@@ -100,7 +182,8 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
             discount_amount: 0,
             reporting_category_id: product.reporting_category_id || '',
             reporting_category_name: '',
-            product_id: product.id
+            product_id: product.id,
+            tax_rate: getProductTaxRate(product),
           }]);
         }
       } else {
@@ -112,18 +195,23 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
 
   const addManualLine = () => {
     if (!manualLine.description || !manualLine.unit_price) return;
+    const qty = parseInt(manualLine.quantity) || 1;
+    const unit = parseFloat(manualLine.unit_price) || 0;
+    const gross = qty * unit;
+    const disc = Math.max(0, parseFloat(manualLine.discount) || 0);
     setLineItems(prev => [...prev, {
       _key: 'manual-' + Date.now(),
       line_type: 'adjustment',
       description: manualLine.description,
-      quantity: parseInt(manualLine.quantity) || 1,
-      unit_price: parseFloat(manualLine.unit_price) || 0,
-      discount_amount: 0,
+      quantity: qty,
+      unit_price: unit,
+      discount_amount: Math.min(disc, gross),
       reporting_category_id: manualLine.reporting_category_id || '',
       reporting_category_name: '',
-      product_id: null
+      product_id: null,
+      tax_rate: 0,
     }]);
-    setManualLine({ description: '', unit_price: '', quantity: 1, reporting_category_id: '' });
+    setManualLine({ description: '', unit_price: '', quantity: 1, reporting_category_id: '', discount: '' });
     setShowManualAdd(false);
   };
 
@@ -133,7 +221,11 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
     );
     if (existingIdx >= 0) {
       const updated = [...lineItems];
-      updated[existingIdx] = { ...updated[existingIdx], quantity: updated[existingIdx].quantity + 1 };
+      updated[existingIdx] = {
+        ...updated[existingIdx],
+        quantity: updated[existingIdx].quantity + 1,
+        tax_rate: getProductTaxRate(product),
+      };
       setLineItems(updated);
     } else {
       setLineItems(prev => [...prev, {
@@ -145,7 +237,8 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
         discount_amount: 0,
         reporting_category_id: product.reporting_category_id || '',
         reporting_category_name: '',
-        product_id: product.id
+        product_id: product.id,
+        tax_rate: getProductTaxRate(product),
       }]);
     }
   };
@@ -158,18 +251,62 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
     setLineItems(prev => prev.map(li => li._key === key ? { ...li, [field]: value } : li));
   };
 
+  const getStockValidationError = () => {
+    const totals = aggregateProductCheckoutQuantities(lineItems);
+    for (const { product_id, quantity } of totals) {
+      const p = products.find((x) => x.id === product_id);
+      if (!p || p.stock_quantity == null) continue;
+      if (quantity > p.stock_quantity) {
+        return `Not enough stock for "${p.name}" (${p.stock_quantity} on hand, ${quantity} in cart).`;
+      }
+    }
+    return null;
+  };
+
   const lineSubtotal = lineItems.reduce((sum, li) => {
     return sum + (li.quantity * li.unit_price) - (li.discount_amount || 0);
   }, 0);
 
-  const depositApplied = appointment?.deposit_amount || 0;
-  const tax = parseFloat(taxAmount) || 0;
-  const discount = parseFloat(discountAmount) || 0;
-  const grandTotal = lineSubtotal - discount + tax;
-  const amountDue = Math.max(0, grandTotal - depositApplied);
+  const grossBeforeLineDiscounts = lineItems.reduce(
+    (sum, li) => sum + li.quantity * li.unit_price,
+    0
+  );
+
+  const computedTax = lineItems.reduce((sum, li) => {
+    const lineNet = (li.quantity * li.unit_price) - (li.discount_amount || 0);
+    let rate = li.tax_rate;
+    if (rate == null || Number.isNaN(Number(rate))) {
+      rate = li.line_type === 'service' ? DEFAULT_SERVICE_TAX_RATE : 0;
+    }
+    return sum + lineNet * Number(rate);
+  }, 0);
+
+  const depositOnFile = appointment?.deposit_amount || 0;
+  /** Only reduce balance when deposit was actually collected (walk-ins often have no paid deposit). */
+  const depositCredited =
+    appointment?.deposit_status === "paid" ? depositOnFile : 0;
+  const lineDiscountsTotal = lineItems.reduce((sum, li) => sum + (li.discount_amount || 0), 0);
+  const grandTotal = lineSubtotal + computedTax;
+  const amountDue = Math.max(0, grandTotal - depositCredited);
 
   const checkoutMutation = useMutation({
     mutationFn: async () => {
+      const stockErr = getStockValidationError();
+      if (stockErr) throw new Error(stockErr);
+
+      if (lineSubtotal + computedTax <= 0) {
+        throw new Error('Total must be greater than zero.');
+      }
+
+      const taxTotal = lineItems.reduce((sum, li) => {
+        const lineNet = (li.quantity * li.unit_price) - (li.discount_amount || 0);
+        let rate = li.tax_rate;
+        if (rate == null || Number.isNaN(Number(rate))) {
+          rate = li.line_type === 'service' ? DEFAULT_SERVICE_TAX_RATE : 0;
+        }
+        return sum + lineNet * Number(rate);
+      }, 0);
+
       const chargePromises = lineItems.map(li => {
         const lineTotal = (li.quantity * li.unit_price) - (li.discount_amount || 0);
         return base44.entities.AppointmentCharge.create({
@@ -188,19 +325,34 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
       });
       await Promise.all(chargePromises);
 
+      const stockLines = aggregateProductCheckoutQuantities(lineItems);
+      if (stockLines.length > 0) {
+        const { error: rpcErr } = await supabase.rpc('apply_product_checkout_stock', {
+          p_lines: stockLines,
+        });
+        if (rpcErr) throw new Error(rpcErr.message || 'Could not update inventory.');
+      }
+
       await base44.entities.Appointment.update(appointment.id, {
         status: 'completed',
         charge_amount: lineSubtotal,
-        tax_amount: tax,
-        discount_amount: discount,
+        tax_amount: taxTotal,
+        discount_amount: lineItems.reduce((s, li) => s + (li.discount_amount || 0), 0),
         payment_method: paymentMethod || null
       });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['appointments'] });
       queryClient.invalidateQueries({ queryKey: ['appointmentCharges'] });
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      if (studio?.id) {
+        queryClient.invalidateQueries({ queryKey: ['products', studio.id] });
+      }
       onOpenChange(false);
-    }
+    },
+    onError: (err) => {
+      setStripeMessage({ type: 'error', text: err.message || 'Checkout failed.' });
+    },
   });
 
   const handleManualCheckout = (e) => {
@@ -208,24 +360,39 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
     checkoutMutation.mutate();
   };
 
-  const validateChargeAmount = () => {
-    if (lineSubtotal <= 0) {
+  const validateStripeCheckout = () => {
+    const { grandTotal: gt, amountDue: due } = amountDueStripeSplit(
+      lineSubtotal,
+      computedTax,
+      depositCredited
+    );
+    if (lineSubtotal <= 0 && computedTax <= 0) {
       setStripeMessage({ type: 'error', text: 'Add at least one line item with a positive amount.' });
       return null;
     }
-    return amountDue;
+    if (gt <= 0) {
+      setStripeMessage({ type: 'error', text: 'Total must be greater than zero.' });
+      return null;
+    }
+    if (due <= 0) {
+      setStripeMessage({ type: 'error', text: 'Nothing to charge — the paid deposit covers the full balance.' });
+      return null;
+    }
+    return true;
   };
 
   const createCheckoutSession = async (sendEmail) => {
-    const charge = validateChargeAmount();
-    if (charge === null) return null;
+    if (validateStripeCheckout() === null) return null;
 
+    const { stripePretax, stripeTax } = amountDueStripeSplit(lineSubtotal, computedTax, depositCredited);
+    const checkoutLineItems = buildCheckoutLineItemsPayload(lineItems, resolveReportingCategoryName);
     const { data, error } = await supabase.functions.invoke('create-checkout-payment', {
       body: {
         appointmentId: appointment.id,
-        chargeAmount: amountDue,
-        taxAmount: tax,
+        chargeAmount: stripePretax,
+        taxAmount: stripeTax,
         sendEmail,
+        checkoutLineItems,
       },
     });
 
@@ -293,7 +460,7 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
             Check Out Appointment
           </DialogTitle>
           <DialogDescription className="text-sm">
-            Add line items, apply discounts, and complete the transaction.
+            Apply per-line discounts (before tax), then complete payment. A paid deposit reduces the balance; unpaid deposits do not.
           </DialogDescription>
         </DialogHeader>
 
@@ -323,10 +490,13 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
               </div>
               <div>
                 <span className="text-gray-500">Deposit:</span>
-                <div className="flex items-center gap-1">
-                  <p className="font-medium">${depositApplied.toFixed(2)}</p>
+                <div className="flex items-center gap-1 flex-wrap">
+                  <p className="font-medium">${depositOnFile.toFixed(2)}</p>
                   {appointment.deposit_status === 'paid' && (
                     <span className="text-[10px] bg-green-100 text-green-800 px-1 rounded">Paid</span>
+                  )}
+                  {depositOnFile > 0 && appointment.deposit_status !== 'paid' && (
+                    <span className="text-[10px] text-amber-800 bg-amber-50 px-1 rounded">Not credited</span>
                   )}
                 </div>
               </div>
@@ -357,7 +527,7 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
 
             {showManualAdd && (
               <div className="border border-gray-200 rounded-lg p-3 space-y-2">
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-4 gap-2">
                   <div className="col-span-2 space-y-1">
                     <Label className="text-xs">Description</Label>
                     <Input
@@ -374,6 +544,16 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
                       value={manualLine.unit_price}
                       onChange={(e) => setManualLine({ ...manualLine, unit_price: e.target.value })}
                       placeholder="0.00"
+                      className="text-sm h-8"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Disc ($)</Label>
+                    <Input
+                      type="number" min="0" step="0.01"
+                      value={manualLine.discount}
+                      onChange={(e) => setManualLine({ ...manualLine, discount: e.target.value })}
+                      placeholder="0"
                       className="text-sm h-8"
                     />
                   </div>
@@ -438,13 +618,15 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
                     <th className="px-3 py-2 text-left font-medium text-gray-700">Item</th>
                     <th className="px-3 py-2 text-right font-medium text-gray-700 w-16">Qty</th>
                     <th className="px-3 py-2 text-right font-medium text-gray-700 w-20">Price</th>
+                    <th className="px-3 py-2 text-right font-medium text-gray-700 w-[4.5rem]">Disc</th>
                     <th className="px-3 py-2 text-right font-medium text-gray-700 w-20">Total</th>
                     <th className="w-8"></th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {lineItems.map(li => {
-                    const lineTotal = (li.quantity * li.unit_price) - (li.discount_amount || 0);
+                    const lineGross = li.quantity * li.unit_price;
+                    const lineTotal = lineGross - (li.discount_amount || 0);
                     return (
                       <tr key={li._key}>
                         <td className="px-3 py-2">
@@ -471,6 +653,19 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
                             className="text-xs h-7 w-20 text-right"
                           />
                         </td>
+                        <td className="px-3 py-2">
+                          <Input
+                            type="number" min="0" step="0.01"
+                            value={li.discount_amount || ''}
+                            onChange={(e) => {
+                              const gross = li.quantity * li.unit_price;
+                              const d = Math.max(0, parseFloat(e.target.value) || 0);
+                              updateLineField(li._key, 'discount_amount', Math.min(d, gross));
+                            }}
+                            placeholder="0"
+                            className="text-xs h-7 w-[4.5rem] text-right"
+                          />
+                        </td>
                         <td className="px-3 py-2 text-right text-xs font-medium">${lineTotal.toFixed(2)}</td>
                         <td className="px-1 py-2">
                           <button type="button" onClick={() => removeLine(li._key)} className="text-gray-400 hover:text-red-500">
@@ -482,7 +677,7 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
                   })}
                   {lineItems.length === 0 && (
                     <tr>
-                      <td colSpan={5} className="px-3 py-4 text-center text-gray-400 text-xs">
+                      <td colSpan={6} className="px-3 py-4 text-center text-gray-400 text-xs">
                         No line items. Add a service or product above.
                       </td>
                     </tr>
@@ -492,48 +687,47 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1">
-              <Label className="text-xs">Discount ($)</Label>
-              <Input
-                type="number" min="0" step="0.01"
-                value={discountAmount}
-                onChange={(e) => setDiscountAmount(e.target.value)}
-                placeholder="0.00"
-                className="text-sm"
-              />
-            </div>
-            <div className="space-y-1">
-              <Label className="text-xs">Tax ($)</Label>
-              <Input
-                type="number" min="0" step="0.01"
-                value={taxAmount}
-                onChange={(e) => setTaxAmount(e.target.value)}
-                placeholder="0.00"
-                className="text-sm"
-              />
+              <Label className="text-xs">Tax</Label>
+              <div className="text-sm font-medium tabular-nums border rounded-md px-2 py-1.5 bg-gray-50">
+                ${computedTax.toFixed(2)}
+              </div>
+              <p className="text-[10px] text-gray-500 leading-snug">
+                Tax is calculated per line on the amount after that line&apos;s discount. Services {DEFAULT_SERVICE_TAX_RATE * 100}%; manual lines 0%.
+              </p>
             </div>
             <div className="space-y-1">
               <Label className="text-xs">Payment Method</Label>
               <Select value={paymentMethod} onValueChange={setPaymentMethod}>
                 <SelectTrigger className="text-sm"><SelectValue placeholder="Method" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Card">Card</SelectItem>
+                  <SelectItem value="Stripe">Stripe</SelectItem>
                   <SelectItem value="Cash">Cash</SelectItem>
                   <SelectItem value="E-Transfer">E-Transfer</SelectItem>
-                  <SelectItem value="POS">POS Terminal</SelectItem>
+                  <SelectItem value="Amex">Amex</SelectItem>
+                  <SelectItem value="Mastercard">Mastercard</SelectItem>
+                  <SelectItem value="Visa">Visa</SelectItem>
+                  <SelectItem value="Debit">Debit</SelectItem>
+                  <SelectItem value="Other">Other</SelectItem>
                 </SelectContent>
               </Select>
             </div>
           </div>
 
           <div className="bg-gray-50 rounded-lg p-3 space-y-1 text-sm">
-            <div className="flex justify-between"><span className="text-gray-500">Subtotal:</span><span>${lineSubtotal.toFixed(2)}</span></div>
-            {discount > 0 && <div className="flex justify-between text-red-600"><span>Discount:</span><span>-${discount.toFixed(2)}</span></div>}
-            <div className="flex justify-between"><span className="text-gray-500">Tax:</span><span>${tax.toFixed(2)}</span></div>
+            <div className="flex justify-between"><span className="text-gray-500">Subtotal (before discounts):</span><span>${grossBeforeLineDiscounts.toFixed(2)}</span></div>
+            {lineDiscountsTotal > 0 && (
+              <div className="flex justify-between text-red-600">
+                <span>Line discounts:</span>
+                <span>-${lineDiscountsTotal.toFixed(2)}</span>
+              </div>
+            )}
+            <div className="flex justify-between font-medium text-gray-800"><span>Net (taxable base):</span><span>${lineSubtotal.toFixed(2)}</span></div>
+            <div className="flex justify-between"><span className="text-gray-500">Tax:</span><span>${computedTax.toFixed(2)}</span></div>
             <div className="flex justify-between font-semibold border-t border-gray-200 pt-1 mt-1"><span>Total:</span><span>${grandTotal.toFixed(2)}</span></div>
-            {depositApplied > 0 && (
-              <div className="flex justify-between text-green-700"><span>Deposit applied:</span><span>-${depositApplied.toFixed(2)}</span></div>
+            {depositCredited > 0 && (
+              <div className="flex justify-between text-green-700"><span>Paid deposit applied:</span><span>-${depositCredited.toFixed(2)}</span></div>
             )}
             <div className="flex justify-between font-bold text-lg border-t border-gray-300 pt-1 mt-1">
               <span>Amount Due:</span><span>${amountDue.toFixed(2)}</span>

@@ -89,6 +89,11 @@ serve(async (req) => {
       customerId = newCustomer.id;
     }
 
+    const svcCost =
+      aptType.service_cost != null && Number(aptType.service_cost) > 0
+        ? Number(aptType.service_cost)
+        : null;
+
     const { data: appointment, error: aptErr } = await supabase
       .from("appointments")
       .insert({
@@ -105,6 +110,7 @@ serve(async (req) => {
         start_time: startTime,
         end_time: endTime,
         deposit_amount: depositAmount ?? aptType.default_deposit,
+        total_estimate: svcCost,
         status: "scheduled",
       })
       .select("*")

@@ -45,12 +45,23 @@ serve(async (req) => {
       return json({ error: "Unauthorized" }, 401);
     }
 
-    const { appointmentId, chargeAmount, taxAmount, sendEmail = false } = await req.json();
+    const { appointmentId, chargeAmount, taxAmount, sendEmail = false, checkoutLineItems } =
+      await req.json();
     if (!appointmentId) {
       return json({ error: "Missing appointmentId" }, 400);
     }
-    if (!chargeAmount || chargeAmount <= 0) {
-      return json({ error: "Charge amount must be greater than 0" }, 400);
+    const taxParsed = taxAmount != null && taxAmount !== "" ? parseFloat(taxAmount) : 0;
+    const chargeParsed =
+      chargeAmount != null && chargeAmount !== "" ? parseFloat(chargeAmount) : 0;
+    if (
+      !Number.isFinite(chargeParsed) ||
+      !Number.isFinite(taxParsed) ||
+      chargeParsed + taxParsed <= 0
+    ) {
+      return json(
+        { error: "Total payment amount must be greater than 0" },
+        400
+      );
     }
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
@@ -63,6 +74,13 @@ serve(async (req) => {
 
     if (aptErr || !appointment) {
       return json({ error: "Appointment not found" }, 404);
+    }
+
+    if (
+      checkoutLineItems != null &&
+      (!Array.isArray(checkoutLineItems) || checkoutLineItems.length === 0)
+    ) {
+      return json({ error: "checkoutLineItems must be a non-empty array when provided" }, 400);
     }
 
     const studio = appointment.studio;
@@ -97,15 +115,16 @@ serve(async (req) => {
       undefined;
 
     const currency = (studio.currency || "USD").toLowerCase();
-    const tax = taxAmount ? parseFloat(taxAmount) : 0;
-    const charge = parseFloat(chargeAmount);
+    const tax = taxParsed;
+    const charge = chargeParsed;
     const totalAmount = charge + tax;
     const unitAmount = Math.round(totalAmount * 100);
 
     const expiresAt = Math.floor(Date.now() / 1000) + 86400; // 24 hours
 
-    const lineItems: any[] = [
-      {
+    const lineItems: any[] = [];
+    if (charge > 0) {
+      lineItems.push({
         price_data: {
           currency,
           product_data: {
@@ -115,9 +134,8 @@ serve(async (req) => {
           unit_amount: Math.round(charge * 100),
         },
         quantity: 1,
-      },
-    ];
-
+      });
+    }
     if (tax > 0) {
       lineItems.push({
         price_data: {
@@ -127,6 +145,9 @@ serve(async (req) => {
         },
         quantity: 1,
       });
+    }
+    if (!lineItems.length) {
+      return json({ error: "Total payment amount must be greater than 0" }, 400);
     }
 
     const session = await stripe.checkout.sessions.create(
@@ -160,7 +181,13 @@ serve(async (req) => {
       payment_type: "checkout",
       checkout_url: session.url,
       expires_at: new Date(expiresAt * 1000).toISOString(),
-      metadata: { charge_amount: charge, tax_amount: tax },
+      metadata: {
+        charge_amount: charge,
+        tax_amount: tax,
+        checkout_line_items: Array.isArray(checkoutLineItems)
+          ? checkoutLineItems
+          : [],
+      },
     });
 
     // Update appointment with the amounts immediately (status stays as-is until paid)
@@ -169,7 +196,7 @@ serve(async (req) => {
       .update({
         charge_amount: charge,
         tax_amount: tax,
-        payment_method: "Card",
+        payment_method: "Stripe",
       })
       .eq("id", appointmentId);
 

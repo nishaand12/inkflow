@@ -37,10 +37,14 @@ import { normalizeUserRole } from "@/utils/roles";
 
 const emptyForm = {
   name: "",
+  supplier_name: "",
+  supplier_sku: "",
   sku: "",
   barcode: "",
   price: "",
   cost: "",
+  stock_quantity: "",
+  tax_rate_percent: "13",
   reporting_category_id: "",
   is_active: true,
 };
@@ -54,6 +58,7 @@ export default function Products() {
   const [deleteTarget, setDeleteTarget] = useState(null);
   const [importErrors, setImportErrors] = useState([]);
   const [importSuccess, setImportSuccess] = useState("");
+  const [productSaveError, setProductSaveError] = useState("");
   const [user, setUser] = useState(null);
   const fileInputRef = useRef(null);
   const queryClient = useQueryClient();
@@ -126,11 +131,16 @@ export default function Products() {
   const userRole = getUserRole();
   const isAdmin = userRole === "Admin" || userRole === "Owner";
 
-  const filteredProducts = products.filter(
-    (p) =>
-      p.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      p.barcode?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredProducts = products.filter((p) => {
+    const q = searchTerm.toLowerCase();
+    return (
+      p.name?.toLowerCase().includes(q) ||
+      p.sku?.toLowerCase().includes(q) ||
+      p.barcode?.toLowerCase().includes(q) ||
+      p.supplier_name?.toLowerCase().includes(q) ||
+      p.supplier_sku?.toLowerCase().includes(q)
+    );
+  });
 
   const getCategoryName = (categoryId) => {
     const cat = categories.find((c) => c.id === categoryId);
@@ -139,18 +149,29 @@ export default function Products() {
 
   const handleNew = () => {
     setSelectedProduct(null);
+    setProductSaveError("");
     setForm({ ...emptyForm, studio_id: user?.studio_id });
     setShowDialog(true);
   };
 
   const handleEdit = (product) => {
     setSelectedProduct(product);
+    setProductSaveError("");
+    const tr =
+      product.tax_rate != null && !Number.isNaN(Number(product.tax_rate))
+        ? (Number(product.tax_rate) * 100).toString()
+        : "13";
     setForm({
       name: product.name || "",
+      supplier_name: product.supplier_name || "",
+      supplier_sku: product.supplier_sku || "",
       sku: product.sku || "",
       barcode: product.barcode || "",
       price: product.price ?? "",
       cost: product.cost ?? "",
+      stock_quantity:
+        product.stock_quantity != null ? String(product.stock_quantity) : "",
+      tax_rate_percent: tr,
       reporting_category_id: product.reporting_category_id || "",
       is_active: product.is_active ?? true,
     });
@@ -158,13 +179,34 @@ export default function Products() {
   };
 
   const handleSave = () => {
+    let taxPct = parseFloat(form.tax_rate_percent);
+    if (form.tax_rate_percent === "" || Number.isNaN(taxPct)) taxPct = 13;
+    const tax_rate = Math.min(100, Math.max(0, taxPct)) / 100;
+
     const payload = {
-      ...form,
+      name: form.name,
+      supplier_name: form.supplier_name?.trim() || null,
+      supplier_sku: form.supplier_sku?.trim() || null,
+      sku: form.sku || null,
+      barcode: form.barcode || null,
       price: form.price !== "" ? parseFloat(form.price) : null,
       cost: form.cost !== "" ? parseFloat(form.cost) : null,
+      stock_quantity:
+        form.stock_quantity === ""
+          ? null
+          : Math.max(0, parseInt(form.stock_quantity, 10) || 0),
+      tax_rate,
       reporting_category_id: form.reporting_category_id || null,
+      is_active: form.is_active,
       studio_id: user?.studio_id,
     };
+
+    const selectedCategory = categories.find((c) => c.id === form.reporting_category_id);
+    if (selectedCategory?.category_type === "store_credit" && payload.price != null && payload.price > 1000) {
+      setProductSaveError("Gift cards and store credit products cannot exceed $1,000 per unit.");
+      return;
+    }
+    setProductSaveError("");
 
     if (selectedProduct) {
       updateMutation.mutate({ id: selectedProduct.id, data: payload });
@@ -231,12 +273,32 @@ export default function Products() {
           matchedCategoryId = match.id;
         }
 
+        let taxRate = 0.13;
+        if (row.tax_rate !== undefined && row.tax_rate !== "") {
+          const tr = parseFloat(row.tax_rate);
+          if (!Number.isNaN(tr)) taxRate = tr > 1 ? tr / 100 : tr;
+        } else if (row.tax_percent !== undefined && row.tax_percent !== "") {
+          const tp = parseFloat(row.tax_percent);
+          if (!Number.isNaN(tp)) taxRate = tp / 100;
+        }
+
+        const stockRaw = row.stock_quantity ?? row.stock ?? "";
+        let stock_quantity = null;
+        if (String(stockRaw).trim() !== "") {
+          const s = parseInt(String(stockRaw), 10);
+          if (!Number.isNaN(s)) stock_quantity = Math.max(0, s);
+        }
+
         toCreate.push({
           name: row.name,
+          supplier_name: (row.supplier_name || row.supplier || "").trim() || null,
+          supplier_sku: (row.supplier_sku || "").trim() || null,
           sku: row.sku || "",
           barcode: row.barcode || "",
           price: row.price ? parseFloat(row.price) : null,
           cost: row.cost ? parseFloat(row.cost) : null,
+          stock_quantity,
+          tax_rate: taxRate,
           reporting_category_id: matchedCategoryId,
           is_active: true,
           studio_id: user?.studio_id,
@@ -294,7 +356,7 @@ export default function Products() {
               Products
             </h1>
             <p className="text-gray-500 mt-1">
-              Manage inventory items, barcodes, and SKUs
+              SKUs, barcodes, suppliers, tax rates, and optional stock counts
             </p>
           </div>
           <div className="flex gap-3">
@@ -356,7 +418,7 @@ export default function Products() {
             <div className="relative">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
               <Input
-                placeholder="Search products by name or barcode..."
+                placeholder="Search name, SKU, barcode, supplier..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="pl-10"
@@ -395,10 +457,19 @@ export default function Products() {
                         Name
                       </th>
                       <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider py-3 px-4">
+                        Supplier
+                      </th>
+                      <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider py-3 px-4">
                         SKU
                       </th>
                       <th className="text-left text-xs font-semibold text-gray-500 uppercase tracking-wider py-3 px-4">
                         Barcode
+                      </th>
+                      <th className="text-right text-xs font-semibold text-gray-500 uppercase tracking-wider py-3 px-4">
+                        Stock
+                      </th>
+                      <th className="text-right text-xs font-semibold text-gray-500 uppercase tracking-wider py-3 px-4">
+                        Tax
                       </th>
                       <th className="text-right text-xs font-semibold text-gray-500 uppercase tracking-wider py-3 px-4">
                         Price
@@ -427,11 +498,35 @@ export default function Products() {
                         <td className="py-3 px-4 font-medium text-gray-900">
                           {product.name}
                         </td>
+                        <td className="py-3 px-4 text-gray-600 text-xs max-w-[10rem]">
+                          {product.supplier_name || product.supplier_sku ? (
+                            <span className="block truncate" title={[product.supplier_name, product.supplier_sku].filter(Boolean).join(" · ")}>
+                              {product.supplier_name || "—"}
+                              {product.supplier_sku ? (
+                                <span className="block font-mono text-gray-500">
+                                  {product.supplier_sku}
+                                </span>
+                              ) : null}
+                            </span>
+                          ) : (
+                            "—"
+                          )}
+                        </td>
                         <td className="py-3 px-4 text-gray-600 text-sm font-mono">
                           {product.sku || "—"}
                         </td>
                         <td className="py-3 px-4 text-gray-600 text-sm font-mono">
                           {product.barcode || "—"}
+                        </td>
+                        <td className="py-3 px-4 text-right text-gray-700 text-sm tabular-nums">
+                          {product.stock_quantity != null
+                            ? product.stock_quantity
+                            : "—"}
+                        </td>
+                        <td className="py-3 px-4 text-right text-gray-700 text-sm tabular-nums">
+                          {product.tax_rate != null
+                            ? `${(Number(product.tax_rate) * 100).toFixed(2)}%`
+                            : "—"}
                         </td>
                         <td className="py-3 px-4 text-right text-gray-900">
                           {product.price != null
@@ -477,7 +572,7 @@ export default function Products() {
         </Card>
       </div>
 
-      <Dialog open={showDialog} onOpenChange={setShowDialog}>
+      <Dialog open={showDialog} onOpenChange={(v) => { setShowDialog(v); if (!v) setProductSaveError(""); }}>
         <DialogContent className="sm:max-w-lg bg-white">
           <DialogHeader>
             <DialogTitle>
@@ -489,6 +584,9 @@ export default function Products() {
                 : "Fill in the details for the new product."}
             </DialogDescription>
           </DialogHeader>
+          {productSaveError ? (
+            <p className="text-sm text-red-600 px-1 -mt-2">{productSaveError}</p>
+          ) : null}
           <div className="space-y-4 py-4">
             <div className="space-y-2">
               <Label htmlFor="name">Product Name</Label>
@@ -498,6 +596,30 @@ export default function Products() {
                 onChange={(e) => setForm({ ...form, name: e.target.value })}
                 placeholder="e.g. Tattoo Aftercare Lotion"
               />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="supplier_name">Supplier</Label>
+                <Input
+                  id="supplier_name"
+                  value={form.supplier_name}
+                  onChange={(e) =>
+                    setForm({ ...form, supplier_name: e.target.value })
+                  }
+                  placeholder="Vendor name"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="supplier_sku">Supplier SKU / Part #</Label>
+                <Input
+                  id="supplier_sku"
+                  value={form.supplier_sku}
+                  onChange={(e) =>
+                    setForm({ ...form, supplier_sku: e.target.value })
+                  }
+                  placeholder="Reorder code"
+                />
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
@@ -519,6 +641,44 @@ export default function Products() {
                   }
                   placeholder="e.g. 012345678901"
                 />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="stock_quantity">Stock on hand</Label>
+                <Input
+                  id="stock_quantity"
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={form.stock_quantity}
+                  onChange={(e) =>
+                    setForm({ ...form, stock_quantity: e.target.value })
+                  }
+                  placeholder="Blank = not tracked"
+                />
+                <p className="text-xs text-gray-500">
+                  Leave blank to skip inventory. Increase when you receive a
+                  shipment; it decreases at checkout.
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="tax_rate_percent">Tax rate (%)</Label>
+                <Input
+                  id="tax_rate_percent"
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="0.01"
+                  value={form.tax_rate_percent}
+                  onChange={(e) =>
+                    setForm({ ...form, tax_rate_percent: e.target.value })
+                  }
+                  placeholder="13"
+                />
+                <p className="text-xs text-gray-500">
+                  Use 0 for gift cards, store credit, or other exempt items.
+                </p>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-4">

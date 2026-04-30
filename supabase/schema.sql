@@ -231,10 +231,14 @@ create table if not exists products (
   studio_id uuid references studios (id),
   reporting_category_id uuid references reporting_categories (id),
   name text not null,
+  supplier_name text,
+  supplier_sku text,
   sku text,
   barcode text,
   price numeric not null default 0,
   cost numeric,
+  stock_quantity integer,
+  tax_rate numeric not null default 0.13,
   is_active boolean default true,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
@@ -263,6 +267,19 @@ create table if not exists appointment_charges (
 
 create index if not exists appointment_charges_appointment_idx on appointment_charges(appointment_id);
 create index if not exists appointment_charges_studio_idx on appointment_charges(studio_id);
+
+create table if not exists appointment_refunds (
+  id uuid primary key default gen_random_uuid(),
+  studio_id uuid not null references studios (id),
+  appointment_id uuid not null references appointments (id) on delete cascade,
+  amount numeric not null check (amount > 0),
+  refund_method text not null check (refund_method in ('card', 'cash', 'store_credit')),
+  notes text,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists appointment_refunds_studio_idx on appointment_refunds (studio_id);
+create index if not exists appointment_refunds_appointment_idx on appointment_refunds (appointment_id);
 
 create table if not exists artist_split_rules (
   id uuid primary key default gen_random_uuid(),
@@ -411,3 +428,105 @@ for each row execute procedure set_updated_at();
 create trigger set_artist_weekly_schedules_updated_at
 before update on artist_weekly_schedules
 for each row execute procedure set_updated_at();
+
+create or replace function public.apply_product_checkout_stock(p_lines jsonb)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  r record;
+  v_studio uuid;
+  v_stock integer;
+begin
+  for r in
+    select (x->>'product_id')::uuid as product_id,
+           (x->>'quantity')::int as quantity
+    from jsonb_array_elements(coalesce(p_lines, '[]'::jsonb)) x
+  loop
+    if r.product_id is null or r.quantity is null or r.quantity <= 0 then
+      continue;
+    end if;
+
+    select studio_id, stock_quantity into v_studio, v_stock
+    from public.products
+    where id = r.product_id
+    for update;
+
+    if v_studio is null then
+      raise exception 'Product not found';
+    end if;
+    if v_studio is distinct from public.current_user_studio() then
+      raise exception 'Not allowed';
+    end if;
+
+    if v_stock is null then
+      continue;
+    end if;
+
+    if v_stock < r.quantity then
+      raise exception 'Insufficient stock';
+    end if;
+
+    update public.products
+    set stock_quantity = v_stock - r.quantity
+    where id = r.product_id;
+  end loop;
+end;
+$$;
+
+grant execute on function public.apply_product_checkout_stock(jsonb) to authenticated;
+
+create or replace function public.apply_product_checkout_stock_system(p_studio_id uuid, p_lines jsonb)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  r record;
+  v_studio uuid;
+  v_stock integer;
+begin
+  if p_studio_id is null then
+    raise exception 'studio_id required';
+  end if;
+
+  for r in
+    select (x->>'product_id')::uuid as product_id,
+           (x->>'quantity')::int as quantity
+    from jsonb_array_elements(coalesce(p_lines, '[]'::jsonb)) x
+  loop
+    if r.product_id is null or r.quantity is null or r.quantity <= 0 then
+      continue;
+    end if;
+
+    select studio_id, stock_quantity into v_studio, v_stock
+    from public.products
+    where id = r.product_id
+    for update;
+
+    if v_studio is null then
+      raise exception 'Product not found';
+    end if;
+    if v_studio is distinct from p_studio_id then
+      raise exception 'Not allowed';
+    end if;
+
+    if v_stock is null then
+      continue;
+    end if;
+
+    if v_stock < r.quantity then
+      raise exception 'Insufficient stock';
+    end if;
+
+    update public.products
+    set stock_quantity = v_stock - r.quantity
+    where id = r.product_id;
+  end loop;
+end;
+$$;
+
+grant execute on function public.apply_product_checkout_stock_system(uuid, jsonb) to service_role;
