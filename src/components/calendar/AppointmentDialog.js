@@ -20,6 +20,10 @@ import CheckoutDialog from "./CheckoutDialog";
 import RefundDialog from "./RefundDialog";
 import { normalizeUserRole } from "@/utils/roles";
 import { addMinutesToTime, formatDuration, PIERCING_CATEGORIES } from "@/utils/index";
+import {
+  isPiercingClinicalProfile,
+  isTattooClinicalProfile,
+} from "@/utils/reportingCategories";
 
 // Stable empty array to prevent new references on each render
 const EMPTY_ARRAY = [];
@@ -135,6 +139,15 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     queryFn: async () => {
       if (!currentUser?.studio_id) return [];
       return base44.entities.AppointmentType.filter({ studio_id: currentUser.studio_id });
+    },
+    enabled: !!currentUser?.studio_id
+  });
+
+  const { data: reportingCategories = EMPTY_ARRAY } = useQuery({
+    queryKey: ['reportingCategories', currentUser?.studio_id],
+    queryFn: async () => {
+      if (!currentUser?.studio_id) return [];
+      return base44.entities.ReportingCategory.filter({ studio_id: currentUser.studio_id });
     },
     enabled: !!currentUser?.studio_id
   });
@@ -690,7 +703,23 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
   const activeAppointmentTypes = appointmentTypes.filter(t => t.is_active);
   const selectedAppointmentType = appointmentTypes.find(t => t.id === formData.appointment_type_id);
 
-  return (
+  const showPiercingHealthFields = useMemo(() => {
+    if (!selectedAppointmentType) return false;
+    if (selectedAppointmentType.appointment_kind_category_id) {
+      return isPiercingClinicalProfile(reportingCategories, selectedAppointmentType.appointment_kind_category_id);
+    }
+    return PIERCING_CATEGORIES.has(selectedAppointmentType.category);
+  }, [selectedAppointmentType, reportingCategories]);
+
+  const showTattooHealthFields = useMemo(() => {
+    if (!selectedAppointmentType) return false;
+    if (selectedAppointmentType.appointment_kind_category_id) {
+      return isTattooClinicalProfile(reportingCategories, selectedAppointmentType.appointment_kind_category_id);
+    }
+    return selectedAppointmentType.category === 'Tattoo';
+  }, [selectedAppointmentType, reportingCategories]);
+
+  const showHealthClinicalSection = showPiercingHealthFields || showTattooHealthFields;
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="w-full max-w-3xl max-h-[95vh] sm:max-h-[90vh] overflow-y-auto bg-white p-4 sm:p-6 mx-2 sm:mx-auto rounded-lg">
@@ -1102,11 +1131,11 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
               />
             </div>
 
-            {(PIERCING_CATEGORIES.has(selectedAppointmentType?.category) || selectedAppointmentType?.category === 'Tattoo') && (
+            {showHealthClinicalSection && (
               <details className="border border-gray-200 rounded-lg p-3">
                 <summary className="cursor-pointer text-sm font-medium text-gray-700">Health & Clinical Fields</summary>
                 <div className="grid grid-cols-2 gap-3 mt-3">
-                  {PIERCING_CATEGORIES.has(selectedAppointmentType?.category) && (
+                  {showPiercingHealthFields && (
                     <>
                       <div className="space-y-1">
                         <Label className="text-xs">Needle Lot #</Label>
@@ -1130,7 +1159,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                       </div>
                     </>
                   )}
-                  {selectedAppointmentType?.category === 'Tattoo' && (
+                  {showTattooHealthFields && (
                     <>
                       <div className="space-y-1">
                         <Label className="text-xs">Ink Brand / Lot #</Label>

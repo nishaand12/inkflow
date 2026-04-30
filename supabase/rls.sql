@@ -511,6 +511,21 @@ using (
   and public.current_user_role() in ('Owner', 'Admin')
 );
 
+-- Public booking (anon): read active appointment_kind category tree for display grouping
+drop policy if exists reporting_categories_select_anon_appointment_kind on public.reporting_categories;
+create policy reporting_categories_select_anon_appointment_kind
+on public.reporting_categories
+for select
+to anon
+using (
+  category_role = 'appointment_kind'
+  and is_active = true
+  and exists (
+    select 1 from studios s
+    where s.id = reporting_categories.studio_id and s.is_active = true
+  )
+);
+
 -- Products (Owner/Admin manage, all studio members read)
 alter table public.products enable row level security;
 

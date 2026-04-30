@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
 import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -8,6 +8,12 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { CheckCircle, Loader2, Mail, ExternalLink, Plus, Trash2, ScanBarcode, Package } from "lucide-react";
 import { supabase } from "@/utils/supabase";
+import {
+  CATEGORY_ROLE_REPORTING,
+  filterCategoriesByRole,
+  getCategoryPathLabel,
+  getLeafCategoryOptions,
+} from "@/utils/reportingCategories";
 
 const LEGACY_PAYMENT_METHOD_MAP = {
   Card: "Stripe",
@@ -110,6 +116,16 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
     enabled: open && !!studio?.id
   });
 
+  const reportingLeaves = useMemo(
+    () => getLeafCategoryOptions(reportingCategories, CATEGORY_ROLE_REPORTING),
+    [reportingCategories]
+  );
+
+  const reportingListForPaths = useMemo(
+    () => filterCategoriesByRole(reportingCategories, CATEGORY_ROLE_REPORTING),
+    [reportingCategories]
+  );
+
   useEffect(() => {
     if (appointment && open) {
       const initialLines = [];
@@ -146,8 +162,7 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
 
   const resolveReportingCategoryName = (catId) => {
     if (!catId) return '';
-    const cat = reportingCategories.find(c => c.id === catId);
-    return cat?.name || '';
+    return getCategoryPathLabel(reportingListForPaths, catId) || reportingCategories.find(c => c.id === catId)?.name || '';
   };
 
   const handleBarcodeKeyDown = useCallback((e) => {
@@ -577,8 +592,10 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
                       <SelectTrigger className="text-sm h-8"><SelectValue placeholder="Category" /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="__none__">None</SelectItem>
-                        {reportingCategories.filter(c => c.is_active).map(c => (
-                          <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                        {reportingLeaves.map((c) => (
+                          <SelectItem key={c.id} value={c.id}>
+                            {getCategoryPathLabel(reportingListForPaths, c.id)}
+                          </SelectItem>
                         ))}
                       </SelectContent>
                     </Select>

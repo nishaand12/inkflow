@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,7 +11,11 @@ import { format, parseISO } from "date-fns";
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion";
 import AppointmentDialog from "../components/calendar/AppointmentDialog";
 import { normalizeUserRole } from "@/utils/roles";
-import { PIERCING_CATEGORIES } from "@/utils/index";
+import {
+  CATEGORY_ROLE_APPOINTMENT_KIND,
+  filterCategoriesByRole,
+  appointmentTypeMatchesFilter,
+} from "@/utils/reportingCategories";
 
 const statusColors = {
   scheduled:     "bg-blue-100 text-blue-800 border-blue-200",
@@ -97,6 +101,31 @@ export default function Appointments() {
     enabled: !!user?.studio_id
   });
 
+  const { data: reportingCategories = [] } = useQuery({
+    queryKey: ['reportingCategories', user?.studio_id],
+    queryFn: async () => {
+      if (!user?.studio_id) return [];
+      return base44.entities.ReportingCategory.filter({ studio_id: user.studio_id });
+    },
+    enabled: !!user?.studio_id
+  });
+
+  const typeCategoryFilterOptions = useMemo(() => {
+    const opts = [
+      { value: 'all', label: 'All Types' },
+      { value: 'legacy_tattoo', label: 'Tattoo (legacy)' },
+      { value: 'legacy_piercing', label: 'Piercing (legacy)' },
+      { value: 'legacy_other', label: 'Other (legacy)' },
+    ];
+    const roots = filterCategoriesByRole(reportingCategories, CATEGORY_ROLE_APPOINTMENT_KIND)
+      .filter((c) => !c.parent_id)
+      .sort((a, b) => (a.display_order ?? 0) - (b.display_order ?? 0) || (a.name || '').localeCompare(b.name || ''));
+    for (const r of roots) {
+      opts.push({ value: `kind:${r.id}`, label: r.name || 'Kind' });
+    }
+    return opts;
+  }, [reportingCategories]);
+
   const { data: workStations = [] } = useQuery({
     queryKey: ['workStations', user?.studio_id],
     queryFn: async () => {
@@ -138,7 +167,7 @@ export default function Appointments() {
     return appointment.client_email || appointment.client_phone || '';
   };
 
-  const filteredAppointments = appointments.filter(apt => {
+  const filteredAppointments = useMemo(() => appointments.filter(apt => {
     if (isArtist && !isAdmin) {
       if (!userArtist) return false;
       if (apt.artist_id !== userArtist.id) return false;
@@ -147,9 +176,7 @@ export default function Appointments() {
     const aptType = appointmentTypes.find(t => t.id === apt.appointment_type_id);
 
     if (typeFilter !== 'all') {
-      if (typeFilter === 'Tattoo' && aptType?.category !== 'Tattoo') return false;
-      if (typeFilter === 'Piercing' && !PIERCING_CATEGORIES.has(aptType?.category)) return false;
-      if (typeFilter === 'Other' && (aptType?.category === 'Tattoo' || PIERCING_CATEGORIES.has(aptType?.category))) return false;
+      if (!appointmentTypeMatchesFilter(reportingCategories, aptType, typeFilter)) return false;
     }
     if (statusFilter !== 'all' && apt.status !== statusFilter) return false;
     if (artistFilter !== 'all' && apt.artist_id !== artistFilter) return false;
@@ -166,7 +193,22 @@ export default function Appointments() {
     }
 
     return true;
-  });
+  }), [
+    appointments,
+    isArtist,
+    isAdmin,
+    userArtist,
+    appointmentTypes,
+    typeFilter,
+    reportingCategories,
+    statusFilter,
+    artistFilter,
+    locationFilter,
+    workStationFilter,
+    specificTypeFilter,
+    searchTerm,
+    customers,
+  ]);
 
   const handleEdit = (appointment) => {
     setSelectedAppointment(appointment);
@@ -207,10 +249,9 @@ export default function Appointments() {
                 <Select value={typeFilter} onValueChange={setTypeFilter}>
                   <SelectTrigger className="text-sm"><SelectValue placeholder="All Types" /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">All Types</SelectItem>
-                    <SelectItem value="Tattoo">Tattoo</SelectItem>
-                    <SelectItem value="Piercing">Piercing</SelectItem>
-                    <SelectItem value="Other">Other</SelectItem>
+                    {typeCategoryFilterOptions.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
 

@@ -9,7 +9,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge";
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion";
 import { Calendar, Clock, CreditCard, CheckCircle, Loader2, AlertCircle, Tag } from "lucide-react";
-import { addMinutesToTime, formatDuration, APPOINTMENT_CATEGORIES } from "@/utils/index";
+import { addMinutesToTime, formatDuration } from "@/utils/index";
+import { getAppointmentTypeDisplaySections } from "@/utils/reportingCategories";
 import { format, addDays } from "date-fns";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
@@ -26,7 +27,7 @@ export default function PublicBooking() {
   const [availabilities, setAvailabilities] = useState([]);
   const [weeklySchedules, setWeeklySchedules] = useState([]);
   const [appointments, setAppointments] = useState([]);
-  const [workStations, setWorkStations] = useState([]);
+  const [kindCategories, setKindCategories] = useState([]);
 
   const [step, setStep] = useState(1);
   const [selectedType, setSelectedType] = useState(null);
@@ -64,6 +65,15 @@ export default function PublicBooking() {
       setWeeklySchedules(data.weekly_schedules || []);
       setAppointments(data.appointments || []);
       setWorkStations(data.workstations || []);
+
+      const { data: catRows, error: catErr } = await supabase
+        .from("reporting_categories")
+        .select("id,parent_id,name,display_order,category_role,is_active")
+        .eq("studio_id", studioParam)
+        .eq("category_role", "appointment_kind")
+        .eq("is_active", true);
+      if (!catErr && catRows) setKindCategories(catRows);
+      else setKindCategories([]);
     } catch (err) {
       setError("Unable to load booking information. Please check the link and try again.");
     } finally {
@@ -171,26 +181,10 @@ export default function PublicBooking() {
     return slots;
   };
 
-  // Group appointment types by category, sorted A-Z within each group.
-  // Categories follow APPOINTMENT_CATEGORIES order; any unknown category falls into "Other".
   const groupedTypes = useMemo(() => {
-    const byCategory = {};
-    for (const type of appointmentTypes) {
-      const cat = type.category || 'Other';
-      if (!byCategory[cat]) byCategory[cat] = [];
-      byCategory[cat].push(type);
-    }
-    for (const cat of Object.keys(byCategory)) {
-      byCategory[cat].sort((a, b) => a.name.localeCompare(b.name));
-    }
-    const knownOrder = [...APPOINTMENT_CATEGORIES].sort((a, b) => a.localeCompare(b));
-    const extraCats = Object.keys(byCategory)
-      .filter(c => !APPOINTMENT_CATEGORIES.includes(c))
-      .sort((a, b) => a.localeCompare(b));
-    return [...knownOrder, ...extraCats]
-      .filter(cat => byCategory[cat])
-      .map(cat => ({ category: cat, types: byCategory[cat] }));
-  }, [appointmentTypes]);
+    const sections = getAppointmentTypeDisplaySections(appointmentTypes, kindCategories);
+    return sections.map((s) => ({ category: s.label, accordionValue: s.key, types: s.types }));
+  }, [appointmentTypes, kindCategories]);
 
   const availableSlots = useMemo(() => {
     if (!selectedType || !selectedLocation || !selectedDate) return [];
@@ -345,8 +339,8 @@ export default function PublicBooking() {
                 <p className="text-gray-500 text-center py-6">No services available for online booking at this time.</p>
               ) : (
                 <Accordion type="single" collapsible className="w-full">
-                  {groupedTypes.map(({ category, types }) => (
-                    <AccordionItem key={category} value={category}>
+                  {groupedTypes.map(({ category, accordionValue, types }) => (
+                    <AccordionItem key={accordionValue} value={accordionValue}>
                       <AccordionTrigger className="text-base font-semibold text-gray-800 hover:no-underline px-1">
                         <span className="flex items-center gap-2">
                           <Tag className="w-4 h-4 text-indigo-500 shrink-0" />

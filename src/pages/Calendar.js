@@ -16,7 +16,11 @@ import AppointmentCard from "../components/calendar/AppointmentCard";
 import { normalizeUserRole } from "@/utils/roles";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { ARTIST_PALETTE, hexToRgba } from "@/utils/artistColors";
-import { PIERCING_CATEGORIES } from "@/utils/index";
+import {
+  CATEGORY_ROLE_APPOINTMENT_KIND,
+  filterCategoriesByRole,
+  appointmentTypeMatchesFilter,
+} from "@/utils/reportingCategories";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 
@@ -164,6 +168,28 @@ export default function Calendar() {
     enabled: !!user?.studio_id
   });
 
+  const { data: reportingCategories = [] } = useQuery({
+    queryKey: ['reportingCategories', user?.studio_id],
+    queryFn: () => base44.entities.ReportingCategory.filter({ studio_id: user.studio_id }),
+    enabled: !!user?.studio_id
+  });
+
+  const typeCategoryFilterOptions = useMemo(() => {
+    const opts = [
+      { value: 'all', label: 'All Types' },
+      { value: 'legacy_tattoo', label: 'Tattoo (legacy)' },
+      { value: 'legacy_piercing', label: 'Piercing (legacy)' },
+      { value: 'legacy_other', label: 'Other (legacy)' },
+    ];
+    const roots = filterCategoriesByRole(reportingCategories, CATEGORY_ROLE_APPOINTMENT_KIND)
+      .filter((c) => !c.parent_id)
+      .sort((a, b) => (a.display_order ?? 0) - (b.display_order ?? 0) || (a.name || '').localeCompare(b.name || ''));
+    for (const r of roots) {
+      opts.push({ value: `kind:${r.id}`, label: r.name || 'Kind' });
+    }
+    return opts;
+  }, [reportingCategories]);
+
   const { data: workStations = [] } = useQuery({
     queryKey: ['workStations', user?.studio_id],
     queryFn: () => base44.entities.WorkStation.filter({ studio_id: user.studio_id }),
@@ -188,6 +214,14 @@ export default function Calendar() {
   const getAptColor  = (apt) => artistColorMap[apt.artist_id] || '#4f46e5';
   const getAptTypeName = (apt) => appointmentTypes.find(t => t.id === apt.appointment_type_id)?.name || '';
 
+  const getCustomerName = (apt) => {
+    if (apt.customer_id) {
+      const c = customers.find(c => c.id === apt.customer_id);
+      return c?.name || apt.client_name || 'Unknown';
+    }
+    return apt.client_name || 'Unknown';
+  };
+
   // ── Role helpers ────────────────────────────────────────────────────────
   const getUserRole = () => {
     if (!user) return null;
@@ -198,7 +232,7 @@ export default function Calendar() {
   const isAdmin  = userRole === 'Admin' || userRole === 'Owner';
 
   // ── Filtering ───────────────────────────────────────────────────────────
-  const filteredAppointments = appointments.filter(apt => {
+  const filteredAppointments = useMemo(() => appointments.filter(apt => {
     if (isArtist && !isAdmin) {
       if (!userArtist || apt.artist_id !== userArtist.id) return false;
     }
@@ -206,9 +240,7 @@ export default function Calendar() {
     const aptType = appointmentTypes.find(t => t.id === apt.appointment_type_id);
 
     if (selectedTypeCategory !== 'all') {
-      if (selectedTypeCategory === 'Tattoo' && aptType?.category !== 'Tattoo') return false;
-      if (selectedTypeCategory === 'Piercing' && !PIERCING_CATEGORIES.has(aptType?.category)) return false;
-      if (selectedTypeCategory === 'Other' && (aptType?.category === 'Tattoo' || PIERCING_CATEGORIES.has(aptType?.category))) return false;
+      if (!appointmentTypeMatchesFilter(reportingCategories, aptType, selectedTypeCategory)) return false;
     }
     if (statusFilter !== 'all' && apt.status !== statusFilter) return false;
     if ((isAdmin || userRole === 'Front_Desk') && selectedArtist !== 'all' && apt.artist_id !== selectedArtist) return false;
@@ -223,7 +255,23 @@ export default function Calendar() {
     }
 
     return true;
-  });
+  }), [
+    appointments,
+    isArtist,
+    isAdmin,
+    userArtist,
+    appointmentTypes,
+    selectedTypeCategory,
+    reportingCategories,
+    statusFilter,
+    userRole,
+    selectedArtist,
+    selectedLocation,
+    workStationFilter,
+    specificTypeFilter,
+    customerSearch,
+    customers,
+  ]);
 
   // ── Day ranges ──────────────────────────────────────────────────────────
   const getDaysToShow = () => {
@@ -243,14 +291,6 @@ export default function Calendar() {
   const getAppointmentsForDay = (day) =>
     filteredAppointments.filter(apt => isSameDay(parseISO(apt.appointment_date + 'T00:00:00'), day))
       .sort((a, b) => a.start_time.localeCompare(b.start_time));
-
-  const getCustomerName = (apt) => {
-    if (apt.customer_id) {
-      const c = customers.find(c => c.id === apt.customer_id);
-      return c?.name || apt.client_name || 'Unknown';
-    }
-    return apt.client_name || 'Unknown';
-  };
 
   const isOwnAppointment = (apt) => !userArtist || apt.artist_id === userArtist.id;
 
@@ -351,10 +391,9 @@ export default function Calendar() {
                 <Select value={selectedTypeCategory} onValueChange={setSelectedTypeCategory}>
                   <SelectTrigger className="text-sm"><SelectValue placeholder="All Types" /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">All Types</SelectItem>
-                    <SelectItem value="Tattoo">Tattoo</SelectItem>
-                    <SelectItem value="Piercing">Piercing</SelectItem>
-                    <SelectItem value="Other">Other</SelectItem>
+                    {typeCategoryFilterOptions.map((o) => (
+                      <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
 

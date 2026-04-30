@@ -24,7 +24,7 @@ test.describe('Reporting Categories', () => {
   // ── Happy Paths ─────────────────────────────────────────────────────────────
 
   test('HP-RC-1: /reporting-categories page loads with heading', async ({ page }) => {
-    await expect(page.getByRole('heading', { name: /reporting categories/i })).toBeVisible({ timeout: 8000 });
+    await expect(page.getByRole('heading', { name: /^categories$/i })).toBeVisible({ timeout: 8000 });
   });
 
   test('HP-RC-2: Add Category button opens dialog', async ({ page }) => {
@@ -156,7 +156,7 @@ test.describe('Reporting Categories', () => {
   });
 
   test('NHP-RC-9: Delete category triggers confirmation dialog', async ({ page }) => {
-    const row = page.locator('[class*="grid"][class*="items-center"]').first();
+    const row = page.getByTestId('category-row').first();
     if (!await row.isVisible({ timeout: 5000 }).catch(() => false)) {
       test.skip(true, 'No category rows found — run HP-RC-3 first.');
       return;
