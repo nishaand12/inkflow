@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Wallet, Lock, Loader2 } from "lucide-react";
 import { format } from "date-fns";
 import { normalizeUserRole } from "@/utils/roles";
+import { createPageUrl } from "@/utils/index";
 
 export default function Settlements() {
   const queryClient = useQueryClient();
@@ -188,6 +190,21 @@ export default function Settlements() {
           <p className="text-gray-500 mt-1">Generate and review daily payout settlements</p>
         </div>
 
+        <Card className="bg-white border border-indigo-100 bg-indigo-50/40 shadow-sm">
+          <CardContent className="p-4 text-sm text-gray-700">
+            <p className="font-medium text-gray-900 mb-1">What “settled” means in Inkflow</p>
+            <p>
+              Generating a settlement creates a <strong>frozen snapshot</strong> of that day’s completed
+              appointments at each location: gross, tax, discounts, net, POS vs online totals, and
+              per-appointment artist/shop splits. It does <strong>not</strong> lock the calendar or block
+              edits to appointments. Refunds recorded later still apply to the appointment and reports,
+              but they do <strong>not</strong> automatically change an existing settlement record—you would
+              treat refunds as cash movements or use a future adjustment if your studio requires books to
+              tie exactly.
+            </p>
+          </CardContent>
+        </Card>
+
         <Card className="bg-white border-none shadow-md">
           <CardContent className="p-6">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
@@ -254,6 +271,7 @@ export default function Settlements() {
                       <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">POS</th>
                       <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Online</th>
                       <th className="px-4 py-3 text-center text-sm font-semibold text-gray-900">Status</th>
+                      <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Details</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200">
@@ -273,6 +291,11 @@ export default function Settlements() {
                             <Badge className={s.status === 'locked' ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'}>
                               {s.status === 'locked' ? 'Locked' : 'Draft'}
                             </Badge>
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <Button variant="outline" size="sm" asChild>
+                              <Link to={`${createPageUrl("Settlements")}/${s.id}`}>View</Link>
+                            </Button>
                           </td>
                         </tr>
                       );
