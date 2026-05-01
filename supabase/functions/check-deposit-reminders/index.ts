@@ -96,7 +96,22 @@ serve(async (req) => {
         body: JSON.stringify(payload),
       });
 
-      if (sendRes.ok) sentCount++;
+      if (sendRes.ok) {
+        await recordEmailEvent(supabase, {
+          studioId: studio.id,
+          customerId: apt.customer_id || null,
+          appointmentId: apt.id,
+          email,
+          eventType: "automatic_email_sent",
+          metadata: {
+            source: "check-deposit-reminders",
+            email_kind: "deposit_reminder",
+            subject: `Deposit Reminder - ${studio.name}`,
+            deposit_amount: apt.deposit_amount || null,
+          },
+        });
+        sentCount++;
+      }
     }
 
     return json({ success: true, sent: sentCount });
@@ -111,4 +126,37 @@ function json(data: Record<string, unknown>, status = 200) {
     status,
     headers: { "Content-Type": "application/json" },
   });
+}
+
+async function recordEmailEvent(
+  supabase: ReturnType<typeof createClient>,
+  {
+    studioId,
+    customerId,
+    appointmentId,
+    email,
+    eventType,
+    metadata,
+  }: {
+    studioId: string | null;
+    customerId: string | null;
+    appointmentId: string | null;
+    email: string;
+    eventType: string;
+    metadata: Record<string, unknown>;
+  }
+) {
+  const { error } = await supabase.from("email_events").insert({
+    studio_id: studioId,
+    customer_id: customerId,
+    appointment_id: appointmentId,
+    email,
+    event_type: eventType,
+    delivery_status: "sent",
+    metadata,
+  });
+
+  if (error) {
+    console.error("Failed to record email event:", error);
+  }
 }

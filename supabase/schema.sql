@@ -226,13 +226,17 @@ create table if not exists email_events (
   appointment_id uuid references appointments (id),
   email text not null,
   event_type text not null,
+  delivery_status text default 'sent',
   reason text,
+  provider_event_type text,
+  provider_event_at timestamptz,
   occurred_at timestamptz default now(),
   metadata jsonb
 );
 
 create index if not exists email_events_email_idx on email_events (email);
 create index if not exists email_events_appointment_idx on email_events (appointment_id);
+create index if not exists email_events_studio_event_time_idx on email_events (studio_id, event_type, occurred_at);
 
 create table if not exists products (
   id uuid primary key default gen_random_uuid(),

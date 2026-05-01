@@ -28,6 +28,10 @@ export default function StudioSettings() {
     email_reminders_enabled: false,
     reminder_minutes_before: 1440
   });
+  const [emailUsage, setEmailUsage] = useState({
+    thisMonth: 0,
+    loading: false
+  });
 
   const [stripeStatus, setStripeStatus] = useState({
     connected: false,
@@ -73,10 +77,33 @@ export default function StudioSettings() {
             reminder_minutes_before: loadedStudio.reminder_minutes_before || 1440
           });
           loadStripeStatus(loadedStudio.id);
+          loadEmailUsage(loadedStudio.id);
         }
       }
     } catch (error) {
       console.error("Error loading studio:", error);
+    }
+  };
+
+  const loadEmailUsage = async (studioId) => {
+    setEmailUsage(prev => ({ ...prev, loading: true }));
+    try {
+      const monthStart = new Date();
+      monthStart.setDate(1);
+      monthStart.setHours(0, 0, 0, 0);
+
+      const { count, error } = await supabase
+        .from("email_events")
+        .select("id", { count: "exact", head: true })
+        .eq("studio_id", studioId)
+        .eq("event_type", "automatic_email_sent")
+        .gte("occurred_at", monthStart.toISOString());
+
+      if (error) throw error;
+      setEmailUsage({ thisMonth: count || 0, loading: false });
+    } catch (err) {
+      console.error("Error loading email usage:", err);
+      setEmailUsage(prev => ({ ...prev, loading: false }));
     }
   };
 
@@ -331,6 +358,25 @@ export default function StudioSettings() {
                 </div>
               </CardHeader>
               <CardContent className="p-6 space-y-6">
+                <div className="flex items-center justify-between p-4 rounded-lg border border-indigo-100 bg-indigo-50">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-white rounded-lg flex items-center justify-center">
+                      <BarChart3 className="w-5 h-5 text-indigo-600" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900">Automatic emails sent this month</p>
+                      <p className="text-xs text-gray-500">Tracked from the email events log</p>
+                    </div>
+                  </div>
+                  <div className="text-2xl font-bold text-indigo-700">
+                    {emailUsage.loading ? (
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                    ) : (
+                      emailUsage.thisMonth
+                    )}
+                  </div>
+                </div>
+
                 {studio.subscription_tier !== "plus" ? (
                   <div className="text-sm text-gray-600">
                     Email reminders are available on the Plus tier. Contact support to upgrade this studio.

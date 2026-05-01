@@ -124,7 +124,7 @@ serve(async (req) => {
     }
 
     const subject = getSubject(eventType, studio.name);
-    const body = getEmailBody({
+    const emailContent = getEmailContent({
       eventType,
       customerName: appointment.client_name || customer?.name || "Customer",
       dateTime: formattedDateTime,
@@ -155,7 +155,8 @@ serve(async (req) => {
           From: { Email: MAILJET_SENDER_EMAIL, Name: MAILJET_SENDER_NAME },
           To: [{ Email: email, Name: appointment.client_name || customer?.name || "Customer" }],
           Subject: subject,
-          TextPart: body,
+          TextPart: emailContent.text,
+          HTMLPart: emailContent.html,
           Attachments: attachments.length > 0 ? attachments : undefined
         }
       ]
@@ -166,6 +167,21 @@ serve(async (req) => {
       await updateEmailStatus(supabase, appointmentId, "failed", sendResult.error || "mailjet_error");
       return jsonResponse({ error: "Mailjet send failed", message: sendResult.error }, 502);
     }
+
+    await recordEmailEvent(supabase, {
+      studioId: studio.id,
+      customerId: appointment.customer_id || null,
+      appointmentId: appointment.id,
+      email,
+      eventType: "automatic_email_sent",
+      metadata: {
+        source: "send-appointment-email",
+        email_kind: eventType,
+        subject,
+        has_deposit_link: Boolean(depositUrl),
+        deposit_amount: appointment.deposit_amount || null,
+      },
+    });
 
     await updateEmailStatus(supabase, appointmentId, "sent", null, reminderMinutes);
     return jsonResponse({ success: true });
@@ -265,7 +281,7 @@ function getSubject(eventType: string, studioName: string) {
   return `Appointment Confirmation - ${studioName}`;
 }
 
-function getEmailBody({
+function getEmailContent({
   eventType,
   customerName,
   dateTime,
@@ -282,20 +298,92 @@ function getEmailBody({
   depositAmount?: number;
   depositUrl?: string | null;
 }) {
+  const escapedCustomerName = escapeHtml(customerName);
+  const escapedDateTime = escapeHtml(dateTime);
+  const escapedLocation = escapeHtml(location);
+  const escapedStudioEmail = escapeHtml(studioEmail);
+
   const depositSection =
     depositUrl && depositAmount && depositAmount > 0
-      ? `\n\nA deposit of $${depositAmount.toFixed(2)} is required to secure your appointment. Please complete your payment using the link below:\n\n${depositUrl}\n\nThis payment link expires in 24 hours. If it has expired, please contact ${studioEmail} for a new link.`
+      ? `\n\nA deposit of $${depositAmount.toFixed(2)} is required to secure your appointment. Please complete your payment using the link below:\n\nPay deposit: ${depositUrl}\n\nFull payment URL: ${depositUrl}\n\nThis payment link expires in 24 hours. If it has expired, please contact ${studioEmail} for a new link.`
+      : "";
+
+  const escapedDepositUrl = depositUrl ? escapeHtml(depositUrl) : "";
+  const depositHtmlSection =
+    depositUrl && depositAmount && depositAmount > 0
+      ? `
+        <p>A deposit of $${depositAmount.toFixed(2)} is required to secure your appointment.</p>
+        <p><a href="${escapedDepositUrl}" style="display:inline-block;padding:12px 18px;background:#4f46e5;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:600;">Pay deposit</a></p>
+        <p style="font-size:13px;color:#4b5563;">If the button does not work, copy and paste this full URL into your browser:</p>
+        <p style="font-size:13px;word-break:break-all;"><a href="${escapedDepositUrl}">${escapedDepositUrl}</a></p>
+        <p>This payment link expires in 24 hours. If it has expired, please contact ${escapedStudioEmail} for a new link.</p>
+      `
       : "";
 
   if (eventType === "reminder") {
-    return `Hi There,\n\nThis is an appointment reminder for ${customerName}.\n\n${dateTime}\n${location}\n\nLooking forward to seeing you there!\n\nIf you received this email in error, please contact ${studioEmail}.`;
+    return {
+      text: `Hi There,\n\nThis is an appointment reminder for ${customerName}.\n\n${dateTime}\n${location}\n\nLooking forward to seeing you there!\n\nIf you received this email in error, please contact ${studioEmail}.`,
+      html: wrapEmailHtml(`
+        <p>Hi There,</p>
+        <p>This is an appointment reminder for ${escapedCustomerName}.</p>
+        <p>${escapedDateTime}<br>${escapedLocation}</p>
+        <p>Looking forward to seeing you there!</p>
+        <p>If you received this email in error, please contact ${escapedStudioEmail}.</p>
+      `),
+    };
   }
 
   if (eventType === "updated") {
-    return `Hi There,\n\nYour appointment details have been updated for ${customerName}.\n\n${dateTime}\n${location}\n\nIf you received this email in error, please contact ${studioEmail}.`;
+    return {
+      text: `Hi There,\n\nYour appointment details have been updated for ${customerName}.\n\n${dateTime}\n${location}\n\nIf you received this email in error, please contact ${studioEmail}.`,
+      html: wrapEmailHtml(`
+        <p>Hi There,</p>
+        <p>Your appointment details have been updated for ${escapedCustomerName}.</p>
+        <p>${escapedDateTime}<br>${escapedLocation}</p>
+        <p>If you received this email in error, please contact ${escapedStudioEmail}.</p>
+      `),
+    };
   }
 
-  return `Hi There,\n\nThis is a confirmation for ${customerName}.\n\n${dateTime}\n${location}${depositSection}\n\nLooking forward to seeing you there!\n\nIf you received this email in error, please contact ${studioEmail}.`;
+  return {
+    text: `Hi There,\n\nThis is a confirmation for ${customerName}.\n\n${dateTime}\n${location}${depositSection}\n\nLooking forward to seeing you there!\n\nIf you received this email in error, please contact ${studioEmail}.`,
+    html: wrapEmailHtml(`
+      <p>Hi There,</p>
+      <p>This is a confirmation for ${escapedCustomerName}.</p>
+      <p>${escapedDateTime}<br>${escapedLocation}</p>
+      ${depositHtmlSection}
+      <p>Looking forward to seeing you there!</p>
+      <p>If you received this email in error, please contact ${escapedStudioEmail}.</p>
+    `),
+  };
+}
+
+function wrapEmailHtml(body: string) {
+  return `<!doctype html>
+<html>
+  <body style="font-family:Arial,sans-serif;line-height:1.5;color:#111827;">
+    ${body}
+  </body>
+</html>`;
+}
+
+function escapeHtml(value: string) {
+  return value.replace(/[&<>"']/g, (char) => {
+    switch (char) {
+      case "&":
+        return "&amp;";
+      case "<":
+        return "&lt;";
+      case ">":
+        return "&gt;";
+      case '"':
+        return "&quot;";
+      case "'":
+        return "&#39;";
+      default:
+        return char;
+    }
+  });
 }
 
 async function sendWithRetry(payload: any) {
@@ -341,6 +429,39 @@ async function updateEmailStatus(
       reminder_minutes_before: reminderMinutes ?? null
     })
     .eq("id", appointmentId);
+}
+
+async function recordEmailEvent(
+  supabase: ReturnType<typeof createClient>,
+  {
+    studioId,
+    customerId,
+    appointmentId,
+    email,
+    eventType,
+    metadata,
+  }: {
+    studioId: string | null;
+    customerId: string | null;
+    appointmentId: string | null;
+    email: string;
+    eventType: string;
+    metadata: Record<string, unknown>;
+  }
+) {
+  const { error } = await supabase.from("email_events").insert({
+    studio_id: studioId,
+    customer_id: customerId,
+    appointment_id: appointmentId,
+    email,
+    event_type: eventType,
+    delivery_status: "sent",
+    metadata,
+  });
+
+  if (error) {
+    console.error("Failed to record email event:", error);
+  }
 }
 
 function generateCalendarInvite({

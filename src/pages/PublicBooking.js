@@ -7,10 +7,13 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion";
-import { Calendar, Clock, CreditCard, CheckCircle, Loader2, AlertCircle, Tag } from "lucide-react";
+import { Calendar, Clock, CreditCard, CheckCircle, Loader2, AlertCircle, ChevronRight, ArrowLeft } from "lucide-react";
 import { addMinutesToTime, formatDuration } from "@/utils/index";
-import { getAppointmentTypeDisplaySections } from "@/utils/reportingCategories";
+import {
+  CATEGORY_ROLE_APPOINTMENT_KIND,
+  filterCategoriesByRole,
+  groupChildrenByParentId,
+} from "@/utils/reportingCategories";
 import { format, addDays } from "date-fns";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
@@ -32,6 +35,7 @@ export default function PublicBooking() {
 
   const [step, setStep] = useState(1);
   const [selectedType, setSelectedType] = useState(null);
+  const [selectedCategoryPath, setSelectedCategoryPath] = useState([]);
   const [selectedArtist, setSelectedArtist] = useState('');
   const [selectedLocation, setSelectedLocation] = useState('');
   const [selectedDate, setSelectedDate] = useState('');
@@ -66,15 +70,7 @@ export default function PublicBooking() {
       setWeeklySchedules(data.weekly_schedules || []);
       setAppointments(data.appointments || []);
       setWorkStations(data.workstations || []);
-
-      const { data: catRows, error: catErr } = await supabase
-        .from("reporting_categories")
-        .select("id,parent_id,name,display_order,category_role,is_active")
-        .eq("studio_id", studioParam)
-        .eq("category_role", "appointment_kind")
-        .eq("is_active", true);
-      if (!catErr && catRows) setKindCategories(catRows);
-      else setKindCategories([]);
+      setKindCategories(data.appointment_kind_categories || []);
     } catch (err) {
       setError("Unable to load booking information. Please check the link and try again.");
     } finally {
@@ -182,10 +178,82 @@ export default function PublicBooking() {
     return slots;
   };
 
-  const groupedTypes = useMemo(() => {
-    const sections = getAppointmentTypeDisplaySections(appointmentTypes, kindCategories);
-    return sections.map((s) => ({ category: s.label, accordionValue: s.key, types: s.types }));
+  const serviceBrowser = useMemo(() => {
+    const activeKindCategories = filterCategoriesByRole(
+      kindCategories,
+      CATEGORY_ROLE_APPOINTMENT_KIND
+    ).filter(c => c.is_active !== false);
+    const childrenByParent = groupChildrenByParentId(activeKindCategories, CATEGORY_ROLE_APPOINTMENT_KIND);
+    const activeCategoryIds = new Set(activeKindCategories.map(c => c.id));
+    const typesByCategory = new Map();
+    const legacyTypes = [];
+
+    for (const type of appointmentTypes) {
+      if (type.appointment_kind_category_id && activeCategoryIds.has(type.appointment_kind_category_id)) {
+        const key = type.appointment_kind_category_id;
+        if (!typesByCategory.has(key)) typesByCategory.set(key, []);
+        typesByCategory.get(key).push(type);
+      } else {
+        legacyTypes.push(type);
+      }
+    }
+
+    for (const [key, list] of typesByCategory.entries()) {
+      typesByCategory.set(key, sortAppointmentTypes(list));
+    }
+
+    const countTypesInCategory = (categoryId, seen = new Set()) => {
+      if (seen.has(categoryId)) return 0;
+      seen.add(categoryId);
+      const directCount = typesByCategory.get(categoryId)?.length || 0;
+      const childCount = (childrenByParent.get(categoryId) || []).reduce(
+        (sum, child) => sum + countTypesInCategory(child.id, seen),
+        0
+      );
+      return directCount + childCount;
+    };
+
+    const visibleChildrenByParent = new Map();
+    for (const [parentId, children] of childrenByParent.entries()) {
+      visibleChildrenByParent.set(
+        parentId,
+        children.filter(child => countTypesInCategory(child.id) > 0)
+      );
+    }
+
+    return {
+      childrenByParent: visibleChildrenByParent,
+      typesByCategory,
+      legacyTypes: sortAppointmentTypes(legacyTypes),
+      countTypesInCategory,
+      hasCategories: activeKindCategories.length > 0,
+    };
   }, [appointmentTypes, kindCategories]);
+
+  const currentCategoryId = selectedCategoryPath[selectedCategoryPath.length - 1]?.id || "";
+  const currentCategoryChildren = serviceBrowser.childrenByParent.get(currentCategoryId) || [];
+  const currentCategoryTypes = currentCategoryId
+    ? serviceBrowser.typesByCategory.get(currentCategoryId) || []
+    : [];
+  const rootLegacyTypes = currentCategoryId ? [] : serviceBrowser.legacyTypes;
+  const hasServicesToShow =
+    currentCategoryChildren.length > 0 ||
+    currentCategoryTypes.length > 0 ||
+    rootLegacyTypes.length > 0;
+
+  const handleCategorySelect = (category) => {
+    setSelectedCategoryPath(prev => [...prev, category]);
+  };
+
+  const handleCategoryBack = () => {
+    setSelectedCategoryPath(prev => prev.slice(0, -1));
+  };
+
+  const handleTypeSelect = (type) => {
+    setSelectedType(type);
+    setStep(2);
+    setError(null);
+  };
 
   const availableSlots = useMemo(() => {
     if (!selectedType || !selectedLocation || !selectedDate) return [];
@@ -336,58 +404,69 @@ export default function PublicBooking() {
               <CardTitle className="text-xl">Select Service</CardTitle>
             </CardHeader>
             <CardContent>
-              {groupedTypes.length === 0 ? (
+              {!hasServicesToShow ? (
                 <p className="text-gray-500 text-center py-6">No services available for online booking at this time.</p>
               ) : (
-                <Accordion type="single" collapsible className="w-full">
-                  {groupedTypes.map(({ category, accordionValue, types }) => (
-                    <AccordionItem key={accordionValue} value={accordionValue}>
-                      <AccordionTrigger className="text-base font-semibold text-gray-800 hover:no-underline px-1">
-                        <span className="flex items-center gap-2">
-                          <Tag className="w-4 h-4 text-indigo-500 shrink-0" />
-                          {category}
-                          <span className="text-xs font-normal text-gray-400 ml-1">({types.length})</span>
-                        </span>
-                      </AccordionTrigger>
-                      <AccordionContent className="px-1">
-                        <div className="space-y-2 pt-1">
-                          {types.map(type => (
-                            <button
-                              key={type.id}
-                              onClick={() => { setSelectedType(type); setStep(2); setError(null); }}
-                              className={`w-full p-4 rounded-xl border-2 text-left transition-all hover:border-indigo-300 hover:bg-indigo-50 ${
-                                selectedType?.id === type.id ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200'
-                              }`}
-                            >
-                              <div className="flex items-start justify-between gap-3">
-                                <div className="flex-1 min-w-0">
-                                  <p className="font-semibold text-gray-900">{type.name}</p>
-                                  {type.description && (
-                                    <p className="text-sm text-gray-500 mt-0.5">{type.description}</p>
-                                  )}
-                                </div>
-                                <div className="text-right shrink-0 space-y-1">
-                                  <div className="flex items-center gap-1 text-sm text-gray-500 justify-end">
-                                    <Clock className="w-3.5 h-3.5" />
-                                    {formatDuration(type.default_duration_minutes)}
-                                  </div>
-                                  {type.service_cost > 0 && (
-                                    <p className="text-sm font-semibold text-gray-900">${type.service_cost}</p>
-                                  )}
-                                  {type.default_deposit > 0 && (
-                                    <Badge className="bg-indigo-100 text-indigo-700 text-xs">
-                                      ${type.default_deposit} deposit
-                                    </Badge>
-                                  )}
-                                </div>
-                              </div>
-                            </button>
-                          ))}
-                        </div>
-                      </AccordionContent>
-                    </AccordionItem>
-                  ))}
-                </Accordion>
+                <div className="space-y-4">
+                  {selectedCategoryPath.length > 0 && (
+                    <div className="space-y-3">
+                      <Button variant="outline" size="sm" onClick={handleCategoryBack}>
+                        <ArrowLeft className="w-4 h-4 mr-2" />
+                        Back
+                      </Button>
+                      <div>
+                        <p className="text-xs uppercase tracking-wide text-gray-500">Browsing</p>
+                        <p className="font-semibold text-gray-900">
+                          {selectedCategoryPath.map(c => c.name).join(" / ")}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {currentCategoryChildren.length > 0 && (
+                    <div className="space-y-2">
+                      {currentCategoryChildren.map(category => (
+                        <button
+                          key={category.id}
+                          data-testid="public-service-category"
+                          onClick={() => handleCategorySelect(category)}
+                          className="w-full p-4 rounded-xl border-2 border-gray-200 text-left transition-all hover:border-indigo-300 hover:bg-indigo-50"
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <div>
+                              <p className="font-semibold text-gray-900">{category.name}</p>
+                              <p className="text-sm text-gray-500">
+                                {serviceBrowser.countTypesInCategory(category.id)} services
+                              </p>
+                            </div>
+                            <ChevronRight className="w-5 h-5 text-gray-400" />
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {currentCategoryTypes.length > 0 && (
+                    <ServiceTypeList
+                      types={currentCategoryTypes}
+                      selectedType={selectedType}
+                      onSelect={handleTypeSelect}
+                    />
+                  )}
+
+                  {rootLegacyTypes.length > 0 && (
+                    <div className="space-y-2">
+                      {serviceBrowser.hasCategories && (
+                        <p className="text-sm font-semibold text-gray-700">Other services</p>
+                      )}
+                      <ServiceTypeList
+                        types={rootLegacyTypes}
+                        selectedType={selectedType}
+                        onSelect={handleTypeSelect}
+                      />
+                    </div>
+                  )}
+                </div>
               )}
             </CardContent>
           </Card>
@@ -561,4 +640,53 @@ export default function PublicBooking() {
       </div>
     </div>
   );
+}
+
+function ServiceTypeList({ types, selectedType, onSelect }) {
+  return (
+    <div className="space-y-2">
+      {types.map(type => (
+        <button
+          key={type.id}
+          data-testid="public-service-type"
+          onClick={() => onSelect(type)}
+          className={`w-full p-4 rounded-xl border-2 text-left transition-all hover:border-indigo-300 hover:bg-indigo-50 ${
+            selectedType?.id === type.id ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200'
+          }`}
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex-1 min-w-0">
+              <p className="font-semibold text-gray-900">{type.name}</p>
+              {type.description && (
+                <p className="text-sm text-gray-500 mt-0.5">{type.description}</p>
+              )}
+            </div>
+            <div className="text-right shrink-0 space-y-1">
+              <div className="flex items-center gap-1 text-sm text-gray-500 justify-end">
+                <Clock className="w-3.5 h-3.5" />
+                {formatDuration(type.default_duration_minutes)}
+              </div>
+              {type.service_cost > 0 && (
+                <p className="text-sm font-semibold text-gray-900">${type.service_cost}</p>
+              )}
+              {type.default_deposit > 0 && (
+                <Badge className="bg-indigo-100 text-indigo-700 text-xs">
+                  ${type.default_deposit} deposit
+                </Badge>
+              )}
+            </div>
+          </div>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function sortAppointmentTypes(types) {
+  return [...(types || [])].sort((a, b) => {
+    const orderA = a.display_order ?? 0;
+    const orderB = b.display_order ?? 0;
+    if (orderA !== orderB) return orderA - orderB;
+    return (a.name || "").localeCompare(b.name || "");
+  });
 }

@@ -435,6 +435,17 @@ begin
         and at.is_active = true
         and at.is_public_bookable = true
     ), '[]'::json),
+    'appointment_kind_categories', coalesce((
+      select json_agg(row_to_json(rc))
+      from (
+        select id, parent_id, name, display_order, category_role, is_active
+        from reporting_categories
+        where studio_id = p_studio_id
+          and category_role = 'appointment_kind'
+          and is_active = true
+        order by display_order asc, name asc
+      ) rc
+    ), '[]'::json),
     'artists', coalesce((
       select json_agg(row_to_json(a))
       from artists a

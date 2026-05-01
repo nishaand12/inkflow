@@ -121,6 +121,20 @@ serve(async (req) => {
         continue;
       }
 
+      await recordEmailEvent(supabase, {
+        studioId: studio.id,
+        customerId: appointment.customer_id || null,
+        appointmentId: appointment.id,
+        email,
+        eventType: "automatic_email_sent",
+        metadata: {
+          source: "send-reminders",
+          email_kind: "reminder",
+          subject,
+          reminder_minutes_before: reminderMinutes,
+        },
+      });
+
       await updateReminderStatus(supabase, appointment.id, "sent", null, reminderMinutes);
       sentCount += 1;
     }
@@ -298,6 +312,39 @@ async function updateReminderStatus(
       reminder_minutes_before: reminderMinutes ?? null
     })
     .eq("id", appointmentId);
+}
+
+async function recordEmailEvent(
+  supabase: ReturnType<typeof createClient>,
+  {
+    studioId,
+    customerId,
+    appointmentId,
+    email,
+    eventType,
+    metadata,
+  }: {
+    studioId: string | null;
+    customerId: string | null;
+    appointmentId: string | null;
+    email: string;
+    eventType: string;
+    metadata: Record<string, unknown>;
+  }
+) {
+  const { error } = await supabase.from("email_events").insert({
+    studio_id: studioId,
+    customer_id: customerId,
+    appointment_id: appointmentId,
+    email,
+    event_type: eventType,
+    delivery_status: "sent",
+    metadata,
+  });
+
+  if (error) {
+    console.error("Failed to record email event:", error);
+  }
 }
 
 function jsonResponse(payload: Record<string, unknown>, status = 200) {

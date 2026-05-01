@@ -4,6 +4,26 @@ import { test, expect } from '@playwright/test';
 // Set TEST_STUDIO_ID in playwright.env to the studio UUID you want to test against.
 const studioId = process.env.TEST_STUDIO_ID;
 
+async function clickFirstPublicService(page) {
+  for (let depth = 0; depth < 8; depth++) {
+    const firstService = page.getByTestId('public-service-type').first();
+    if (await firstService.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await firstService.click();
+      return true;
+    }
+
+    const firstCategory = page.getByTestId('public-service-category').first();
+    if (await firstCategory.isVisible({ timeout: 2000 }).catch(() => false)) {
+      await firstCategory.click();
+      continue;
+    }
+
+    return false;
+  }
+
+  return false;
+}
+
 test.describe('Public Booking Flow (migrate3 + migrate4)', () => {
 
   // ── Static / error states ───────────────────────────────────────────────────
@@ -53,14 +73,16 @@ test.describe('Public Booking Flow (migrate3 + migrate4)', () => {
     await page.waitForLoadState('networkidle');
 
     // Either services appear (public bookable types exist) or the empty state message shows
-    const serviceCards = page.locator('button').filter({ hasText: /h\s*deposit|\$|\d+h/i });
+    const serviceCards = page.getByTestId('public-service-type');
+    const categoryCards = page.getByTestId('public-service-category');
     const emptyMessage = page.getByText(/no services available for online booking/i);
 
     const hasServices = await serviceCards.first().isVisible({ timeout: 8000 }).catch(() => false);
+    const hasCategories = await categoryCards.first().isVisible({ timeout: 8000 }).catch(() => false);
     const hasEmpty = await emptyMessage.isVisible({ timeout: 5000 }).catch(() => false);
 
     // At least one state must be shown
-    expect(hasServices || hasEmpty).toBe(true);
+    expect(hasServices || hasCategories || hasEmpty).toBe(true);
   });
 
   test('HP-PUB-5: Stepping through service → artist step shows "Piercer" selector', async ({ page }) => {
@@ -72,13 +94,10 @@ test.describe('Public Booking Flow (migrate3 + migrate4)', () => {
     await page.goto(`/book?studio=${studioId}`);
     await page.waitForLoadState('networkidle');
 
-    // Click first available service
-    const firstService = page.locator('button').filter({ hasText: /\dh/i }).first();
-    if (!await firstService.isVisible({ timeout: 8000 }).catch(() => false)) {
+    if (!await clickFirstPublicService(page)) {
       test.skip(true, 'No public bookable service types found — mark at least one appointment type as public bookable.');
       return;
     }
-    await firstService.click();
 
     // Step 2 — CardTitle is a <div> not <h*>; use getByText
     await expect(page.getByText(/choose artist/i).first()).toBeVisible({ timeout: 8000 });
@@ -100,12 +119,10 @@ test.describe('Public Booking Flow (migrate3 + migrate4)', () => {
     await page.goto(`/book?studio=${studioId}`);
     await page.waitForLoadState('networkidle');
 
-    const firstService = page.locator('button').filter({ hasText: /\dh/i }).first();
-    if (!await firstService.isVisible({ timeout: 8000 }).catch(() => false)) {
+    if (!await clickFirstPublicService(page)) {
       test.skip(true, 'No public bookable service types.');
       return;
     }
-    await firstService.click();
 
     // CardTitle is a <div> not <h*>; use getByText
     await expect(page.getByText(/choose artist/i).first()).toBeVisible({ timeout: 8000 });
@@ -137,12 +154,10 @@ test.describe('Public Booking Flow (migrate3 + migrate4)', () => {
     await page.goto(`/book?studio=${studioId}`);
     await page.waitForLoadState('networkidle');
 
-    const firstService = page.locator('button').filter({ hasText: /\dh/i }).first();
-    if (!await firstService.isVisible({ timeout: 8000 }).catch(() => false)) {
+    if (!await clickFirstPublicService(page)) {
       test.skip(true, 'No public bookable service types.');
       return;
     }
-    await firstService.click();
 
     // CardTitle is a <div> not <h*>; use getByText
     await expect(page.getByText(/choose artist/i).first()).toBeVisible({ timeout: 8000 });
@@ -198,12 +213,10 @@ test.describe('Public Booking Flow (migrate3 + migrate4)', () => {
     await page.goto(`/book?studio=${studioId}`);
     await page.waitForLoadState('networkidle');
 
-    const firstService = page.locator('button').filter({ hasText: /\dh/i }).first();
-    if (!await firstService.isVisible({ timeout: 8000 }).catch(() => false)) {
+    if (!await clickFirstPublicService(page)) {
       test.skip(true, 'No public bookable service types.');
       return;
     }
-    await firstService.click();
 
     // Navigate through steps by programmatic URL manipulation isn't reliable —
     // We navigate to step 4 by manipulating the state directly via clicking through.

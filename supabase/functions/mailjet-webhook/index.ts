@@ -18,6 +18,14 @@ serve(async (req) => {
       return new Response("Unauthorized", { status: 401 });
     }
 
+    if (req.method === "GET" || req.method === "HEAD") {
+      return new Response("OK", { status: 200 });
+    }
+
+    if (req.method !== "POST") {
+      return new Response("Method Not Allowed", { status: 405 });
+    }
+
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
     const payload = await req.json();
 
@@ -57,15 +65,14 @@ serve(async (req) => {
       .eq("email", email)
       .maybeSingle();
 
-    await supabase.from("email_events").insert({
-      studio_id: customer?.studio_id || null,
-      customer_id: customer?.id || null,
-      appointment_id: null,
+    await updateLatestEmailEvent(supabase, {
       email,
-      event_type: event,
+      studioId: customer?.studio_id || null,
+      customerId: customer?.id || null,
+      event,
       reason,
-      occurred_at: timestamp,
-      metadata: payload
+      timestamp,
+      payload,
     });
 
     return new Response("OK", { status: 200 });
@@ -73,3 +80,71 @@ serve(async (req) => {
     return new Response(err.message || "Webhook error", { status: 500 });
   }
 });
+
+async function updateLatestEmailEvent(
+  supabase: ReturnType<typeof createClient>,
+  {
+    email,
+    studioId,
+    customerId,
+    event,
+    reason,
+    timestamp,
+    payload,
+  }: {
+    email: string;
+    studioId: string | null;
+    customerId: string | null;
+    event: string;
+    reason: string | null;
+    timestamp: string;
+    payload: Record<string, unknown>;
+  }
+) {
+  const deliveryStatus = event === "bounce" ? "bounced" : event;
+
+  let query = supabase
+    .from("email_events")
+    .select("id, metadata")
+    .eq("email", email)
+    .eq("event_type", "automatic_email_sent")
+    .order("occurred_at", { ascending: false })
+    .limit(1);
+
+  if (studioId) {
+    query = query.eq("studio_id", studioId);
+  }
+
+  const { data: existingEvent } = await query.maybeSingle();
+
+  if (existingEvent?.id) {
+    await supabase
+      .from("email_events")
+      .update({
+        delivery_status: deliveryStatus,
+        provider_event_type: event,
+        provider_event_at: timestamp,
+        reason,
+        metadata: {
+          ...(existingEvent.metadata || {}),
+          mailjet_webhook: payload,
+        },
+      })
+      .eq("id", existingEvent.id);
+    return;
+  }
+
+  await supabase.from("email_events").insert({
+    studio_id: studioId,
+    customer_id: customerId,
+    appointment_id: null,
+    email,
+    event_type: "mailjet_delivery_event",
+    delivery_status: deliveryStatus,
+    provider_event_type: event,
+    provider_event_at: timestamp,
+    reason,
+    occurred_at: timestamp,
+    metadata: payload,
+  });
+}

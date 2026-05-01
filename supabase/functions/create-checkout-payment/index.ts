@@ -263,7 +263,18 @@ async function sendPaymentEmail({
   currency: string;
 }) {
   const currencySymbol = currency.toUpperCase() === "CAD" ? "CA$" : "$";
-  const body = `Hi ${clientName},\n\n${studioName} has sent you a payment link for your appointment.\n\nTotal: ${currencySymbol}${totalAmount.toFixed(2)} ${currency.toUpperCase()}\n\nPlease complete your payment using the link below:\n\n${checkoutUrl}\n\nThis payment link expires in 24 hours. If it has expired, please contact ${studioEmail} for a new link.\n\nThank you!`;
+  const body = `Hi ${clientName},\n\n${studioName} has sent you a payment link for your appointment.\n\nTotal: ${currencySymbol}${totalAmount.toFixed(2)} ${currency.toUpperCase()}\n\nPlease complete your payment using the link below:\n\nComplete payment: ${checkoutUrl}\n\nFull payment URL: ${checkoutUrl}\n\nThis payment link expires in 24 hours. If it has expired, please contact ${studioEmail} for a new link.\n\nThank you!`;
+  const escapedCheckoutUrl = escapeHtml(checkoutUrl);
+  const html = wrapEmailHtml(`
+    <p>Hi ${escapeHtml(clientName)},</p>
+    <p>${escapeHtml(studioName)} has sent you a payment link for your appointment.</p>
+    <p><strong>Total:</strong> ${currencySymbol}${totalAmount.toFixed(2)} ${escapeHtml(currency.toUpperCase())}</p>
+    <p><a href="${escapedCheckoutUrl}" style="display:inline-block;padding:12px 18px;background:#4f46e5;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:600;">Complete payment</a></p>
+    <p style="font-size:13px;color:#4b5563;">If the button does not work, copy and paste this full URL into your browser:</p>
+    <p style="font-size:13px;word-break:break-all;"><a href="${escapedCheckoutUrl}">${escapedCheckoutUrl}</a></p>
+    <p>This payment link expires in 24 hours. If it has expired, please contact ${escapeHtml(studioEmail)} for a new link.</p>
+    <p>Thank you!</p>
+  `);
 
   const auth = btoa(`${MAILJET_API_KEY}:${MAILJET_SECRET_KEY}`);
   const payload = {
@@ -276,6 +287,7 @@ async function sendPaymentEmail({
         To: [{ Email: to, Name: clientName }],
         Subject: `Payment Request – ${studioName}`,
         TextPart: body,
+        HTMLPart: html,
       },
     ],
   };
@@ -299,5 +311,33 @@ function json(data: Record<string, unknown>, status = 200) {
   return new Response(JSON.stringify(data), {
     status,
     headers: { "Content-Type": "application/json", ...corsHeaders },
+  });
+}
+
+function wrapEmailHtml(body: string) {
+  return `<!doctype html>
+<html>
+  <body style="font-family:Arial,sans-serif;line-height:1.5;color:#111827;">
+    ${body}
+  </body>
+</html>`;
+}
+
+function escapeHtml(value: string) {
+  return value.replace(/[&<>"']/g, (char) => {
+    switch (char) {
+      case "&":
+        return "&amp;";
+      case "<":
+        return "&lt;";
+      case ">":
+        return "&gt;";
+      case '"':
+        return "&quot;";
+      case "'":
+        return "&#39;";
+      default:
+        return char;
+    }
   });
 }
