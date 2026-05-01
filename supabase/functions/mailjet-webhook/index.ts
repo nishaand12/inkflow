@@ -27,53 +27,76 @@ serve(async (req) => {
     }
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-    const payload = await req.json();
+    const raw: unknown = await req.json();
 
-    const event = payload.event;
-    const email = payload.email;
-    const reason = payload.reason || payload.error_related_to || payload.error || null;
-    const timestamp = payload.time ? new Date(payload.time * 1000).toISOString() : new Date().toISOString();
+    // Mailjet delivers grouped events as a JSON array; single-object bodies also occur in docs/samples.
+    const eventObjects: Record<string, unknown>[] = Array.isArray(raw)
+      ? raw.filter(
+        (entry): entry is Record<string, unknown> =>
+          entry !== null && typeof entry === "object" && !Array.isArray(entry),
+      )
+      : raw !== null && typeof raw === "object" && !Array.isArray(raw)
+      ? [raw as Record<string, unknown>]
+      : [];
 
-    if (!email || !event) {
-      return new Response("Missing event or email", { status: 400 });
+    if (eventObjects.length === 0) {
+      return new Response("Invalid or empty payload", { status: 400 });
     }
 
-    if (["bounce", "blocked", "spam"].includes(event)) {
-      await supabase
+    for (const payload of eventObjects) {
+      const event = typeof payload.event === "string" ? payload.event : null;
+      const email = typeof payload.email === "string" ? payload.email : null;
+      const reason =
+        (typeof payload.reason === "string" ? payload.reason : null) ||
+        (typeof payload.error_related_to === "string" ? payload.error_related_to : null) ||
+        (typeof payload.error === "string" ? payload.error : null);
+      const t = payload.time;
+      const timestamp =
+        typeof t === "number" && Number.isFinite(t)
+          ? new Date(t * 1000).toISOString()
+          : new Date().toISOString();
+
+      if (!email || !event) {
+        continue;
+      }
+
+      if (["bounce", "blocked", "spam"].includes(event)) {
+        await supabase
+          .from("customers")
+          .update({
+            email_bounced: true,
+            email_bounce_reason: reason,
+            email_bounced_at: timestamp
+          })
+          .eq("email", email);
+      }
+
+      if (event === "unsub") {
+        await supabase
+          .from("customers")
+          .update({
+            email_unsubscribed: true,
+            email_unsubscribed_at: timestamp
+          })
+          .eq("email", email);
+      }
+
+      const { data: customer } = await supabase
         .from("customers")
-        .update({
-          email_bounced: true,
-          email_bounce_reason: reason,
-          email_bounced_at: timestamp
-        })
-        .eq("email", email);
+        .select("id, studio_id")
+        .eq("email", email)
+        .maybeSingle();
+
+      await updateLatestEmailEvent(supabase, {
+        email,
+        studioId: customer?.studio_id || null,
+        customerId: customer?.id || null,
+        event,
+        reason,
+        timestamp,
+        payload,
+      });
     }
-
-    if (event === "unsub") {
-      await supabase
-        .from("customers")
-        .update({
-          email_unsubscribed: true,
-          email_unsubscribed_at: timestamp
-        })
-        .eq("email", email);
-    }
-
-    const { data: customer } = await supabase
-      .from("customers")
-      .select("id, studio_id")
-      .eq("email", email)
-      .maybeSingle();
-
-    await updateLatestEmailEvent(supabase, {
-      email,
-      studioId: customer?.studio_id || null,
-      customerId: customer?.id || null,
-      event,
-      reason,
-      timestamp,
-      payload,
-    });
 
     return new Response("OK", { status: 200 });
   } catch (err) {
