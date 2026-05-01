@@ -17,6 +17,7 @@ import Products from "./pages/Products";
 import ReportingCategories from "./pages/ReportingCategories";
 import Reports from "./pages/Reports";
 import Settlements from "./pages/Settlements";
+import SettlementDetail from "./pages/SettlementDetail";
 import MyAvailability from "./pages/MyAvailability";
 import OnboardingChoice from "./pages/OnboardingChoice";
 import PendingValidation from "./pages/PendingValidation";
@@ -107,6 +108,7 @@ export default function App() {
             <Route path="/customers" element={<Customers />} />
             <Route path="/reports" element={<Reports />} />
             <Route path="/settlements" element={<Settlements />} />
+            <Route path="/settlements/:settlementId" element={<SettlementDetail />} />
             <Route path="/my-availability" element={<MyAvailability />} />
             <Route path="/onboarding-choice" element={<OnboardingChoice />} />
             <Route path="/pending-validation" element={<PendingValidation />} />
