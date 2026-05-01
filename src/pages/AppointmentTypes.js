@@ -16,8 +16,8 @@ import {
 import AppointmentTypeDialog from "@/components/appointment-types/AppointmentTypeDialog";
 
 const getCategoryStyle = (sectionKey) => {
-  if (sectionKey === "legacy:Tattoo") return "bg-purple-100 text-purple-800 border-purple-200";
-  if (sectionKey === "legacy:Piercing") return "bg-pink-100 text-pink-800 border-pink-200";
+  if (sectionKey === "kind:orphan") return "bg-amber-100 text-amber-900 border-amber-200";
+  if (sectionKey === "unassigned:kind") return "bg-orange-100 text-orange-900 border-orange-200";
   if (sectionKey?.startsWith("kind:")) return "bg-indigo-100 text-indigo-800 border-indigo-200";
   return "bg-gray-100 text-gray-800 border-gray-200";
 };

@@ -8,11 +8,11 @@
       },
       "category": {
         "type": "string",
-        "description": "Legacy display label; prefer appointment_kind_category_id for hierarchy"
+        "description": "Denormalized display label from booking hierarchy leaf (derived from hierarchy name)"
       },
       "appointment_kind_category_id": {
         "type": "string",
-        "description": "Leaf reporting category (category_role=appointment_kind) for this appointment type"
+        "description": "Required: leaf row in booking hierarchy (reporting_categories with category_role=appointment_kind)"
       },
       "name": {
         "type": "string",

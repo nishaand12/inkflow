@@ -19,7 +19,7 @@ import AdvancedSearchDialog from "../customers/AdvancedSearchDialog";
 import CheckoutDialog from "./CheckoutDialog";
 import RefundDialog from "./RefundDialog";
 import { normalizeUserRole } from "@/utils/roles";
-import { addMinutesToTime, formatDuration, PIERCING_CATEGORIES } from "@/utils/index";
+import { addMinutesToTime, formatDuration } from "@/utils/index";
 import {
   getAppointmentTypeDisplaySections,
   isPiercingClinicalProfile,
@@ -761,33 +761,28 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
   const appointmentTypeSections = useMemo(() => {
     const sections = getAppointmentTypeDisplaySections(activeAppointmentTypes, reportingCategories);
     return sections
-      .map(section => ({
+      .map((section) => ({
         ...section,
-        types: [...section.types].sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+        types: [...section.types].sort((a, b) => (a.name || "").localeCompare(b.name || "")),
       }))
-      .sort((a, b) => {
-        const aIsTattoo = (a.label || '').toLowerCase().includes('tattoo');
-        const bIsTattoo = (b.label || '').toLowerCase().includes('tattoo');
-        if (aIsTattoo !== bIsTattoo) return aIsTattoo ? -1 : 1;
-        return 0;
-      });
+      .sort((a, b) => (a.label || "").localeCompare(b.label || ""));
   }, [activeAppointmentTypes, reportingCategories]);
   const selectedAppointmentType = appointmentTypes.find(t => t.id === formData.appointment_type_id);
 
   const showPiercingHealthFields = useMemo(() => {
-    if (!selectedAppointmentType) return false;
-    if (selectedAppointmentType.appointment_kind_category_id) {
-      return isPiercingClinicalProfile(reportingCategories, selectedAppointmentType.appointment_kind_category_id);
-    }
-    return PIERCING_CATEGORIES.has(selectedAppointmentType.category);
+    if (!selectedAppointmentType?.appointment_kind_category_id) return false;
+    return isPiercingClinicalProfile(
+      reportingCategories,
+      selectedAppointmentType.appointment_kind_category_id
+    );
   }, [selectedAppointmentType, reportingCategories]);
 
   const showTattooHealthFields = useMemo(() => {
-    if (!selectedAppointmentType) return false;
-    if (selectedAppointmentType.appointment_kind_category_id) {
-      return isTattooClinicalProfile(reportingCategories, selectedAppointmentType.appointment_kind_category_id);
-    }
-    return selectedAppointmentType.category === 'Tattoo';
+    if (!selectedAppointmentType?.appointment_kind_category_id) return false;
+    return isTattooClinicalProfile(
+      reportingCategories,
+      selectedAppointmentType.appointment_kind_category_id
+    );
   }, [selectedAppointmentType, reportingCategories]);
 
   const showHealthClinicalSection = showPiercingHealthFields || showTattooHealthFields;

@@ -186,16 +186,13 @@ export default function PublicBooking() {
     const childrenByParent = groupChildrenByParentId(activeKindCategories, CATEGORY_ROLE_APPOINTMENT_KIND);
     const activeCategoryIds = new Set(activeKindCategories.map(c => c.id));
     const typesByCategory = new Map();
-    const legacyTypes = [];
 
     for (const type of appointmentTypes) {
-      if (type.appointment_kind_category_id && activeCategoryIds.has(type.appointment_kind_category_id)) {
-        const key = type.appointment_kind_category_id;
-        if (!typesByCategory.has(key)) typesByCategory.set(key, []);
-        typesByCategory.get(key).push(type);
-      } else {
-        legacyTypes.push(type);
-      }
+      if (!type.appointment_kind_category_id) continue;
+      if (!activeCategoryIds.has(type.appointment_kind_category_id)) continue;
+      const key = type.appointment_kind_category_id;
+      if (!typesByCategory.has(key)) typesByCategory.set(key, []);
+      typesByCategory.get(key).push(type);
     }
 
     for (const [key, list] of typesByCategory.entries()) {
@@ -224,9 +221,7 @@ export default function PublicBooking() {
     return {
       childrenByParent: visibleChildrenByParent,
       typesByCategory,
-      legacyTypes: sortAppointmentTypes(legacyTypes),
       countTypesInCategory,
-      hasCategories: activeKindCategories.length > 0,
     };
   }, [appointmentTypes, kindCategories]);
 
@@ -235,11 +230,8 @@ export default function PublicBooking() {
   const currentCategoryTypes = currentCategoryId
     ? serviceBrowser.typesByCategory.get(currentCategoryId) || []
     : [];
-  const rootLegacyTypes = currentCategoryId ? [] : serviceBrowser.legacyTypes;
   const hasServicesToShow =
-    currentCategoryChildren.length > 0 ||
-    currentCategoryTypes.length > 0 ||
-    rootLegacyTypes.length > 0;
+    currentCategoryChildren.length > 0 || currentCategoryTypes.length > 0;
 
   const handleCategorySelect = (category) => {
     setSelectedCategoryPath(prev => [...prev, category]);
@@ -380,6 +372,21 @@ export default function PublicBooking() {
           <p className="text-gray-600 mt-1">Book your appointment online</p>
         </div>
 
+        <div className="rounded-xl border border-indigo-200 bg-white/90 shadow-sm px-4 py-4 space-y-3 text-left text-sm text-gray-700">
+          <p>
+            Earlobes age 5+ with a custodial parent present / Most common piercings age 13–15 with a
+            custodial parent present or 16+ with picture ID / Extreme and genital piercings 18+ with
+            picture ID
+          </p>
+          <p className="font-semibold tracking-wide text-center text-gray-900">
+            ONLINE $10 DEPOSITS ARE NON-REFUNDABLE
+          </p>
+          <p>
+            Custodial parent must present valid government photo ID. Minor with parent must also
+            present ID to get pierced; a non-photo health card is fine.
+          </p>
+        </div>
+
         <div className="flex items-center justify-center gap-2 text-sm">
           {[1, 2, 3, 4].map(s => (
             <div key={s} className="flex items-center gap-2">
@@ -452,19 +459,6 @@ export default function PublicBooking() {
                       selectedType={selectedType}
                       onSelect={handleTypeSelect}
                     />
-                  )}
-
-                  {rootLegacyTypes.length > 0 && (
-                    <div className="space-y-2">
-                      {serviceBrowser.hasCategories && (
-                        <p className="text-sm font-semibold text-gray-700">Other services</p>
-                      )}
-                      <ServiceTypeList
-                        types={rootLegacyTypes}
-                        selectedType={selectedType}
-                        onSelect={handleTypeSelect}
-                      />
-                    </div>
                   )}
                 </div>
               )}

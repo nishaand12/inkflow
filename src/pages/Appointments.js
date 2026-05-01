@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -111,12 +111,7 @@ export default function Appointments() {
   });
 
   const typeCategoryFilterOptions = useMemo(() => {
-    const opts = [
-      { value: 'all', label: 'All Types' },
-      { value: 'legacy_tattoo', label: 'Tattoo (legacy)' },
-      { value: 'legacy_piercing', label: 'Piercing (legacy)' },
-      { value: 'legacy_other', label: 'Other (legacy)' },
-    ];
+    const opts = [{ value: "all", label: "All Types" }];
     const roots = filterCategoriesByRole(reportingCategories, CATEGORY_ROLE_APPOINTMENT_KIND)
       .filter((c) => !c.parent_id)
       .sort((a, b) => (a.display_order ?? 0) - (b.display_order ?? 0) || (a.name || '').localeCompare(b.name || ''));
@@ -151,21 +146,21 @@ export default function Appointments() {
   const isArtist = userRole === 'Artist';
   const isAdmin = userRole === 'Admin' || userRole === 'Owner';
 
-  const getCustomerName = (appointment) => {
+  const getCustomerName = useCallback((appointment) => {
     if (appointment.customer_id) {
       const customer = customers.find(c => c.id === appointment.customer_id);
       return customer?.name || appointment.client_name || 'Unknown';
     }
     return appointment.client_name || 'Unknown';
-  };
+  }, [customers]);
 
-  const getCustomerEmail = (appointment) => {
+  const getCustomerEmail = useCallback((appointment) => {
     if (appointment.customer_id) {
       const customer = customers.find(c => c.id === appointment.customer_id);
       return customer?.email || appointment.client_email || '';
     }
     return appointment.client_email || appointment.client_phone || '';
-  };
+  }, [customers]);
 
   const filteredAppointments = useMemo(() => appointments.filter(apt => {
     if (isArtist && !isAdmin) {
@@ -207,7 +202,8 @@ export default function Appointments() {
     workStationFilter,
     specificTypeFilter,
     searchTerm,
-    customers,
+    getCustomerName,
+    getCustomerEmail,
   ]);
 
   const handleEdit = (appointment) => {

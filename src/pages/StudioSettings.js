@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Building2, Key, Copy, Check, Mail, Clock, BookOpen, MapPin, Wrench, ClipboardList, Palette, UserPlus, BarChart3, Bell, ChevronDown, ChevronUp, CreditCard, ExternalLink, AlertCircle, Loader2 } from "lucide-react";
+import { Building2, Key, Copy, Check, Mail, Clock, BookOpen, MapPin, Wrench, ClipboardList, Palette, UserPlus, BarChart3, Bell, ChevronDown, ChevronUp, CreditCard, ExternalLink, AlertCircle, Loader2, Layers, CalendarDays } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { supabase } from "@/utils/supabase";
 import { normalizeUserRole } from "@/utils/roles";
@@ -674,7 +674,7 @@ export default function StudioSettings() {
                   </div>
                   <div className="flex-1">
                     <CardTitle className="text-xl text-gray-900">Getting Started Guide</CardTitle>
-                    <p className="text-sm text-gray-600">How to set up your studio for scheduling</p>
+                    <p className="text-sm text-gray-600">From first login to live bookings—the order that keeps scheduling and deposits reliable</p>
                   </div>
                   <Button variant="ghost" size="icon" className="ml-auto">
                     {showGuide ? <ChevronUp className="w-5 h-5" /> : <ChevronDown className="w-5 h-5" />}
@@ -684,24 +684,39 @@ export default function StudioSettings() {
               
               {showGuide && (
                 <CardContent className="p-6 space-y-6">
-                  {/* Setup Steps */}
+                  <p className="text-sm text-gray-600">
+                    Follow this order on day one so internal scheduling and the public booking page both work smoothly. Estimated time is realistic if Stripe and reminders are tackled after your first successful test booking.
+                  </p>
+
                   <div>
                     <h3 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
                       <span className="w-6 h-6 bg-indigo-600 text-white rounded-full text-xs flex items-center justify-center">1</span>
-                      Setting Up for Appointments
+                      Account and studio readiness
                     </h3>
-                    <p className="text-sm text-gray-600 mb-4">
-                      Before you can create appointments, set up these components in order:
+                    <ul className="text-sm text-gray-600 ml-8 list-disc space-y-2">
+                      <li>Finish sign-up, confirm your email, and complete onboarding (create or join a studio).</li>
+                      <li>Public booking loads only when the studio is{' '}
+                        <strong className="font-medium text-gray-800">approved and active</strong>. If your banner shows Pending Validation, reach out via the contact shown on this page before sharing your booking link.</li>
+                      <li>Share your <strong className="font-medium text-gray-800">invite code</strong> (above) so artists and front desk can join; then add their roles as needed with support.</li>
+                    </ul>
+                  </div>
+
+                  <div className="border-t border-gray-200 pt-6">
+                    <h3 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                      <span className="w-6 h-6 bg-indigo-600 text-white rounded-full text-xs flex items-center justify-center">2</span>
+                      Foundations: locations through services
+                    </h3>
+                    <p className="text-sm text-gray-600 mb-4 ml-8">
+                      Build records in roughly this sequence so dropdowns stay consistent everywhere (calendar, internal booking, and public portal).
                     </p>
-                    
                     <div className="space-y-3 ml-8">
                       <div className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg">
                         <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center flex-shrink-0">
                           <MapPin className="w-4 h-4 text-indigo-600" />
                         </div>
                         <div>
-                          <p className="font-medium text-gray-900">1. Location</p>
-                          <p className="text-sm text-gray-600">Add your physical studio location(s) with address and operating hours.</p>
+                          <p className="font-medium text-gray-900">Locations</p>
+                          <p className="text-sm text-gray-600">Add each site with address, contact details, and timezone. These power location pickers for staff and clients.</p>
                         </div>
                       </div>
 
@@ -710,8 +725,23 @@ export default function StudioSettings() {
                           <Wrench className="w-4 h-4 text-indigo-600" />
                         </div>
                         <div>
-                          <p className="font-medium text-gray-900">2. Work Station</p>
-                          <p className="text-sm text-gray-600">Create work stations (chairs/rooms) at each location where appointments happen.</p>
+                          <p className="font-medium text-gray-900">Work stations</p>
+                          <p className="text-sm text-gray-600">Create active stations per location. The system uses them to avoid double-booking the same chair or room when slots overlap.</p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg">
+                        <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                          <Layers className="w-4 h-4 text-indigo-600" />
+                        </div>
+                        <div>
+                          <p className="font-medium text-gray-900">Categories</p>
+                          <p className="text-sm text-gray-600">
+                            Set reporting categories to ensure reports and settlements are structured the
+                            way you want, and create a booking hierarchy so that your appointment types are
+                            clearly organized. Public booking and the appointment-type editor only use
+                            services placed on leaf nodes you create.
+                          </p>
                         </div>
                       </div>
 
@@ -720,18 +750,50 @@ export default function StudioSettings() {
                           <ClipboardList className="w-4 h-4 text-indigo-600" />
                         </div>
                         <div>
-                          <p className="font-medium text-gray-900">3. Appointment Type</p>
-                          <p className="text-sm text-gray-600">Define the services you offer (e.g., Consultation, Tattoo Session, Touch-up).</p>
+                          <p className="font-medium text-gray-900">Appointment types</p>
+                          <p className="text-sm text-gray-600">
+                            Each type needs a <strong className="font-medium text-gray-800">name</strong>,{" "}
+                            <strong className="font-medium text-gray-800">booking hierarchy classification</strong>
+                            (a leaf under your hierarchy), <strong className="font-medium text-gray-800">duration</strong>,{" "}
+                            optional price and deposit, and a customer-facing{" "}
+                            <strong className="font-medium text-gray-800">description</strong>. Toggle{" "}
+                            <strong className="font-medium text-gray-800">Allow online booking</strong> only for
+                            offerings that should appear on your public link. Optionally link a reporting
+                            category for revenue rollups.
+                          </p>
                         </div>
                       </div>
+                    </div>
+                  </div>
 
+                  <div className="border-t border-gray-200 pt-6">
+                    <h3 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                      <span className="w-6 h-6 bg-indigo-600 text-white rounded-full text-xs flex items-center justify-center">3</span>
+                      People, availability, and customers
+                    </h3>
+                    <div className="space-y-3 ml-8">
                       <div className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg">
                         <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center flex-shrink-0">
                           <Palette className="w-4 h-4 text-indigo-600" />
                         </div>
                         <div>
-                          <p className="font-medium text-gray-900">4. Artist</p>
-                          <p className="text-sm text-gray-600">Add artists (requires artists to have signed up and joined your studio).</p>
+                          <p className="font-medium text-gray-900">Artists</p>
+                          <p className="text-sm text-gray-600">
+                            Once users exist in your studio, add artist profiles linked to those users: set{' '}
+                            <strong className="font-medium text-gray-800">artist type</strong> (tattoo, piercer, or both), primary location, and keep them active. Public online booking currently lists piercers (&quot;piercer&quot; or &quot;both&quot;) when clients choose an artist; plan types and artist types accordingly.
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-start gap-3 p-3 bg-gray-50 rounded-lg">
+                        <div className="w-8 h-8 bg-indigo-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                          <CalendarDays className="w-4 h-4 text-indigo-600" />
+                        </div>
+                        <div>
+                          <p className="font-medium text-gray-900">Availability</p>
+                          <p className="text-sm text-gray-600">
+                            Each bookable artist needs a recurring weekly schedule (and optional one-off gaps or blocked time under <strong className="font-medium text-gray-800">Availability</strong> / <strong className="font-medium text-gray-800">My Availability</strong>). Slots on the public page are computed from availability, existing bookings, blocked time, and free work stations at the chosen location.
+                          </p>
                         </div>
                       </div>
 
@@ -740,55 +802,65 @@ export default function StudioSettings() {
                           <UserPlus className="w-4 h-4 text-indigo-600" />
                         </div>
                         <div>
-                          <p className="font-medium text-gray-900">5. Customer</p>
-                          <p className="text-sm text-gray-600">Add customers beforehand or as you book them.</p>
+                          <p className="font-medium text-gray-900">Customers</p>
+                          <p className="text-sm text-gray-600">
+                            Seed key clients if you import from another system; otherwise create them during internal booking—public bookings create or match customers automatically from the contact info clients enter.
+                          </p>
                         </div>
                       </div>
                     </div>
                   </div>
 
-                  {/* Additional Features */}
                   <div className="border-t border-gray-200 pt-6">
                     <h3 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
-                      <span className="w-6 h-6 bg-indigo-600 text-white rounded-full text-xs flex items-center justify-center">2</span>
-                      Additional Features
+                      <span className="w-6 h-6 bg-indigo-600 text-white rounded-full text-xs flex items-center justify-center">4</span>
+                      Payments, reminders, and go-live
                     </h3>
-                    
-                    <div className="grid md:grid-cols-3 gap-4">
+                    <div className="grid md:grid-cols-2 gap-4 ml-8">
                       <div className="p-4 border border-gray-200 rounded-lg">
                         <div className="flex items-center gap-2 mb-2">
-                          <Clock className="w-5 h-5 text-indigo-600" />
-                          <p className="font-medium text-gray-900">Availability</p>
+                          <ExternalLink className="w-5 h-5 text-green-600" />
+                          <p className="font-medium text-gray-900">Online booking link</p>
                         </div>
-                        <p className="text-sm text-gray-600">
-                          Artists can set their weekly availability and time-off. Find this under "My Availability" in the menu.
+                        <p className="text-sm text-gray-600 mb-3">
+                          Copy your public URL from Studio Settings once types under your booking hierarchy are
+                          ready. Clients drill through the hierarchy you configured, choose location and artist,
+                          pick a slot, and enter contact details; optional Stripe deposit checkout appears after
+                          confirmation when enabled.
                         </p>
                       </div>
-
                       <div className="p-4 border border-gray-200 rounded-lg">
                         <div className="flex items-center gap-2 mb-2">
-                          <BarChart3 className="w-5 h-5 text-indigo-600" />
-                          <p className="font-medium text-gray-900">Reports</p>
+                          <CreditCard className="w-5 h-5 text-purple-600" />
+                          <p className="font-medium text-gray-900">Stripe</p>
                         </div>
-                        <p className="text-sm text-gray-600">
-                          View booking statistics, revenue summaries, and artist performance in the Reports section.
+                        <p className="text-sm text-gray-600 mb-3">
+                          Connect Stripe on this page for online deposits—confirmation emails include payment links when your account can accept charges. Staff can still create manual deposit checkout links inside appointment details for guests who booked by phone.
                         </p>
                       </div>
-
                       <div className="p-4 border border-gray-200 rounded-lg">
                         <div className="flex items-center gap-2 mb-2">
                           <Bell className="w-5 h-5 text-indigo-600" />
-                          <p className="font-medium text-gray-900">Reminders (Plus)</p>
+                          <p className="font-medium text-gray-900">Automated reminders (Plus)</p>
+                        </div>
+                        <p className="text-sm text-gray-600 mb-3">
+                          On Plus, set reply-to studio email and timezone above, enable reminders, and pick timing. The same tally shown in Automatic emails sent this month applies to outbound automated reminders logged for your studio (reset each calendar month).
+                        </p>
+                      </div>
+                      <div className="p-4 border border-gray-200 rounded-lg">
+                        <div className="flex items-center gap-2 mb-2">
+                          <BarChart3 className="w-5 h-5 text-indigo-600" />
+                          <p className="font-medium text-gray-900">After day one</p>
                         </div>
                         <p className="text-sm text-gray-600">
-                          (Requires Plus tier) Enable automatic appointment reminders above. Customers get notified before their appointment.
+                          Use <strong className="font-medium text-gray-800">Reports</strong> for rollups, <strong className="font-medium text-gray-800">Products</strong> and appointment checkout for retail add-ons, and settlement views when you reconcile Stripe payouts and artist splits.
                         </p>
                       </div>
                     </div>
                   </div>
 
                   <div className="bg-indigo-50 rounded-lg p-4 text-sm text-indigo-800">
-                    <strong>Tip:</strong> Start by creating one location and one work station, then add an appointment type and artist. You'll be ready to book your first appointment in minutes!
+                    <strong>One-day smoke test:</strong> After one location with at least one station, book one internal appointment end-to-end, then paste your public link in a private window and confirm a booking with a realistic artist schedule. Only then turn on deposits and reminders for clients.
                   </div>
                 </CardContent>
               )}

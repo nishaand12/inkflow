@@ -4,6 +4,9 @@ import { loginAs } from './helpers/auth';
 const email = process.env.TEST_TESTER_EMAIL!;
 const password = process.env.TEST_TESTER_PASSWORD!;
 
+const RID = Date.now().toString().slice(-6);
+const E2E_BOOKING_LEAF = `E2E Booking Leaf ${RID}`;
+
 test.describe('Appointment Types', () => {
   test.beforeEach(async ({ page }) => {
     await loginAs(page, email, password);
@@ -23,12 +26,32 @@ test.describe('Appointment Types', () => {
     await expect(page.getByRole('dialog')).toBeVisible({ timeout: 8000 });
   });
 
-  test('HP-APPTYPES-3: Create E2E Tattoo Session type and verify in list', async ({ page }) => {
+  test('HP-APPTYPES-3: Create E2E session type under booking hierarchy and verify in list', async ({
+    page,
+  }) => {
+    // Appointment types require a leaf in Booking hierarchy first.
+    await page.goto('/reporting-categories');
+    await page.waitForLoadState('networkidle');
+    await page.getByRole('tab', { name: /booking hierarchy/i }).click();
+    await page.getByRole('button', { name: /add category/i }).click();
+    const catDialog = page.getByRole('dialog');
+    await expect(catDialog).toBeVisible({ timeout: 8000 });
+    await catDialog.getByLabel(/^name$/i).fill(E2E_BOOKING_LEAF);
+    await catDialog.getByRole('button', { name: /save/i }).click();
+    await expect(catDialog).not.toBeVisible({ timeout: 10000 });
+    await page.waitForLoadState('networkidle');
+
+    await page.goto('/appointment-types');
+    await page.waitForLoadState('networkidle');
+
     await page.getByRole('button', { name: /add|new/i }).first().click();
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible({ timeout: 8000 });
 
-    await dialog.getByLabel(/name/i).fill('E2E Tattoo Session');
+    await dialog.getByLabel(/booking hierarchy classification/i).click();
+    await page.getByRole('option', { name: E2E_BOOKING_LEAF }).click();
+
+    await dialog.getByLabel(/^name$/i).fill('E2E Tattoo Session');
 
     const durationField = dialog.getByLabel(/duration/i);
     if (await durationField.isVisible()) {
@@ -40,13 +63,6 @@ test.describe('Appointment Types', () => {
     if (await depositField.isVisible()) {
       await depositField.clear();
       await depositField.fill('75');
-    }
-
-    // Category: Tattoo — Radix Select
-    const categoryTrigger = dialog.locator('[id*="category"], [data-placeholder], button[role="combobox"]').first();
-    if (await categoryTrigger.isVisible()) {
-      await categoryTrigger.click();
-      await page.getByRole('option', { name: /tattoo/i }).click();
     }
 
     await dialog.getByRole('button', { name: /save|create/i }).click();

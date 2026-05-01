@@ -1,8 +1,7 @@
 /**
- * Helpers for hierarchical reporting_categories (and appointment_kind trees).
+ * Helpers for hierarchical reporting_categories (revenue buckets) and booking hierarchy
+ * (`category_role === appointment_kind` in DB; shown in the UI as "booking hierarchy").
  */
-
-import { PIERCING_CATEGORIES, APPOINTMENT_CATEGORIES } from "@/utils/index";
 
 export const CATEGORY_ROLE_REPORTING = "reporting";
 export const CATEGORY_ROLE_APPOINTMENT_KIND = "appointment_kind";
@@ -60,7 +59,7 @@ export function getAncestorChain(categories, childId) {
 }
 
 /**
- * Full path label for UI (e.g. "Piercing › Ear").
+ * Full path label for UI (e.g. "Body work › Consultation").
  * @param {ReportingCategoryLike[]} categories
  * @param {string|null|undefined} id
  */
@@ -175,18 +174,6 @@ export function isTattooClinicalProfile(allCategories, appointmentKindCategoryId
 }
 
 /**
- * When appointment_kind_category_id is null, bucket legacy `appointment_types.category` strings.
- * @param {{ category?: string, appointment_kind_category_id?: string|null }} aptType
- * @returns {'tattoo'|'piercing'|'other'|null}
- */
-export function legacyAppointmentTypeBucket(aptType) {
-  if (!aptType || aptType.appointment_kind_category_id) return null;
-  if (aptType.category === "Tattoo") return "tattoo";
-  if (aptType.category && PIERCING_CATEGORIES.has(aptType.category)) return "piercing";
-  return "other";
-}
-
-/**
  * @param {ReportingCategoryLike[]} allCategories
  * @param {string|null|undefined} appointmentKindCategoryId
  */
@@ -208,17 +195,11 @@ export function appointmentTypeMatchesFilter(allCategories, aptType, filterValue
     const kindRoot = getAppointmentKindRootId(allCategories, aptType.appointment_kind_category_id);
     return kindRoot === rootId;
   }
-  if (filterValue === "legacy_tattoo") return legacyAppointmentTypeBucket(aptType) === "tattoo";
-  if (filterValue === "legacy_piercing") return legacyAppointmentTypeBucket(aptType) === "piercing";
-  if (filterValue === "legacy_other") return legacyAppointmentTypeBucket(aptType) === "other";
   return true;
 }
 
 export function getAppointmentTypeDisplaySections(appointmentTypes, reportingCategories) {
-  const kindAll = filterCategoriesByRole(
-    reportingCategories,
-    CATEGORY_ROLE_APPOINTMENT_KIND
-  );
+  const kindAll = filterCategoriesByRole(reportingCategories, CATEGORY_ROLE_APPOINTMENT_KIND);
   const roots = kindAll
     .filter((c) => !c.parent_id)
     .sort(
@@ -250,38 +231,21 @@ export function getAppointmentTypeDisplaySections(appointmentTypes, reportingCat
     orphanKinds.forEach((t) => assigned.add(t.id));
     sections.push({
       key: "kind:orphan",
-      label: "Other services",
+      label: "Unlinked hierarchy reference",
       types: orphanKinds,
     });
   }
 
-  const legacyOrder = [...APPOINTMENT_CATEGORIES, "Piercing", "Other", "Deposit"];
-  for (const cat of legacyOrder) {
-    let types;
-    if (cat === "Piercing") {
-      types = (appointmentTypes || []).filter(
-        (t) => !assigned.has(t.id) && PIERCING_CATEGORIES.has(t.category)
-      );
-    } else if (cat === "Other") {
-      types = (appointmentTypes || []).filter(
-        (t) =>
-          !assigned.has(t.id) &&
-          t.category !== "Tattoo" &&
-          !PIERCING_CATEGORIES.has(t.category) &&
-          t.category !== "Deposit"
-      );
-    } else if (cat === "Deposit") {
-      types = (appointmentTypes || []).filter(
-        (t) => !assigned.has(t.id) && t.category === "Deposit"
-      );
-    } else {
-      types = (appointmentTypes || []).filter(
-        (t) => !assigned.has(t.id) && t.category === cat
-      );
-    }
-    if (types.length === 0) continue;
-    types.forEach((t) => assigned.add(t.id));
-    sections.push({ key: `legacy:${cat}`, label: cat, types });
+  const missingHierarchy = (appointmentTypes || []).filter(
+    (t) => !assigned.has(t.id) && !t.appointment_kind_category_id
+  );
+  if (missingHierarchy.length) {
+    missingHierarchy.forEach((t) => assigned.add(t.id));
+    sections.push({
+      key: "unassigned:kind",
+      label: "Missing booking hierarchy",
+      types: missingHierarchy,
+    });
   }
 
   return sections;

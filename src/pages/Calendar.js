@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
@@ -175,12 +175,7 @@ export default function Calendar() {
   });
 
   const typeCategoryFilterOptions = useMemo(() => {
-    const opts = [
-      { value: 'all', label: 'All Types' },
-      { value: 'legacy_tattoo', label: 'Tattoo (legacy)' },
-      { value: 'legacy_piercing', label: 'Piercing (legacy)' },
-      { value: 'legacy_other', label: 'Other (legacy)' },
-    ];
+    const opts = [{ value: "all", label: "All Types" }];
     const roots = filterCategoriesByRole(reportingCategories, CATEGORY_ROLE_APPOINTMENT_KIND)
       .filter((c) => !c.parent_id)
       .sort((a, b) => (a.display_order ?? 0) - (b.display_order ?? 0) || (a.name || '').localeCompare(b.name || ''));
@@ -214,13 +209,13 @@ export default function Calendar() {
   const getAptColor  = (apt) => artistColorMap[apt.artist_id] || '#4f46e5';
   const getAptTypeName = (apt) => appointmentTypes.find(t => t.id === apt.appointment_type_id)?.name || '';
 
-  const getCustomerName = (apt) => {
+  const getCustomerName = useCallback((apt) => {
     if (apt.customer_id) {
       const c = customers.find(c => c.id === apt.customer_id);
       return c?.name || apt.client_name || 'Unknown';
     }
     return apt.client_name || 'Unknown';
-  };
+  }, [customers]);
 
   // ── Role helpers ────────────────────────────────────────────────────────
   const getUserRole = () => {
@@ -270,7 +265,7 @@ export default function Calendar() {
     workStationFilter,
     specificTypeFilter,
     customerSearch,
-    customers,
+    getCustomerName,
   ]);
 
   // ── Day ranges ──────────────────────────────────────────────────────────

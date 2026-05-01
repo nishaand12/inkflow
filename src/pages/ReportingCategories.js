@@ -312,7 +312,7 @@ export default function ReportingCategories() {
               isLoading={isLoading}
               treeRows={flattenCategoryTree(categories, CATEGORY_ROLE_APPOINTMENT_KIND)}
               count={filterCategoriesByRole(categories, CATEGORY_ROLE_APPOINTMENT_KIND).length}
-              emptyLabel="No booking hierarchy yet — add a parent (e.g. Piercing) then sub-categories"
+              emptyLabel="No booking hierarchy yet — add a parent group, then sub-categories"
               onAdd={openNewDialog}
               onRowClick={openEditDialog}
               onDelete={handleDeleteClick}
@@ -332,7 +332,7 @@ export default function ReportingCategories() {
             </DialogTitle>
             <DialogDescription>
               {formData.category_role === CATEGORY_ROLE_APPOINTMENT_KIND
-                ? "The booking hierarchy appears when creating appointment types and on the public booking page. Use sub-categories for detail (e.g. Piercing › Ear)."
+                ? "The booking hierarchy appears when creating appointment types and on the public booking page. Use sub-categories for detail (e.g. Body work › Consultation)."
                 : "Reporting categories classify revenue, checkout lines, and products."}
             </DialogDescription>
           </DialogHeader>
@@ -345,8 +345,8 @@ export default function ReportingCategories() {
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                 placeholder={
                   formData.category_role === CATEGORY_ROLE_APPOINTMENT_KIND
-                    ? "e.g. Ear piercings"
-                    : "e.g. Tattoo services"
+                    ? "e.g. Consultation block"
+                    : "e.g. Retail products"
                 }
               />
             </div>

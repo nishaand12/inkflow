@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
-import { Save, Trash2 } from "lucide-react";
+import { Save, Trash2, AlertCircle } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -20,7 +20,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
-import { APPOINTMENT_CATEGORIES, PIERCING_CATEGORIES, formatDuration } from "@/utils/index";
+import { formatDuration } from "@/utils/index";
 import {
   CATEGORY_ROLE_APPOINTMENT_KIND,
   CATEGORY_ROLE_REPORTING,
@@ -30,12 +30,13 @@ import {
   filterCategoriesByRole,
   isPiercingClinicalProfile,
 } from "@/utils/reportingCategories";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 
 const DURATION_PRESETS = [10, 15, 20, 30, 45, 60, 90, 120, 150, 180, 240, 300, 360];
 
 const DEFAULT_FORM = {
   appointment_kind_category_id: "",
-  category: "Tattoo",
+  category: "",
   name: "",
   description: "",
   default_duration_minutes: 120,
@@ -70,13 +71,11 @@ export default function AppointmentTypeDialog({ open, onOpenChange, appointmentT
     [reportingCategories]
   );
 
-  const useConfigurableKinds = appointmentKindLeaves.length > 0;
-
   useEffect(() => {
     if (appointmentType) {
       setFormData({
         appointment_kind_category_id: appointmentType.appointment_kind_category_id || "",
-        category: appointmentType.category || "Tattoo",
+        category: appointmentType.category || "",
         name: appointmentType.name || "",
         description: appointmentType.description || "",
         default_duration_minutes: appointmentType.default_duration_minutes || 120,
@@ -116,40 +115,26 @@ export default function AppointmentTypeDialog({ open, onOpenChange, appointmentT
     },
   });
 
-  const kindSelectValue = useMemo(() => {
-    if (useConfigurableKinds) {
-      return formData.appointment_kind_category_id || "__legacy__";
-    }
-    return formData.category || "Tattoo";
-  }, [useConfigurableKinds, formData.appointment_kind_category_id, formData.category]);
-
   const handleKindChange = (value) => {
-    if (useConfigurableKinds) {
-      if (value === "__legacy__") {
-        setFormData((prev) => ({
-          ...prev,
-          appointment_kind_category_id: "",
-          category: prev.category || "Tattoo",
-        }));
-        return;
-      }
-      const leaf = findCategoryById(appointmentKindLeaves, value);
-      setFormData((prev) => ({
-        ...prev,
-        appointment_kind_category_id: value,
-        category: leaf?.name || prev.category,
-      }));
-      return;
-    }
-    setFormData((prev) => ({ ...prev, category: value }));
+    const leaf = findCategoryById(appointmentKindLeaves, value);
+    setFormData((prev) => ({
+      ...prev,
+      appointment_kind_category_id: value,
+      category: leaf?.name || "",
+    }));
   };
 
   const handleSubmit = (e) => {
     e.preventDefault();
+    if (!formData.appointment_kind_category_id || appointmentKindLeaves.length === 0) {
+      return;
+    }
+    const leaf = findCategoryById(appointmentKindLeaves, formData.appointment_kind_category_id);
     const submitData = {
       ...formData,
       studio_id: currentUser?.studio_id,
-      appointment_kind_category_id: formData.appointment_kind_category_id || null,
+      appointment_kind_category_id: formData.appointment_kind_category_id,
+      category: leaf?.name || "",
       reporting_category_id: formData.reporting_category_id || null,
       service_cost: formData.service_cost !== "" ? parseFloat(formData.service_cost) : null,
     };
@@ -174,10 +159,10 @@ export default function AppointmentTypeDialog({ open, onOpenChange, appointmentT
     setFormData(DEFAULT_FORM);
   };
 
-  const showPiercingCostHint =
-    (useConfigurableKinds &&
-      isPiercingClinicalProfile(reportingCategories, formData.appointment_kind_category_id)) ||
-    (!useConfigurableKinds && PIERCING_CATEGORIES.has(formData.category));
+  const showClinicalCostHint = isPiercingClinicalProfile(
+    reportingCategories,
+    formData.appointment_kind_category_id
+  );
 
   return (
     <>
@@ -195,57 +180,39 @@ export default function AppointmentTypeDialog({ open, onOpenChange, appointmentT
           </DialogHeader>
 
           <form onSubmit={handleSubmit} className="space-y-6">
+            {appointmentKindLeaves.length === 0 ? (
+              <Alert className="border-amber-200 bg-amber-50 text-amber-900">
+                <AlertCircle className="h-4 w-4 text-amber-700" />
+                <AlertDescription className="text-amber-900">
+                  Add booking hierarchy categories first: go to the{" "}
+                  <strong>Categories</strong> page and create leaf nodes under Booking hierarchy. Every
+                  appointment type must be classified under a leaf you define there.
+                </AlertDescription>
+              </Alert>
+            ) : null}
+
             <div className="space-y-2">
-              <Label htmlFor="kind_category">Category *</Label>
-              <Select value={kindSelectValue} onValueChange={handleKindChange} required>
+              <Label htmlFor="kind_category">Booking hierarchy classification *</Label>
+              <Select
+                value={formData.appointment_kind_category_id || undefined}
+                onValueChange={handleKindChange}
+                required
+                disabled={appointmentKindLeaves.length === 0}
+              >
                 <SelectTrigger id="kind_category">
-                  <SelectValue placeholder="Select category" />
+                  <SelectValue placeholder="Select a booking hierarchy leaf" />
                 </SelectTrigger>
                 <SelectContent>
-                  {useConfigurableKinds ? (
-                    <>
-                      {appointmentKindLeaves.map((leaf) => (
-                        <SelectItem key={leaf.id} value={leaf.id}>
-                          {getCategoryPathLabel(
-                            filterCategoriesByRole(reportingCategories, CATEGORY_ROLE_APPOINTMENT_KIND),
-                            leaf.id
-                          )}
-                        </SelectItem>
-                      ))}
-                      <SelectItem value="__legacy__">Legacy label only…</SelectItem>
-                    </>
-                  ) : (
-                    APPOINTMENT_CATEGORIES.map((cat) => (
-                      <SelectItem key={cat} value={cat}>
-                        {cat}
-                      </SelectItem>
-                    ))
-                  )}
+                  {appointmentKindLeaves.map((leaf) => (
+                    <SelectItem key={leaf.id} value={leaf.id}>
+                      {getCategoryPathLabel(
+                        filterCategoriesByRole(reportingCategories, CATEGORY_ROLE_APPOINTMENT_KIND),
+                        leaf.id
+                      )}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
-              {useConfigurableKinds && kindSelectValue === "__legacy__" && (
-                <p className="text-xs text-amber-700">
-                  Choose a legacy label below for this type until you configure the booking hierarchy
-                  under Categories.
-                </p>
-              )}
-              {useConfigurableKinds && kindSelectValue === "__legacy__" && (
-                <Select
-                  value={formData.category}
-                  onValueChange={(v) => setFormData((prev) => ({ ...prev, category: v }))}
-                >
-                  <SelectTrigger className="mt-1">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {APPOINTMENT_CATEGORIES.map((cat) => (
-                      <SelectItem key={cat} value={cat}>
-                        {cat}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
             </div>
 
             <div className="space-y-2">
@@ -255,7 +222,7 @@ export default function AppointmentTypeDialog({ open, onOpenChange, appointmentT
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                 required
-                placeholder="e.g., Small Tattoo, Ear Piercing"
+                placeholder="e.g., Initial consult, Full session"
               />
             </div>
 
@@ -348,10 +315,11 @@ export default function AppointmentTypeDialog({ open, onOpenChange, appointmentT
                   onChange={(e) => setFormData({ ...formData, service_cost: e.target.value })}
                   placeholder="e.g., 40.00"
                 />
-                {showPiercingCostHint && (
+                {showClinicalCostHint && (
                   <p className="text-xs text-gray-500">
-                    Piercing appointments will show this price to customers. The $
-                    {formData.default_deposit} deposit applies toward the total.
+                    This classification can show extra clinical fields on appointments. When set, this
+                    price is shown to customers on the public booking page. The ${formData.default_deposit}{" "}
+                    deposit applies toward the total.
                   </p>
                 )}
               </div>
@@ -439,7 +407,12 @@ export default function AppointmentTypeDialog({ open, onOpenChange, appointmentT
                 <Button
                   type="submit"
                   className="bg-indigo-600 hover:bg-indigo-700"
-                  disabled={createMutation.isPending || updateMutation.isPending}
+                  disabled={
+                    createMutation.isPending ||
+                    updateMutation.isPending ||
+                    appointmentKindLeaves.length === 0 ||
+                    !formData.appointment_kind_category_id
+                  }
                 >
                   <Save className="w-4 h-4 mr-2" />
                   {appointmentType ? "Update" : "Create"}
