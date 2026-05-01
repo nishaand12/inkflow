@@ -1,0 +1,21 @@
+# Publishable (sb_publishable_*) keys are not accepted by the gateway's legacy
+# JWT verification. Turning it off lets the function run so our CORS + auth logic
+# applies. Each function still validates callers in its handler where required.
+
+[functions.create-checkout-payment]
+verify_jwt = false
+
+[functions.create-deposit-checkout]
+verify_jwt = false
+
+[functions.send-appointment-email]
+verify_jwt = false
+
+[functions.stripe-connect-status]
+verify_jwt = false
+
+[functions.stripe-connect-onboard]
+verify_jwt = false
+
+[functions.create-public-booking]
+verify_jwt = false

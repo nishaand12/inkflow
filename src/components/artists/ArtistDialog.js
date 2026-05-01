@@ -11,6 +11,8 @@ import { Switch } from "@/components/ui/switch";
 import { Save, Trash2, AlertCircle } from "lucide-react";
 import { ARTIST_PALETTE, autoAssignColor } from "@/utils/artistColors";
 
+const EMPTY_ARTISTS = [];
+
 export default function ArtistDialog({ open, onOpenChange, artist, locations }) {
   const queryClient = useQueryClient();
   const [errorMessage, setErrorMessage] = useState(null);
@@ -66,7 +68,7 @@ export default function ArtistDialog({ open, onOpenChange, artist, locations }) 
     enabled: open && !artist && !!currentUser?.studio_id
   });
 
-  const { data: artists = [] } = useQuery({
+  const { data: artistsData } = useQuery({
     queryKey: ['artists', currentUser?.studio_id],
     queryFn: async () => {
       if (!currentUser?.studio_id) return [];
@@ -74,6 +76,7 @@ export default function ArtistDialog({ open, onOpenChange, artist, locations }) 
     },
     enabled: open && !!currentUser?.studio_id
   });
+  const artists = artistsData ?? EMPTY_ARTISTS;
 
   useEffect(() => {
     if (artist) {

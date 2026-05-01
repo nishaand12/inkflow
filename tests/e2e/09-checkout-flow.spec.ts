@@ -138,10 +138,10 @@ test.describe('Checkout / Payment Flow', () => {
     await expect(page.getByRole('heading', { name: /payment successful/i })).toBeVisible();
   });
 
-  test('HP-CHK-4: /payment-success with type=deposit shows "Deposit Received!"', async ({ page }) => {
+  test('HP-CHK-4: /payment-success with type=deposit shows "Appointment confirmed!"', async ({ page }) => {
     await page.goto('/payment-success?studio=Test+Studio&type=deposit');
     await page.waitForLoadState('networkidle');
-    await expect(page.getByRole('heading', { name: /deposit received/i })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /appointment confirmed/i })).toBeVisible();
   });
 
   test('HP-CHK-5: /payment-cancelled page renders without error', async ({ page }) => {

@@ -333,28 +333,46 @@ export default function PublicBooking() {
   }
 
   if (bookingResult) {
+    const hasDeposit = Boolean(bookingResult.checkout_url);
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-green-50 to-emerald-50 p-6">
+      <div className={`min-h-screen flex items-center justify-center p-6 ${
+        hasDeposit
+          ? "bg-gradient-to-br from-indigo-50 to-purple-50"
+          : "bg-gradient-to-br from-green-50 to-emerald-50"
+      }`}>
         <Card className="max-w-md w-full bg-white shadow-xl">
           <CardContent className="p-8 text-center">
-            <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
-              <CheckCircle className="w-8 h-8 text-green-600" />
-            </div>
-            <h2 className="text-2xl font-bold text-gray-900 mb-2">Booking Confirmed!</h2>
-            <p className="text-gray-600 mb-6">
-              Your appointment at {studio.name} has been booked for {selectedDate} at {selectedTime}.
-            </p>
-            {bookingResult.checkout_url && (
-              <a
-                href={bookingResult.checkout_url}
-                className="inline-flex items-center gap-2 bg-indigo-600 text-white px-6 py-3 rounded-xl font-semibold hover:bg-indigo-700 transition-colors"
-              >
-                <CreditCard className="w-5 h-5" />
-                Pay Deposit (${selectedType?.default_deposit || 0})
-              </a>
-            )}
-            {!bookingResult.checkout_url && (
-              <p className="text-sm text-gray-500">No deposit required. See you at your appointment!</p>
+            {hasDeposit ? (
+              <>
+                <div className="w-16 h-16 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                  <CreditCard className="w-8 h-8 text-indigo-600" />
+                </div>
+                <h2 className="text-2xl font-bold text-gray-900 mb-2">Pay deposit to reserve</h2>
+                <p className="text-gray-600 mb-6">
+                  Paying the deposit is required to reserve your booking at {studio.name} for{" "}
+                  {selectedDate} at {selectedTime}. Your appointment is not confirmed until payment
+                  completes.
+                </p>
+                <a
+                  href={bookingResult.checkout_url}
+                  className="inline-flex items-center gap-2 bg-indigo-600 text-white px-6 py-3 rounded-xl font-semibold hover:bg-indigo-700 transition-colors"
+                >
+                  <CreditCard className="w-5 h-5" />
+                  Pay Deposit (${selectedType?.default_deposit || 0})
+                </a>
+              </>
+            ) : (
+              <>
+                <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6">
+                  <CheckCircle className="w-8 h-8 text-green-600" />
+                </div>
+                <h2 className="text-2xl font-bold text-gray-900 mb-2">Booking Confirmed!</h2>
+                <p className="text-gray-600 mb-6">
+                  Your appointment at {studio.name} has been booked for {selectedDate} at{" "}
+                  {selectedTime}.
+                </p>
+                <p className="text-sm text-gray-500">No deposit required. See you at your appointment!</p>
+              </>
             )}
           </CardContent>
         </Card>

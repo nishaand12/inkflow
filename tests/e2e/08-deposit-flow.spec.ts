@@ -134,7 +134,7 @@ test.describe('Deposit Flow', () => {
   test('HP-DEP-2: /deposit-success static page renders correctly', async ({ page }) => {
     await page.goto('/deposit-success?studio=Test+Studio');
     await page.waitForLoadState('networkidle');
-    await expect(page.getByRole('heading', { name: /deposit received/i })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /appointment confirmed/i })).toBeVisible();
     await expect(page.getByText(/test studio/i)).toBeVisible();
   });
 
@@ -184,7 +184,7 @@ test.describe('Deposit Flow', () => {
     await submitStripePayment(page);
 
     await page.waitForURL('**/deposit-success**', { timeout: 30000 });
-    await expect(page.getByRole('heading', { name: /deposit received/i })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /appointment confirmed/i })).toBeVisible();
   });
 
   // ── Non-Happy Path: Declined card ─────────────────────────────────────────

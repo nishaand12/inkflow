@@ -8,10 +8,10 @@ export default function PaymentSuccess() {
   const paymentType = searchParams.get("type") || "payment";
 
   const heading =
-    paymentType === "deposit" ? "Deposit Received!" : "Payment Successful!";
+    paymentType === "deposit" ? "Appointment confirmed!" : "Payment Successful!";
   const description =
     paymentType === "deposit"
-      ? `Your deposit to ${studioName} has been successfully processed.`
+      ? `Thank you! Your deposit payment was successful and your appointment is now confirmed. ${studioName} has been notified.`
       : `Your payment to ${studioName} has been successfully processed.`;
 
   return (
