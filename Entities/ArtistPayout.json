@@ -1,0 +1,20 @@
+{
+  "name": "ArtistPayout",
+  "type": "object",
+  "properties": {
+    "studio_id": { "type": "string", "description": "Studio ID" },
+    "artist_id": { "type": "string", "description": "FK to artists" },
+    "amount": { "type": "number", "default": 0 },
+    "payout_method": { "type": "string" },
+    "payout_date": { "type": "string", "format": "date" },
+    "notes": { "type": "string" },
+    "created_by": { "type": "string" }
+  },
+  "required": ["studio_id", "artist_id", "amount", "payout_date"],
+  "rls": {
+    "read": { "data.studio_id": "{{user.data.studio_id}}" },
+    "write": { "user_condition": { "data.user_role": ["Owner", "Admin"] } },
+    "update": { "data.studio_id": "{{user.data.studio_id}}", "user_condition": { "data.user_role": ["Owner", "Admin"] } },
+    "delete": { "data.studio_id": "{{user.data.studio_id}}", "user_condition": { "data.user_role": ["Owner", "Admin"] } }
+  }
+}

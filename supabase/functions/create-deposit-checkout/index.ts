@@ -62,42 +62,133 @@ serve(async (req) => {
       return json({ error: "No deposit amount set on this appointment" }, 400);
     }
 
-    if (appointment.deposit_status === "paid") {
-      return json({ error: "Deposit already paid" }, 400);
-    }
-
-    // If there's an existing pending session that hasn't expired, return it
+    // The appointment row can be stale after webhook/update races. Use payment rows
+    // and Stripe session state as the source of truth before creating a new link.
     const { data: existingPayments } = await supabase
       .from("payments")
       .select("*")
       .eq("appointment_id", appointmentId)
-      .eq("status", "pending")
-      .eq("payment_type", "deposit");
+      .eq("payment_type", "deposit")
+      .in("status", ["pending", "paid"])
+      .order("created_at", { ascending: false });
+
+    const paidPayment = existingPayments?.find((p: any) => p.status === "paid");
+    if (appointment.deposit_status === "paid" || paidPayment) {
+      const pendingIdsToExpire = (existingPayments || [])
+        .filter((p: any) => p.status === "pending")
+        .map((p: any) => p.id);
+      for (const pendingPayment of (existingPayments || []).filter((p: any) => p.status === "pending")) {
+        if (!pendingPayment.stripe_checkout_session_id) continue;
+        try {
+          await stripe.checkout.sessions.expire(pendingPayment.stripe_checkout_session_id, {
+            stripeAccount: studio.stripe_account_id,
+          });
+        } catch (_) {
+          // Already-paid or already-expired sessions cannot be expired; local state is cleaned below.
+        }
+      }
+      if (pendingIdsToExpire.length) {
+        await supabase
+          .from("payments")
+          .update({ status: "expired" })
+          .in("id", pendingIdsToExpire);
+      }
+      await supabase
+        .from("appointments")
+        .update({ status: "deposit_paid", deposit_status: "paid" })
+        .eq("id", appointmentId);
+      return json({ paid: true, session_id: paidPayment?.stripe_checkout_session_id || null });
+    }
 
     const now = new Date();
-    const activePayment = existingPayments?.find(
-      (p: any) => p.expires_at && new Date(p.expires_at) > now
-    );
+    const pendingPayments = existingPayments?.filter((p: any) => p.status === "pending") || [];
+    const staleIds: string[] = [];
+    let reusablePayment: any = null;
 
-    if (activePayment?.checkout_url) {
+    for (const activePayment of pendingPayments) {
+      if (!activePayment?.stripe_checkout_session_id || !activePayment?.checkout_url) {
+        staleIds.push(activePayment.id);
+        continue;
+      }
+
+      const session = await stripe.checkout.sessions.retrieve(
+        activePayment.stripe_checkout_session_id,
+        { stripeAccount: studio.stripe_account_id }
+      );
+
+      if (session.payment_status === "paid") {
+        await supabase
+          .from("payments")
+          .update({
+            status: "paid",
+            stripe_payment_intent_id:
+              typeof session.payment_intent === "string"
+                ? session.payment_intent
+                : null,
+            paid_at: new Date().toISOString(),
+          })
+          .eq("id", activePayment.id);
+
+        await supabase
+          .from("appointments")
+          .update({ status: "deposit_paid", deposit_status: "paid" })
+          .eq("id", appointmentId);
+
+        return json({ paid: true, session_id: activePayment.stripe_checkout_session_id });
+      }
+
+      const sessionExpiresAt = session.expires_at ? new Date(session.expires_at * 1000) : null;
+      if (session.status === "open" && (!sessionExpiresAt || sessionExpiresAt > now)) {
+        if (!reusablePayment) {
+          reusablePayment = activePayment;
+          continue;
+        }
+
+        try {
+          await stripe.checkout.sessions.expire(activePayment.stripe_checkout_session_id, {
+            stripeAccount: studio.stripe_account_id,
+          });
+        } catch (expireErr) {
+          console.error("Failed to expire duplicate deposit session:", expireErr);
+        }
+        staleIds.push(activePayment.id);
+        continue;
+      }
+
+      staleIds.push(activePayment.id);
+    }
+
+    if (staleIds.length) {
+      await supabase
+        .from("payments")
+        .update({ status: "expired" })
+        .in("id", staleIds);
+    }
+
+    if (reusablePayment) {
       return json({
-        checkout_url: activePayment.checkout_url,
-        session_id: activePayment.stripe_checkout_session_id,
+        checkout_url: reusablePayment.checkout_url,
+        session_id: reusablePayment.stripe_checkout_session_id,
         reused: true,
       });
     }
 
-    // Mark any stale pending payments as expired
-    if (existingPayments?.length) {
-      const staleIds = existingPayments
-        .filter((p: any) => !activePayment || p.id !== activePayment.id)
-        .map((p: any) => p.id);
-      if (staleIds.length) {
-        await supabase
-          .from("payments")
-          .update({ status: "expired" })
-          .in("id", staleIds);
-      }
+    const { data: currentPaidPayment } = await supabase
+      .from("payments")
+      .select("id,stripe_checkout_session_id")
+      .eq("appointment_id", appointmentId)
+      .eq("payment_type", "deposit")
+      .eq("status", "paid")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (currentPaidPayment) {
+      await supabase
+        .from("appointments")
+        .update({ status: "deposit_paid", deposit_status: "paid" })
+        .eq("id", appointmentId);
+      return json({ paid: true, session_id: currentPaidPayment.stripe_checkout_session_id });
     }
 
     const customerEmail =
@@ -109,6 +200,7 @@ serve(async (req) => {
     const unitAmount = Math.round(depositAmount * 100);
 
     const expiresAt = Math.floor(Date.now() / 1000) + 86400; // 24 hours from now
+    const idempotencyKey = `deposit-${appointmentId}-${new Date().toISOString().slice(0, 10)}`;
 
     // Direct charge: create session on the connected account
     const session = await stripe.checkout.sessions.create(
@@ -138,7 +230,7 @@ serve(async (req) => {
           payment_type: "deposit",
         },
       },
-      { stripeAccount: studio.stripe_account_id }
+      { stripeAccount: studio.stripe_account_id, idempotencyKey }
     );
 
     await supabase.from("payments").insert({
@@ -152,6 +244,7 @@ serve(async (req) => {
       payment_type: "deposit",
       checkout_url: session.url,
       expires_at: new Date(expiresAt * 1000).toISOString(),
+      metadata: { appointment_id: appointmentId },
     });
 
     await supabase

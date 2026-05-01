@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { format, parseISO } from "date-fns";
 import { Trash2, Save, AlertCircle, CheckCircle, Unlock, Mail, CreditCard, Loader2, Link2, Copy, Check } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -21,6 +21,7 @@ import RefundDialog from "./RefundDialog";
 import { normalizeUserRole } from "@/utils/roles";
 import { addMinutesToTime, formatDuration, PIERCING_CATEGORIES } from "@/utils/index";
 import {
+  getAppointmentTypeDisplaySections,
   isPiercingClinicalProfile,
   isTattooClinicalProfile,
 } from "@/utils/reportingCategories";
@@ -77,6 +78,10 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
 
   const isArtist = useMemo(() => userRole === 'Artist', [userRole]);
   const isAdmin = useMemo(() => userRole === 'Admin' || userRole === 'Owner', [userRole]);
+  const selectableLocations = useMemo(
+    () => locations.filter(location => location.is_active || location.id === formData.location_id),
+    [locations, formData.location_id]
+  );
   
   const canEdit = () => {
     if (!currentUser) return false;
@@ -280,13 +285,14 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
 
   const handleCustomerSelect = (customer) => {
     setSelectedCustomer(customer);
+    const preferredLocation = locations.find(location => location.id === customer.preferred_location_id);
     setFormData(prev => ({
       ...prev,
       customer_id: customer.id,
       client_name: customer.name,
       client_email: customer.email || '',
       client_phone: customer.phone_number || '',
-      location_id: customer.preferred_location_id || prev.location_id
+      location_id: preferredLocation?.is_active ? customer.preferred_location_id : prev.location_id
     }));
   };
 
@@ -508,10 +514,32 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id) => base44.entities.Appointment.delete(id),
+    mutationFn: async (id) => {
+      try {
+        return await base44.entities.Appointment.delete(id);
+      } catch (error) {
+        const errorText = `${error?.message || ''} ${error?.details || ''}`;
+        const isPaymentReferenceError =
+          error?.code === '23503' &&
+          (errorText.includes('payments_appointment_id_fkey') || errorText.includes('table "payments"'));
+
+        if (!isPaymentReferenceError) throw error;
+
+        const { error: paymentError } = await supabase
+          .from('payments')
+          .update({ appointment_id: null })
+          .eq('appointment_id', id);
+        if (paymentError) throw paymentError;
+
+        return base44.entities.Appointment.delete(id);
+      }
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['appointments'] });
       onOpenChange(false);
+    },
+    onError: (error) => {
+      setSaveError(error?.message || 'Failed to delete appointment. Please try again.');
     }
   });
 
@@ -533,8 +561,21 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
 
     // UUID columns reject empty strings — convert '' → null before sending to Supabase
     const sanitizeUuid = (v) => (v === '' || v == null ? null : v);
+    const {
+      deposit_status,
+      email_send_status,
+      email_send_failed_reason,
+      email_sent_at,
+      reminder_sent_week,
+      reminder_sent_day,
+      reminder_sent_at,
+      created_at,
+      updated_at,
+      ...editableFormData
+    } = formData;
+
     const dataToSave = {
-      ...formData,
+      ...editableFormData,
       studio_id: currentUser?.studio_id,
       appointment_type_id: sanitizeUuid(formData.appointment_type_id),
       customer_id: sanitizeUuid(formData.customer_id),
@@ -543,6 +584,10 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
       location_id: sanitizeUuid(formData.location_id),
       health_fields: Object.keys(healthFields).length > 0 ? healthFields : {},
     };
+
+    if (appointment && formData.status === appointment.status) {
+      delete dataToSave.status;
+    }
 
     if (appointment) {
       updateMutation.mutate({ id: appointment.id, data: dataToSave });
@@ -588,13 +633,22 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
       });
       if (error || data?.error) {
         setDepositLinkMessage({ type: 'error', text: data?.error || 'Failed to create deposit link.' });
+      } else if (data?.paid) {
+        setDepositLinkMessage({ type: 'success', text: 'Deposit payment confirmed.' });
+        queryClient.invalidateQueries({ queryKey: ['appointments'] });
       } else if (data?.checkout_url) {
         setDepositCheckoutUrl(data.checkout_url);
         try {
           await navigator.clipboard.writeText(data.checkout_url);
-          setDepositLinkMessage({ type: 'success', text: 'Deposit link created and copied to clipboard!' });
+          setDepositLinkMessage({
+            type: 'success',
+            text: data?.reused ? 'Existing deposit link copied to clipboard!' : 'Deposit link created and copied to clipboard!'
+          });
         } catch (_) {
-          setDepositLinkMessage({ type: 'success', text: 'Deposit link created! Copy the link below to share with the client.' });
+          setDepositLinkMessage({
+            type: 'success',
+            text: data?.reused ? 'Existing deposit link found. Copy the link below to share with the client.' : 'Deposit link created! Copy the link below to share with the client.'
+          });
         }
         queryClient.invalidateQueries({ queryKey: ['appointments'] });
       }
@@ -700,7 +754,24 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     ? (isAdmin ? artists : artists.filter(a => a.is_active))
     : artists;
 
-  const activeAppointmentTypes = appointmentTypes.filter(t => t.is_active);
+  const activeAppointmentTypes = useMemo(
+    () => appointmentTypes.filter(t => t.is_active),
+    [appointmentTypes]
+  );
+  const appointmentTypeSections = useMemo(() => {
+    const sections = getAppointmentTypeDisplaySections(activeAppointmentTypes, reportingCategories);
+    return sections
+      .map(section => ({
+        ...section,
+        types: [...section.types].sort((a, b) => (a.name || '').localeCompare(b.name || ''))
+      }))
+      .sort((a, b) => {
+        const aIsTattoo = (a.label || '').toLowerCase().includes('tattoo');
+        const bIsTattoo = (b.label || '').toLowerCase().includes('tattoo');
+        if (aIsTattoo !== bIsTattoo) return aIsTattoo ? -1 : 1;
+        return 0;
+      });
+  }, [activeAppointmentTypes, reportingCategories]);
   const selectedAppointmentType = appointmentTypes.find(t => t.id === formData.appointment_type_id);
 
   const showPiercingHealthFields = useMemo(() => {
@@ -720,6 +791,8 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
   }, [selectedAppointmentType, reportingCategories]);
 
   const showHealthClinicalSection = showPiercingHealthFields || showTattooHealthFields;
+
+  return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="w-full max-w-3xl max-h-[95vh] sm:max-h-[90vh] overflow-y-auto bg-white p-4 sm:p-6 mx-2 sm:mx-auto rounded-lg">
@@ -806,10 +879,21 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value={null}>No Type</SelectItem>
-                    {activeAppointmentTypes.map(type => (
-                      <SelectItem key={type.id} value={type.id}>
-                        {type.name} — {formatDuration(type.default_duration_minutes)}, ${type.default_deposit} deposit
-                      </SelectItem>
+                    <SelectSeparator />
+                    {appointmentTypeSections.map((section) => (
+                      <React.Fragment key={section.key}>
+                        <SelectGroup>
+                          <SelectLabel className="text-xs uppercase tracking-wide text-gray-500">
+                            {section.label}
+                          </SelectLabel>
+                          {section.types.map(type => (
+                            <SelectItem key={type.id} value={type.id}>
+                              {type.name} — {formatDuration(type.default_duration_minutes)}, ${type.default_deposit} deposit
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                        <SelectSeparator />
+                      </React.Fragment>
                     ))}
                   </SelectContent>
                 </Select>
@@ -831,9 +915,9 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                     <SelectValue placeholder="Select location" />
                   </SelectTrigger>
                   <SelectContent>
-                    {locations.map(location => (
+                    {selectableLocations.map(location => (
                       <SelectItem key={location.id} value={location.id}>
-                        {location.name}
+                        {location.name}{!location.is_active ? ' (Inactive)' : ''}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -1057,7 +1141,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                         ) : (
                           <>
                             <Link2 className="w-4 h-4 mr-2" />
-                            {appointment.deposit_status === 'pending' ? 'Resend Deposit Link' : 'Create Deposit Link'}
+                            {appointment.deposit_status === 'pending' ? 'Show Deposit Link' : 'Create Deposit Link'}
                           </>
                         )}
                       </Button>
@@ -1234,7 +1318,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                   <div className="w-2 h-2 bg-emerald-500 rounded-full"></div>
                   <span className="font-semibold text-emerald-800">Checked Out</span>
                 </div>
-                <div className="grid grid-cols-3 gap-4 text-sm">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
                   <div>
                     <span className="text-emerald-600">Charge:</span>
                     <p className="font-medium text-emerald-900">${(appointment.charge_amount || 0).toFixed(2)}</p>
@@ -1242,6 +1326,10 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                   <div>
                     <span className="text-emerald-600">Tax:</span>
                     <p className="font-medium text-emerald-900">${(appointment.tax_amount || 0).toFixed(2)}</p>
+                  </div>
+                  <div>
+                    <span className="text-emerald-600">Tip:</span>
+                    <p className="font-medium text-emerald-900">${(appointment.tip_amount || 0).toFixed(2)}</p>
                   </div>
                   <div>
                     <span className="text-emerald-600">Payment:</span>

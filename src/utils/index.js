@@ -10,6 +10,7 @@ const PAGE_PATHS = {
   ReportingCategories: "/reporting-categories",
   Reports: "/reports",
   Settlements: "/settlements",
+  ArtistPayouts: "/artist-payouts",
   WorkStations: "/workstations",
   MyAvailability: "/my-availability",
   OnboardingChoice: "/onboarding-choice",

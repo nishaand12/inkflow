@@ -138,30 +138,42 @@ export default function Reports() {
   ]);
 
   const dailyTotals = (() => {
+    const getPaidDepositAmount = (apt, grossAmount) => {
+      if (apt.deposit_status !== "paid") return 0;
+      const deposit = Number(apt.deposit_amount) || 0;
+      return Math.min(deposit, Math.max(0, Number(grossAmount) || 0));
+    };
+
     const dayMap = {};
     for (const apt of completedAppointments) {
       const d = apt.appointment_date;
       if (!dayMap[d]) dayMap[d] = {
         date: d, gross: 0, tax: 0, discounts: 0, net: 0,
-        pos_collected: 0, online_collected: 0, gift_card_sales: 0, gift_card_returns: 0, returns: 0, count: 0
+        pos_collected: 0, cash_collected: 0, online_collected: 0, gift_card_sales: 0, gift_card_returns: 0, returns: 0, count: 0
       };
 
       const aptCharges = charges.filter(c => c.appointment_id === apt.id);
       const chargeSum = aptCharges.reduce((s, c) => s + (c.line_total || 0), 0);
-      const serviceAmount = chargeSum > 0 ? chargeSum : (apt.charge_amount || 0);
-      const gross = serviceAmount + (apt.deposit_amount || 0);
+      const charge = Number(apt.charge_amount) || 0;
+      const deposit = Number(apt.deposit_amount) || 0;
+      const gross = chargeSum > 0 ? chargeSum : (charge > 0 ? charge : deposit);
 
       dayMap[d].gross += gross;
       dayMap[d].tax += apt.tax_amount || 0;
       dayMap[d].discounts += apt.discount_amount || 0;
       dayMap[d].count += 1;
 
-      const isOnline =
-        apt.payment_method === "Stripe" ||
-        apt.payment_method === "Card" ||
-        apt.deposit_status === "paid";
-      if (isOnline) dayMap[d].online_collected += gross;
-      else dayMap[d].pos_collected += gross;
+      const paidDeposit = getPaidDepositAmount(apt, gross);
+      const finalCollectedAmount = Math.max(0, gross - paidDeposit);
+      dayMap[d].online_collected += paidDeposit;
+
+      if (apt.payment_method === "Stripe") {
+        dayMap[d].online_collected += finalCollectedAmount;
+      } else if (apt.payment_method === "Cash" || apt.payment_method === "E-Transfer") {
+        dayMap[d].cash_collected += finalCollectedAmount;
+      } else {
+        dayMap[d].pos_collected += finalCollectedAmount;
+      }
 
       for (const ch of aptCharges) {
         const cat = reportingCategories.find(c => c.id === ch.reporting_category_id);
@@ -190,7 +202,7 @@ export default function Reports() {
       if (!dayMap[refundDay]) {
         dayMap[refundDay] = {
           date: refundDay, gross: 0, tax: 0, discounts: 0, net: 0,
-          pos_collected: 0, online_collected: 0, gift_card_sales: 0, gift_card_returns: 0, returns: 0, count: 0
+          pos_collected: 0, cash_collected: 0, online_collected: 0, gift_card_sales: 0, gift_card_returns: 0, returns: 0, count: 0
         };
       }
       dayMap[refundDay].returns += amt;
@@ -222,14 +234,27 @@ export default function Reports() {
       const pct = rule?.split_percent ?? 0;
 
       const aptCharges = charges.filter(c => c.appointment_id === apt.id);
-      const chargeSum = aptCharges.reduce((s, c) => s + (c.line_total || 0), 0);
-      const gross = (apt.charge_amount || 0) + (apt.deposit_amount || 0) + chargeSum;
-      const artistShare = gross * (pct / 100);
+      let service = 0;
+      let product = 0;
+      if (aptCharges.length > 0) {
+        service = aptCharges
+          .filter(c => c.line_type === "service")
+          .reduce((s, c) => s + (c.line_total || 0), 0);
+        product = aptCharges
+          .filter(c => c.line_type === "product")
+          .reduce((s, c) => s + (c.line_total || 0), 0);
+      } else {
+        const charge = Number(apt.charge_amount) || 0;
+        const deposit = Number(apt.deposit_amount) || 0;
+        service = charge > 0 ? charge : deposit;
+      }
+      const gross = service + product;
+      const artistShare = service * (pct / 100);
 
       if (!shares[name]) shares[name] = { artist: name, split_percent: pct, gross: 0, artist_share: 0, shop_share: 0 };
       shares[name].gross += gross;
       shares[name].artist_share += artistShare;
-      shares[name].shop_share += gross - artistShare;
+      shares[name].shop_share += (service - artistShare) + product;
     }
     return Object.values(shares);
   })();
@@ -279,8 +304,9 @@ export default function Reports() {
     discounts: acc.discounts + d.discounts,
     net: acc.net + d.net,
     pos: acc.pos + d.pos_collected,
+    cash: acc.cash + d.cash_collected,
     online: acc.online + d.online_collected
-  }), { gross: 0, tax: 0, discounts: 0, net: 0, pos: 0, online: 0 });
+  }), { gross: 0, tax: 0, discounts: 0, net: 0, pos: 0, cash: 0, online: 0 });
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-6">
@@ -340,7 +366,7 @@ export default function Reports() {
           </Card>
           <Card className="bg-white border-none shadow-md">
             <CardContent className="p-4">
-              <p className="text-xs text-gray-500">POS Collected</p>
+              <p className="text-xs text-gray-500">Terminal Collected</p>
               <p className="text-2xl font-bold text-gray-900">${totals.pos.toFixed(2)}</p>
             </CardContent>
           </Card>
@@ -383,7 +409,8 @@ export default function Reports() {
                           <th className="px-3 py-3 text-right text-sm font-semibold text-gray-900">Tax</th>
                           <th className="px-3 py-3 text-right text-sm font-semibold text-gray-900">Discounts</th>
                           <th className="px-3 py-3 text-right text-sm font-semibold text-gray-900">Net</th>
-                          <th className="px-3 py-3 text-right text-sm font-semibold text-gray-900">POS</th>
+                          <th className="px-3 py-3 text-right text-sm font-semibold text-gray-900">Terminal</th>
+                          <th className="px-3 py-3 text-right text-sm font-semibold text-gray-900">Cash</th>
                           <th className="px-3 py-3 text-right text-sm font-semibold text-gray-900">Online</th>
                           <th className="px-3 py-3 text-right text-sm font-semibold text-gray-900">GC Sales</th>
                           <th className="px-3 py-3 text-right text-sm font-semibold text-gray-900">Returns</th>
@@ -399,6 +426,7 @@ export default function Reports() {
                             <td className="px-3 py-3 text-sm text-red-600 text-right">${d.discounts.toFixed(2)}</td>
                             <td className="px-3 py-3 text-sm text-gray-900 text-right font-bold">${d.net.toFixed(2)}</td>
                             <td className="px-3 py-3 text-sm text-gray-900 text-right">${d.pos_collected.toFixed(2)}</td>
+                            <td className="px-3 py-3 text-sm text-gray-900 text-right">${d.cash_collected.toFixed(2)}</td>
                             <td className="px-3 py-3 text-sm text-gray-900 text-right">${d.online_collected.toFixed(2)}</td>
                             <td className="px-3 py-3 text-sm text-gray-900 text-right">${d.gift_card_sales.toFixed(2)}</td>
                             <td className="px-3 py-3 text-sm text-amber-800 text-right">${(d.returns || 0).toFixed(2)}</td>

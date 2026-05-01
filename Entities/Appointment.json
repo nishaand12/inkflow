@@ -67,6 +67,11 @@
         "type": "number",
         "description": "Tax amount"
       },
+      "tip_amount": {
+        "type": "number",
+        "default": 0,
+        "description": "Tip amount paid to the assigned artist"
+      },
       "payment_method": {
         "type": "string",
         "enum": [

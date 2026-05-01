@@ -76,6 +76,9 @@ serve(async (req) => {
             const taxAmount = session.metadata?.tax_amount
               ? parseFloat(session.metadata.tax_amount)
               : null;
+            const tipAmount = session.metadata?.tip_amount
+              ? parseFloat(session.metadata.tip_amount)
+              : 0;
 
             const { data: aptBefore } = await supabase
               .from("appointments")
@@ -150,6 +153,7 @@ serve(async (req) => {
               status: "completed",
               charge_amount: chargeAmount,
               tax_amount: taxAmount,
+              tip_amount: tipAmount,
               payment_method: "Stripe",
             };
             if (

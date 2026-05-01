@@ -59,6 +59,18 @@ serve(async (req) => {
       return json({ error: "Service not available for online booking" }, 400);
     }
 
+    const { data: location, error: locationErr } = await supabase
+      .from("locations")
+      .select("id")
+      .eq("id", locationId)
+      .eq("studio_id", studioId)
+      .eq("is_active", true)
+      .single();
+
+    if (locationErr || !location) {
+      return json({ error: "Location is not available for online booking" }, 400);
+    }
+
     // Find or create customer
     const { data: existingCustomers } = await supabase
       .from("customers")
@@ -172,6 +184,7 @@ serve(async (req) => {
           payment_type: "deposit",
           checkout_url: session.url,
           expires_at: new Date(expiresAt * 1000).toISOString(),
+          metadata: { appointment_id: appointment.id },
         });
 
         await supabase

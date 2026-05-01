@@ -676,6 +676,78 @@ using (
   and public.current_user_role() in ('Owner', 'Admin')
 );
 
+-- Artist Payouts (Owner/Admin manage)
+alter table public.artist_payouts enable row level security;
+
+drop policy if exists artist_payouts_select on public.artist_payouts;
+create policy artist_payouts_select
+on public.artist_payouts
+for select
+using (studio_id = public.current_user_studio());
+
+drop policy if exists artist_payouts_insert on public.artist_payouts;
+create policy artist_payouts_insert
+on public.artist_payouts
+for insert
+with check (
+  studio_id = public.current_user_studio()
+  and public.current_user_role() in ('Owner', 'Admin')
+);
+
+drop policy if exists artist_payouts_update on public.artist_payouts;
+create policy artist_payouts_update
+on public.artist_payouts
+for update
+using (
+  studio_id = public.current_user_studio()
+  and public.current_user_role() in ('Owner', 'Admin')
+);
+
+drop policy if exists artist_payouts_delete on public.artist_payouts;
+create policy artist_payouts_delete
+on public.artist_payouts
+for delete
+using (
+  studio_id = public.current_user_studio()
+  and public.current_user_role() in ('Owner', 'Admin')
+);
+
+-- Artist Ledger Entries
+alter table public.artist_ledger_entries enable row level security;
+
+drop policy if exists artist_ledger_entries_select on public.artist_ledger_entries;
+create policy artist_ledger_entries_select
+on public.artist_ledger_entries
+for select
+using (studio_id = public.current_user_studio());
+
+drop policy if exists artist_ledger_entries_insert on public.artist_ledger_entries;
+create policy artist_ledger_entries_insert
+on public.artist_ledger_entries
+for insert
+with check (
+  studio_id = public.current_user_studio()
+  and public.current_user_role() in ('Owner', 'Admin')
+);
+
+drop policy if exists artist_ledger_entries_update on public.artist_ledger_entries;
+create policy artist_ledger_entries_update
+on public.artist_ledger_entries
+for update
+using (
+  studio_id = public.current_user_studio()
+  and public.current_user_role() in ('Owner', 'Admin')
+);
+
+drop policy if exists artist_ledger_entries_delete on public.artist_ledger_entries;
+create policy artist_ledger_entries_delete
+on public.artist_ledger_entries
+for delete
+using (
+  studio_id = public.current_user_studio()
+  and public.current_user_role() in ('Owner', 'Admin')
+);
+
 -- Email Events
 alter table public.email_events enable row level security;
 

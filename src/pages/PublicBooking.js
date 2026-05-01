@@ -27,6 +27,7 @@ export default function PublicBooking() {
   const [availabilities, setAvailabilities] = useState([]);
   const [weeklySchedules, setWeeklySchedules] = useState([]);
   const [appointments, setAppointments] = useState([]);
+  const [workStations, setWorkStations] = useState([]);
   const [kindCategories, setKindCategories] = useState([]);
 
   const [step, setStep] = useState(1);
@@ -60,7 +61,7 @@ export default function PublicBooking() {
       setStudio(data.studio);
       setAppointmentTypes(data.appointment_types || []);
       setArtists(data.artists || []);
-      setLocations(data.locations || []);
+      setLocations((data.locations || []).filter(location => location.is_active));
       setAvailabilities(data.availabilities || []);
       setWeeklySchedules(data.weekly_schedules || []);
       setAppointments(data.appointments || []);

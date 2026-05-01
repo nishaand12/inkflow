@@ -270,8 +270,8 @@ export default function ReportingCategories() {
             <div>
               <h1 className="text-3xl font-bold text-gray-900">Categories</h1>
               <p className="text-gray-500 mt-1">
-                Reporting hierarchy for revenue and products; appointment kinds for booking and
-                calendars
+                Reporting categories for revenue and products; booking hierarchy for appointment
+                types, public booking, and calendars
               </p>
             </div>
           </div>
@@ -280,15 +280,15 @@ export default function ReportingCategories() {
         <Tabs value={roleTab} onValueChange={setRoleTab} className="space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <TabsList className="bg-white border border-gray-200">
-              <TabsTrigger value={CATEGORY_ROLE_REPORTING}>Reporting &amp; products</TabsTrigger>
-              <TabsTrigger value={CATEGORY_ROLE_APPOINTMENT_KIND}>Appointment kinds</TabsTrigger>
+              <TabsTrigger value={CATEGORY_ROLE_REPORTING}>Reporting Categories</TabsTrigger>
+              <TabsTrigger value={CATEGORY_ROLE_APPOINTMENT_KIND}>Booking Hierarchy</TabsTrigger>
             </TabsList>
             <Button
               onClick={openNewDialog}
               className="bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-200 shrink-0"
             >
               <Plus className="w-4 h-4 mr-2" />
-              Add {roleTab === CATEGORY_ROLE_REPORTING ? "category" : "kind"}
+              Add {roleTab === CATEGORY_ROLE_REPORTING ? "category" : "booking category"}
             </Button>
           </div>
 
@@ -312,7 +312,7 @@ export default function ReportingCategories() {
               isLoading={isLoading}
               treeRows={flattenCategoryTree(categories, CATEGORY_ROLE_APPOINTMENT_KIND)}
               count={filterCategoriesByRole(categories, CATEGORY_ROLE_APPOINTMENT_KIND).length}
-              emptyLabel="No appointment kind categories — add a parent (e.g. Piercing) then sub-kinds"
+              emptyLabel="No booking hierarchy yet — add a parent (e.g. Piercing) then sub-categories"
               onAdd={openNewDialog}
               onRowClick={openEditDialog}
               onDelete={handleDeleteClick}
@@ -332,7 +332,7 @@ export default function ReportingCategories() {
             </DialogTitle>
             <DialogDescription>
               {formData.category_role === CATEGORY_ROLE_APPOINTMENT_KIND
-                ? "Appointment kinds appear when creating appointment types and on the public booking page. Use sub-categories for detail (e.g. Piercing › Ear)."
+                ? "The booking hierarchy appears when creating appointment types and on the public booking page. Use sub-categories for detail (e.g. Piercing › Ear)."
                 : "Reporting categories classify revenue, checkout lines, and products."}
             </DialogDescription>
           </DialogHeader>

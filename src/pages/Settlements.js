@@ -13,6 +13,39 @@ import { format } from "date-fns";
 import { normalizeUserRole } from "@/utils/roles";
 import { createPageUrl } from "@/utils/index";
 
+function getAppointmentSettlementAmounts(appointment, appointmentCharges) {
+  const tip = Number(appointment.tip_amount) || 0;
+
+  if (appointmentCharges.length > 0) {
+    const gross = appointmentCharges.reduce((s, c) => s + (Number(c.line_total) || 0), 0);
+    const service = appointmentCharges
+      .filter((c) => c.line_type === "service")
+      .reduce((s, c) => s + (Number(c.line_total) || 0), 0);
+    const product = appointmentCharges
+      .filter((c) => c.line_type === "product")
+      .reduce((s, c) => s + (Number(c.line_total) || 0), 0);
+
+    return { gross, service, product, tip };
+  }
+
+  const charge = Number(appointment.charge_amount) || 0;
+  const deposit = Number(appointment.deposit_amount) || 0;
+  const gross = charge > 0 ? charge : deposit;
+  return { gross, service: gross, product: 0, tip };
+}
+
+function getCollectionBucket(paymentMethod) {
+  if (paymentMethod === "Stripe") return "online";
+  if (paymentMethod === "Cash" || paymentMethod === "E-Transfer") return "cash";
+  return "terminal";
+}
+
+function getPaidDepositAmount(appointment, grossAmount) {
+  if (appointment.deposit_status !== "paid") return 0;
+  const deposit = Number(appointment.deposit_amount) || 0;
+  return Math.min(deposit, Math.max(0, Number(grossAmount) || 0));
+}
+
 export default function Settlements() {
   const queryClient = useQueryClient();
   const [user, setUser] = useState(null);
@@ -89,25 +122,29 @@ export default function Settlements() {
         let grossTotal = 0;
         let taxTotal = 0;
         let discountTotal = 0;
-        let posCollected = 0;
+        let tipTotal = 0;
+        let terminalCollected = 0;
+        let cashCollected = 0;
         let onlineCollected = 0;
 
         for (const apt of locAppointments) {
           const aptCharges = charges.filter(c => c.appointment_id === apt.id);
-          const chargeSum = aptCharges.reduce((s, c) => s + (c.line_total || 0), 0);
-          const serviceAmount = (apt.charge_amount || 0) + chargeSum;
-          grossTotal += serviceAmount + (apt.deposit_amount || 0);
+          const amounts = getAppointmentSettlementAmounts(apt, aptCharges);
+          grossTotal += amounts.gross;
           taxTotal += apt.tax_amount || 0;
           discountTotal += apt.discount_amount || 0;
+          tipTotal += amounts.tip;
 
-          const paidOnline =
-            apt.payment_method === "Stripe" ||
-            apt.payment_method === "Card" ||
-            apt.deposit_status === "paid";
-          if (paidOnline) {
-            onlineCollected += serviceAmount + (apt.deposit_amount || 0);
+          const paidDeposit = getPaidDepositAmount(apt, amounts.gross);
+          const finalCollectedAmount = Math.max(0, amounts.gross - paidDeposit) + amounts.tip;
+          const collectionBucket = getCollectionBucket(apt.payment_method);
+          onlineCollected += paidDeposit;
+          if (collectionBucket === "online") {
+            onlineCollected += finalCollectedAmount;
+          } else if (collectionBucket === "cash") {
+            cashCollected += finalCollectedAmount;
           } else {
-            posCollected += serviceAmount + (apt.deposit_amount || 0);
+            terminalCollected += finalCollectedAmount;
           }
         }
 
@@ -121,8 +158,10 @@ export default function Settlements() {
           gross_total: grossTotal,
           tax_total: taxTotal,
           discount_total: discountTotal,
+          tip_total: tipTotal,
           net_total: netTotal,
-          pos_collected: posCollected,
+          pos_collected: terminalCollected,
+          cash_collected: cashCollected,
           online_collected: onlineCollected,
           locked_at: new Date().toISOString(),
           locked_by: user.id
@@ -132,20 +171,52 @@ export default function Settlements() {
           const rule = splitRules.find(r => r.artist_id === apt.artist_id && r.is_active);
           const splitPercent = rule?.split_percent ?? 0;
           const aptCharges = charges.filter(c => c.appointment_id === apt.id);
-          const chargeSum = aptCharges.reduce((s, c) => s + (c.line_total || 0), 0);
-          const grossAmount = (apt.charge_amount || 0) + (apt.deposit_amount || 0) + chargeSum;
-          const artistShare = grossAmount * (splitPercent / 100);
+          const amounts = getAppointmentSettlementAmounts(apt, aptCharges);
+          const artistShare = amounts.service * (splitPercent / 100);
 
-          await base44.entities.DailySettlementLine.create({
+          const line = await base44.entities.DailySettlementLine.create({
             studio_id: user.studio_id,
             settlement_id: settlement.id,
             artist_id: apt.artist_id,
             appointment_id: apt.id,
-            gross_amount: grossAmount,
+            gross_amount: amounts.gross,
+            service_amount: amounts.service,
+            product_amount: amounts.product,
+            tip_amount: amounts.tip,
             artist_share: artistShare,
-            shop_share: grossAmount - artistShare,
+            shop_share: (amounts.service - artistShare) + amounts.product,
             split_percent: splitPercent
           });
+
+          if (apt.artist_id && artistShare > 0) {
+            await base44.entities.ArtistLedgerEntry.create({
+              studio_id: user.studio_id,
+              artist_id: apt.artist_id,
+              settlement_id: settlement.id,
+              settlement_line_id: line.id,
+              appointment_id: apt.id,
+              entry_type: "settlement_share",
+              amount: artistShare,
+              description: `Settlement share for ${date}`,
+              occurred_on: date,
+              created_by: user.id
+            });
+          }
+
+          if (apt.artist_id && amounts.tip > 0) {
+            await base44.entities.ArtistLedgerEntry.create({
+              studio_id: user.studio_id,
+              artist_id: apt.artist_id,
+              settlement_id: settlement.id,
+              settlement_line_id: line.id,
+              appointment_id: apt.id,
+              entry_type: "tip",
+              amount: amounts.tip,
+              description: `Tip for ${date}`,
+              occurred_on: date,
+              created_by: user.id
+            });
+          }
         }
 
         results.push(settlement);
@@ -155,6 +226,8 @@ export default function Settlements() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['settlements'] });
+      queryClient.invalidateQueries({ queryKey: ['dailySettlementLines'] });
+      queryClient.invalidateQueries({ queryKey: ['artistLedgerEntries'] });
     }
   });
 
@@ -195,8 +268,9 @@ export default function Settlements() {
             <p className="font-medium text-gray-900 mb-1">What “settled” means in Inkflow</p>
             <p>
               Generating a settlement creates a <strong>frozen snapshot</strong> of that day’s completed
-              appointments at each location: gross, tax, discounts, net, POS vs online totals, and
-              per-appointment artist/shop splits. It does <strong>not</strong> lock the calendar or block
+              appointments at each location: gross, tax, discounts, tips, net, terminal/card vs cash vs online
+              totals, and per-appointment service splits. Product sales are included in gross but not artist/shop
+              split; tips are owed 100% to the assigned artist. It does <strong>not</strong> lock the calendar or block
               edits to appointments. Refunds recorded later still apply to the appointment and reports,
               but they do <strong>not</strong> automatically change an existing settlement record—you would
               treat refunds as cash movements or use a future adjustment if your studio requires books to
@@ -264,11 +338,13 @@ export default function Settlements() {
                     <tr>
                       <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Date</th>
                       <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Location</th>
-                      <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Gross</th>
+                      <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Sales Gross</th>
                       <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Tax</th>
                       <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Discounts</th>
+                      <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Tips</th>
                       <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Net</th>
-                      <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">POS</th>
+                      <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Terminal</th>
+                      <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Cash</th>
                       <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Online</th>
                       <th className="px-4 py-3 text-center text-sm font-semibold text-gray-900">Status</th>
                       <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Details</th>
@@ -284,8 +360,10 @@ export default function Settlements() {
                           <td className="px-4 py-3 text-sm text-gray-900 text-right">${(s.gross_total || 0).toFixed(2)}</td>
                           <td className="px-4 py-3 text-sm text-gray-900 text-right">${(s.tax_total || 0).toFixed(2)}</td>
                           <td className="px-4 py-3 text-sm text-gray-900 text-right">${(s.discount_total || 0).toFixed(2)}</td>
+                          <td className="px-4 py-3 text-sm text-gray-900 text-right">${(s.tip_total || 0).toFixed(2)}</td>
                           <td className="px-4 py-3 text-sm text-gray-900 text-right font-bold">${(s.net_total || 0).toFixed(2)}</td>
                           <td className="px-4 py-3 text-sm text-gray-900 text-right">${(s.pos_collected || 0).toFixed(2)}</td>
+                          <td className="px-4 py-3 text-sm text-gray-900 text-right">${(s.cash_collected || 0).toFixed(2)}</td>
                           <td className="px-4 py-3 text-sm text-gray-900 text-right">${(s.online_collected || 0).toFixed(2)}</td>
                           <td className="px-4 py-3 text-center">
                             <Badge className={s.status === 'locked' ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'}>

@@ -13,6 +13,7 @@ import {
   getAppointmentTypeDisplaySections,
   getCategoryPathLabel,
 } from "@/utils/reportingCategories";
+import AppointmentTypeDialog from "@/components/appointment-types/AppointmentTypeDialog";
 
 const getCategoryStyle = (sectionKey) => {
   if (sectionKey === "legacy:Tattoo") return "bg-purple-100 text-purple-800 border-purple-200";
@@ -112,7 +113,8 @@ export default function AppointmentTypes() {
           <div>
             <h1 className="text-3xl font-bold text-gray-900">Appointment Types</h1>
             <p className="text-gray-500 mt-1">
-              Kinds come from Categories → Appointment kinds; reporting uses the reporting tree
+              Booking hierarchy comes from Categories → Booking Hierarchy; reporting uses Reporting
+              Categories
             </p>
           </div>
           <Button

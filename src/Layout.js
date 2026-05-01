@@ -205,6 +205,12 @@ export default function Layout({ children, currentPageName = null }) {
         roles: ["Owner", "Admin"]
       },
       {
+        title: "Artist Payouts",
+        url: createPageUrl("ArtistPayouts"),
+        icon: Wallet,
+        roles: ["Owner", "Admin"]
+      },
+      {
         title: "Studio Settings",
         url: createPageUrl("StudioSettings"),
         icon: Settings,

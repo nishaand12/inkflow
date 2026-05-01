@@ -1,0 +1,28 @@
+{
+  "name": "ArtistLedgerEntry",
+  "type": "object",
+  "properties": {
+    "studio_id": { "type": "string", "description": "Studio ID" },
+    "artist_id": { "type": "string", "description": "FK to artists" },
+    "settlement_id": { "type": "string", "description": "FK to daily_settlements" },
+    "settlement_line_id": { "type": "string", "description": "FK to daily_settlement_lines" },
+    "appointment_id": { "type": "string", "description": "FK to appointments" },
+    "payout_id": { "type": "string", "description": "FK to artist_payouts" },
+    "entry_type": {
+      "type": "string",
+      "enum": ["settlement_share", "tip", "payout", "adjustment"],
+      "default": "adjustment"
+    },
+    "amount": { "type": "number", "default": 0 },
+    "description": { "type": "string" },
+    "occurred_on": { "type": "string", "format": "date" },
+    "created_by": { "type": "string" }
+  },
+  "required": ["studio_id", "artist_id", "entry_type", "amount", "occurred_on"],
+  "rls": {
+    "read": { "data.studio_id": "{{user.data.studio_id}}" },
+    "write": { "user_condition": { "data.user_role": ["Owner", "Admin"] } },
+    "update": { "data.studio_id": "{{user.data.studio_id}}", "user_condition": { "data.user_role": ["Owner", "Admin"] } },
+    "delete": { "data.studio_id": "{{user.data.studio_id}}", "user_condition": { "data.user_role": ["Owner", "Admin"] } }
+  }
+}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { Link, useParams } from "react-router-dom";
 import { base44 } from "@/api/base44Client";
 import { useQuery } from "@tanstack/react-query";
@@ -13,14 +13,29 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { ArrowLeft, Wallet, Lock, Calendar } from "lucide-react";
+import { ArrowLeft, Wallet, Lock, Calendar, CreditCard, Tags } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { normalizeUserRole } from "@/utils/roles";
 import { createPageUrl } from "@/utils/index";
+import {
+  CATEGORY_ROLE_REPORTING,
+  filterCategoriesByRole,
+  getCategoryPathLabel,
+} from "@/utils/reportingCategories";
 
 function money(n) {
   const v = Number(n) || 0;
   return `$${v.toFixed(2)}`;
+}
+
+function makeAccumulator(label) {
+  return { label, gross: 0, tips: 0, count: 0 };
+}
+
+function getPaidDepositAmount(appointment, grossAmount) {
+  if (appointment?.deposit_status !== "paid") return 0;
+  const deposit = Number(appointment.deposit_amount) || 0;
+  return Math.min(deposit, Math.max(0, Number(grossAmount) || 0));
 }
 
 export default function SettlementDetail() {
@@ -73,7 +88,7 @@ export default function SettlementDetail() {
 
   const appointmentIdsKey = useMemo(() => [...appointmentIds].sort().join(","), [appointmentIds]);
 
-  const { data: appointments = [] } = useQuery({
+  const { data: appointments = [], isLoading: loadingAppointments } = useQuery({
     queryKey: ["appointmentsForSettlement", studioId, appointmentIdsKey],
     queryFn: async () => {
       const all = await base44.entities.Appointment.filter({ studio_id: studioId });
@@ -83,9 +98,25 @@ export default function SettlementDetail() {
     enabled: !!studioId && appointmentIds.length > 0,
   });
 
+  const { data: charges = [], isLoading: loadingCharges } = useQuery({
+    queryKey: ["appointmentChargesForSettlement", studioId, appointmentIdsKey],
+    queryFn: async () => {
+      const all = await base44.entities.AppointmentCharge.filter({ studio_id: studioId });
+      const idSet = new Set(appointmentIds);
+      return all.filter((c) => idSet.has(c.appointment_id));
+    },
+    enabled: !!studioId && appointmentIds.length > 0,
+  });
+
   const { data: appointmentTypes = [] } = useQuery({
     queryKey: ["appointmentTypes", studioId],
     queryFn: () => base44.entities.AppointmentType.filter({ studio_id: studioId }),
+    enabled: !!studioId && !!settlement,
+  });
+
+  const { data: reportingCategories = [], isLoading: loadingReportingCategories } = useQuery({
+    queryKey: ["reportingCategories", studioId],
+    queryFn: () => base44.entities.ReportingCategory.filter({ studio_id: studioId }),
     enabled: !!studioId && !!settlement,
   });
 
@@ -117,6 +148,125 @@ export default function SettlementDetail() {
     return m;
   }, [appointmentTypes]);
 
+  const chargesByAppointment = useMemo(() => {
+    const m = {};
+    for (const ch of charges) {
+      if (!m[ch.appointment_id]) m[ch.appointment_id] = [];
+      m[ch.appointment_id].push(ch);
+    }
+    return m;
+  }, [charges]);
+
+  const reportingOnly = useMemo(
+    () => filterCategoriesByRole(reportingCategories, CATEGORY_ROLE_REPORTING),
+    [reportingCategories]
+  );
+
+  const categoryKeyForCharge = useCallback(
+    (charge) => {
+      if (charge.reporting_category_id) {
+        return {
+          key: `id:${charge.reporting_category_id}`,
+          label:
+            getCategoryPathLabel(reportingOnly, charge.reporting_category_id) ||
+            charge.reporting_category_name ||
+            "Uncategorized",
+        };
+      }
+      const label = charge.reporting_category_name || "Uncategorized";
+      return { key: `name:${label}`, label };
+    },
+    [reportingOnly]
+  );
+
+  const fallbackCategoryKeyForAppointment = useCallback(
+    (appointment) => {
+      const type = typesById[appointment?.appointment_type_id];
+      if (type?.reporting_category_id) {
+        return {
+          key: `id:${type.reporting_category_id}`,
+          label:
+            getCategoryPathLabel(reportingOnly, type.reporting_category_id) ||
+            type.name ||
+            "Uncategorized",
+        };
+      }
+      const label = type?.category || "Uncategorized";
+      return { key: `legacy:${label}`, label };
+    },
+    [reportingOnly, typesById]
+  );
+
+  const totalsByPaymentMethod = useMemo(() => {
+    const map = {};
+    const addRow = (label, gross, tips, count = 1) => {
+      if (!map[label]) map[label] = makeAccumulator(label);
+      map[label].gross += gross;
+      map[label].tips += tips;
+      map[label].count += count;
+    };
+
+    for (const line of lines) {
+      const apt = aptById[line.appointment_id];
+      const label = apt?.payment_method || "Unspecified";
+      const gross = Number(line.gross_amount) || 0;
+      const tips = Number(line.tip_amount) || 0;
+      const paidDeposit = getPaidDepositAmount(apt, gross);
+      const remainingGross = Math.max(0, gross - paidDeposit);
+
+      if (paidDeposit > 0 && label === "Stripe") {
+        addRow("Stripe", paidDeposit + remainingGross, tips);
+      } else {
+        if (paidDeposit > 0) addRow("Stripe", paidDeposit, 0);
+        if (remainingGross > 0 || tips > 0) addRow(label, remainingGross, tips);
+      }
+    }
+    return Object.values(map).sort((a, b) => (b.gross + b.tips) - (a.gross + a.tips));
+  }, [lines, aptById]);
+
+  const totalsByReportingCategory = useMemo(() => {
+    const map = {};
+
+    const addAmount = (key, label, amount, count = 1) => {
+      if (!map[key]) map[key] = makeAccumulator(label);
+      map[key].gross += amount;
+      map[key].count += count;
+    };
+
+    for (const line of lines) {
+      const apt = aptById[line.appointment_id];
+      const aptCharges = chargesByAppointment[line.appointment_id] || [];
+      const lineGross = Number(line.gross_amount) || 0;
+
+      if (aptCharges.length > 0) {
+        let chargeTotal = 0;
+        for (const ch of aptCharges) {
+          const amount = Number(ch.line_total) || 0;
+          const { key, label } = categoryKeyForCharge(ch);
+          addAmount(key, label, amount, Number(ch.quantity) || 1);
+          chargeTotal += amount;
+        }
+
+        const remainingSettlementAmount = lineGross - chargeTotal;
+        if (Math.abs(remainingSettlementAmount) >= 0.01) {
+          const { key, label } = fallbackCategoryKeyForAppointment(apt);
+          addAmount(key, label, remainingSettlementAmount, 1);
+        }
+      } else {
+        const { key, label } = fallbackCategoryKeyForAppointment(apt);
+        addAmount(key, label, lineGross, 1);
+      }
+    }
+
+    return Object.values(map).sort((a, b) => b.gross - a.gross);
+  }, [
+    lines,
+    aptById,
+    chargesByAppointment,
+    categoryKeyForCharge,
+    fallbackCategoryKeyForAppointment,
+  ]);
+
   const byArtist = useMemo(() => {
     const map = {};
     for (const line of lines) {
@@ -125,12 +275,18 @@ export default function SettlementDetail() {
         map[aid] = {
           artist_id: aid,
           gross: 0,
+          service: 0,
+          product: 0,
+          tips: 0,
           artist_share: 0,
           shop_share: 0,
           lines: [],
         };
       }
       map[aid].gross += Number(line.gross_amount) || 0;
+      map[aid].service += Number(line.service_amount) || 0;
+      map[aid].product += Number(line.product_amount) || 0;
+      map[aid].tips += Number(line.tip_amount) || 0;
       map[aid].artist_share += Number(line.artist_share) || 0;
       map[aid].shop_share += Number(line.shop_share) || 0;
       map[aid].lines.push(line);
@@ -145,6 +301,9 @@ export default function SettlementDetail() {
     const headerGross = Number(settlement?.gross_total) || 0;
     return { sumGross, sumArtist, sumShop, headerGross, grossMatch: Math.abs(sumGross - headerGross) < 0.02 };
   }, [lines, settlement]);
+
+  const loadingBreakdowns =
+    loadingLines || loadingAppointments || loadingCharges || loadingReportingCategories;
 
   if (!isAdmin) {
     return (
@@ -250,7 +409,7 @@ export default function SettlementDetail() {
               <CardContent>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   <div className="rounded-lg border border-gray-100 p-4 bg-gray-50/80">
-                    <p className="text-xs text-gray-500 uppercase tracking-wide">Gross</p>
+                    <p className="text-xs text-gray-500 uppercase tracking-wide">Sales gross</p>
                     <p className="text-xl font-bold text-gray-900">{money(settlement.gross_total)}</p>
                   </div>
                   <div className="rounded-lg border border-gray-100 p-4 bg-gray-50/80">
@@ -261,12 +420,16 @@ export default function SettlementDetail() {
                     <p className="text-xs text-gray-500 uppercase tracking-wide">Discounts</p>
                     <p className="text-xl font-bold text-red-700">{money(settlement.discount_total)}</p>
                   </div>
+                  <div className="rounded-lg border border-gray-100 p-4 bg-green-50/80 border-green-100">
+                    <p className="text-xs text-gray-500 uppercase tracking-wide">Tips</p>
+                    <p className="text-xl font-bold text-green-800">{money(settlement.tip_total)}</p>
+                  </div>
                   <div className="rounded-lg border border-gray-100 p-4 bg-indigo-50/80 border-indigo-100">
                     <p className="text-xs text-gray-500 uppercase tracking-wide">Net</p>
                     <p className="text-xl font-bold text-indigo-900">{money(settlement.net_total)}</p>
                   </div>
                   <div className="rounded-lg border border-gray-100 p-4 bg-gray-50/80">
-                    <p className="text-xs text-gray-500 uppercase tracking-wide">POS collected</p>
+                    <p className="text-xs text-gray-500 uppercase tracking-wide">Terminal collected</p>
                     <p className="text-lg font-semibold text-gray-900">{money(settlement.pos_collected)}</p>
                   </div>
                   <div className="rounded-lg border border-gray-100 p-4 bg-gray-50/80">
@@ -274,14 +437,14 @@ export default function SettlementDetail() {
                     <p className="text-lg font-semibold text-gray-900">{money(settlement.online_collected)}</p>
                   </div>
                   <div className="rounded-lg border border-gray-100 p-4 bg-gray-50/80">
-                    <p className="text-xs text-gray-500 uppercase tracking-wide">Gift card sales</p>
-                    <p className="text-lg font-semibold text-gray-900">{money(settlement.gift_card_sales)}</p>
-                  </div>
-                  <div className="rounded-lg border border-gray-100 p-4 bg-gray-50/80">
-                    <p className="text-xs text-gray-500 uppercase tracking-wide">Gift card returns</p>
-                    <p className="text-lg font-semibold text-gray-900">{money(settlement.gift_card_returns)}</p>
+                    <p className="text-xs text-gray-500 uppercase tracking-wide">Cash collected</p>
+                    <p className="text-lg font-semibold text-gray-900">{money(settlement.cash_collected)}</p>
                   </div>
                 </div>
+                <p className="text-xs text-gray-500 mt-3">
+                  Terminal includes Amex, Visa, Mastercard, Debit, and Other. Cash includes Cash and
+                  E-Transfer. Online is Stripe only.
+                </p>
                 {!totalsCheck.grossMatch && lines.length > 0 && (
                   <p className="text-xs text-amber-700 mt-4">
                     Note: Sum of line gross ({money(totalsCheck.sumGross)}) differs from header gross (
@@ -292,11 +455,100 @@ export default function SettlementDetail() {
               </CardContent>
             </Card>
 
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <Card className="bg-white border-none shadow-lg">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <CreditCard className="w-5 h-5 text-gray-500" />
+                    Totals by payment method
+                  </CardTitle>
+                  <p className="text-sm text-gray-500 font-normal">
+                    Grouped from the appointments included in this settlement.
+                  </p>
+                </CardHeader>
+                <CardContent>
+                  {loadingBreakdowns ? (
+                    <p className="text-gray-500">Loading breakdown…</p>
+                  ) : totalsByPaymentMethod.length === 0 ? (
+                    <p className="text-gray-500">No payment method totals.</p>
+                  ) : (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Payment method</TableHead>
+                          <TableHead className="text-right">Appointments</TableHead>
+                          <TableHead className="text-right">Sales</TableHead>
+                          <TableHead className="text-right">Tips</TableHead>
+                          <TableHead className="text-right">Collected</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {totalsByPaymentMethod.map((row) => (
+                          <TableRow key={row.label}>
+                            <TableCell className="font-medium">{row.label}</TableCell>
+                            <TableCell className="text-right">{row.count}</TableCell>
+                            <TableCell className="text-right tabular-nums">{money(row.gross)}</TableCell>
+                            <TableCell className="text-right tabular-nums text-green-800">
+                              {money(row.tips)}
+                            </TableCell>
+                            <TableCell className="text-right tabular-nums font-semibold">
+                              {money(row.gross + row.tips)}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card className="bg-white border-none shadow-lg">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Tags className="w-5 h-5 text-gray-500" />
+                    Totals by reporting category
+                  </CardTitle>
+                  <p className="text-sm text-gray-500 font-normal">
+                    Uses checkout line reporting categories, with any remaining settlement
+                    balance assigned to the appointment type category.
+                  </p>
+                </CardHeader>
+                <CardContent>
+                  {loadingBreakdowns ? (
+                    <p className="text-gray-500">Loading breakdown…</p>
+                  ) : totalsByReportingCategory.length === 0 ? (
+                    <p className="text-gray-500">No reporting category totals.</p>
+                  ) : (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Reporting category</TableHead>
+                          <TableHead className="text-right">Items</TableHead>
+                          <TableHead className="text-right">Gross</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {totalsByReportingCategory.map((row) => (
+                          <TableRow key={row.label}>
+                            <TableCell className="font-medium">{row.label}</TableCell>
+                            <TableCell className="text-right">{row.count}</TableCell>
+                            <TableCell className="text-right tabular-nums">
+                              {money(row.gross)}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+
             <Card className="bg-white border-none shadow-lg">
               <CardHeader>
                 <CardTitle>Totals by artist</CardTitle>
                 <p className="text-sm text-gray-500 font-normal">
-                  Aggregated from settlement lines (split % frozen at generation).
+                  Aggregated from settlement lines. Product sales are 100% shop revenue; tips are owed 100% to the artist.
                 </p>
               </CardHeader>
               <CardContent>
@@ -305,36 +557,44 @@ export default function SettlementDetail() {
                 ) : byArtist.length === 0 ? (
                   <p className="text-gray-500">No line items.</p>
                 ) : (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Artist</TableHead>
-                        <TableHead className="text-right">Appointments</TableHead>
-                        <TableHead className="text-right">Gross</TableHead>
-                        <TableHead className="text-right">Artist share</TableHead>
-                        <TableHead className="text-right">Shop share</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {byArtist.map((row) => {
-                        const name =
-                          artistById[row.artist_id]?.full_name || row.artist_id || "Unknown";
-                        return (
-                          <TableRow key={row.artist_id}>
-                            <TableCell className="font-medium">{name}</TableCell>
-                            <TableCell className="text-right">{row.lines.length}</TableCell>
-                            <TableCell className="text-right tabular-nums">{money(row.gross)}</TableCell>
-                            <TableCell className="text-right tabular-nums text-green-800">
-                              {money(row.artist_share)}
-                            </TableCell>
-                            <TableCell className="text-right tabular-nums text-indigo-800">
-                              {money(row.shop_share)}
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
+                  <div className="overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Artist</TableHead>
+                          <TableHead className="text-right">Appointments</TableHead>
+                          <TableHead className="text-right">Service</TableHead>
+                          <TableHead className="text-right">Products</TableHead>
+                          <TableHead className="text-right">Tips</TableHead>
+                          <TableHead className="text-right">Artist owed</TableHead>
+                          <TableHead className="text-right">Shop revenue</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {byArtist.map((row) => {
+                          const name =
+                            artistById[row.artist_id]?.full_name || row.artist_id || "Unknown";
+                          return (
+                            <TableRow key={row.artist_id}>
+                              <TableCell className="font-medium">{name}</TableCell>
+                              <TableCell className="text-right">{row.lines.length}</TableCell>
+                              <TableCell className="text-right tabular-nums">{money(row.service)}</TableCell>
+                              <TableCell className="text-right tabular-nums">{money(row.product)}</TableCell>
+                              <TableCell className="text-right tabular-nums text-green-800">
+                                {money(row.tips)}
+                              </TableCell>
+                              <TableCell className="text-right tabular-nums text-green-800">
+                                {money(row.artist_share + row.tips)}
+                              </TableCell>
+                              <TableCell className="text-right tabular-nums text-indigo-800">
+                                {money(row.shop_share)}
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })}
+                      </TableBody>
+                    </Table>
+                  </div>
                 )}
               </CardContent>
             </Card>
@@ -359,9 +619,11 @@ export default function SettlementDetail() {
                           <TableHead>Appointment</TableHead>
                           <TableHead>Artist</TableHead>
                           <TableHead className="text-right">Split %</TableHead>
-                          <TableHead className="text-right">Gross</TableHead>
-                          <TableHead className="text-right">Artist</TableHead>
-                          <TableHead className="text-right">Shop</TableHead>
+                          <TableHead className="text-right">Service</TableHead>
+                          <TableHead className="text-right">Products</TableHead>
+                          <TableHead className="text-right">Tips</TableHead>
+                          <TableHead className="text-right">Artist owed</TableHead>
+                          <TableHead className="text-right">Shop revenue</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -383,10 +645,16 @@ export default function SettlementDetail() {
                                 {Number(line.split_percent) || 0}%
                               </TableCell>
                               <TableCell className="text-right tabular-nums">
-                                {money(line.gross_amount)}
+                                {money(line.service_amount)}
+                              </TableCell>
+                              <TableCell className="text-right tabular-nums">
+                                {money(line.product_amount)}
                               </TableCell>
                               <TableCell className="text-right tabular-nums text-green-800">
-                                {money(line.artist_share)}
+                                {money(line.tip_amount)}
+                              </TableCell>
+                              <TableCell className="text-right tabular-nums text-green-800">
+                                {money((Number(line.artist_share) || 0) + (Number(line.tip_amount) || 0))}
                               </TableCell>
                               <TableCell className="text-right tabular-nums text-indigo-800">
                                 {money(line.shop_share)}

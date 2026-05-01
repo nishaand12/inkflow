@@ -45,18 +45,20 @@ serve(async (req) => {
       return json({ error: "Unauthorized" }, 401);
     }
 
-    const { appointmentId, chargeAmount, taxAmount, sendEmail = false, checkoutLineItems } =
+    const { appointmentId, chargeAmount, taxAmount, tipAmount, sendEmail = false, checkoutLineItems } =
       await req.json();
     if (!appointmentId) {
       return json({ error: "Missing appointmentId" }, 400);
     }
     const taxParsed = taxAmount != null && taxAmount !== "" ? parseFloat(taxAmount) : 0;
+    const tipParsed = tipAmount != null && tipAmount !== "" ? parseFloat(tipAmount) : 0;
     const chargeParsed =
       chargeAmount != null && chargeAmount !== "" ? parseFloat(chargeAmount) : 0;
     if (
       !Number.isFinite(chargeParsed) ||
       !Number.isFinite(taxParsed) ||
-      chargeParsed + taxParsed <= 0
+      !Number.isFinite(tipParsed) ||
+      chargeParsed + taxParsed + tipParsed <= 0
     ) {
       return json(
         { error: "Total payment amount must be greater than 0" },
@@ -78,9 +80,9 @@ serve(async (req) => {
 
     if (
       checkoutLineItems != null &&
-      (!Array.isArray(checkoutLineItems) || checkoutLineItems.length === 0)
+      !Array.isArray(checkoutLineItems)
     ) {
-      return json({ error: "checkoutLineItems must be a non-empty array when provided" }, 400);
+      return json({ error: "checkoutLineItems must be an array when provided" }, 400);
     }
 
     const studio = appointment.studio;
@@ -117,8 +119,8 @@ serve(async (req) => {
     const currency = (studio.currency || "USD").toLowerCase();
     const tax = taxParsed;
     const charge = chargeParsed;
-    const totalAmount = charge + tax;
-    const unitAmount = Math.round(totalAmount * 100);
+    const tip = Math.max(0, tipParsed);
+    const totalAmount = charge + tax + tip;
 
     const expiresAt = Math.floor(Date.now() / 1000) + 86400; // 24 hours
 
@@ -146,6 +148,16 @@ serve(async (req) => {
         quantity: 1,
       });
     }
+    if (tip > 0) {
+      lineItems.push({
+        price_data: {
+          currency,
+          product_data: { name: "Tip" },
+          unit_amount: Math.round(tip * 100),
+        },
+        quantity: 1,
+      });
+    }
     if (!lineItems.length) {
       return json({ error: "Total payment amount must be greater than 0" }, 400);
     }
@@ -165,6 +177,7 @@ serve(async (req) => {
           payment_type: "checkout",
           charge_amount: charge.toString(),
           tax_amount: tax.toString(),
+          tip_amount: tip.toString(),
         },
       },
       { stripeAccount: studio.stripe_account_id }
@@ -182,8 +195,10 @@ serve(async (req) => {
       checkout_url: session.url,
       expires_at: new Date(expiresAt * 1000).toISOString(),
       metadata: {
+        appointment_id: appointmentId,
         charge_amount: charge,
         tax_amount: tax,
+        tip_amount: tip,
         checkout_line_items: Array.isArray(checkoutLineItems)
           ? checkoutLineItems
           : [],
@@ -196,6 +211,7 @@ serve(async (req) => {
       .update({
         charge_amount: charge,
         tax_amount: tax,
+        tip_amount: tip,
         payment_method: "Stripe",
       })
       .eq("id", appointmentId);

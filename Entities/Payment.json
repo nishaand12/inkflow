@@ -61,7 +61,7 @@
         "description": "Additional metadata"
       }
     },
-    "required": ["studio_id", "appointment_id", "amount"],
+    "required": ["studio_id", "amount"],
     "rls": {
       "read": { "data.studio_id": "{{user.data.studio_id}}" },
       "update": { "data.studio_id": "{{user.data.studio_id}}" },

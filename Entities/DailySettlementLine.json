@@ -7,6 +7,9 @@
     "artist_id": { "type": "string", "description": "FK to artists" },
     "appointment_id": { "type": "string", "description": "FK to appointments" },
     "gross_amount": { "type": "number", "default": 0 },
+    "service_amount": { "type": "number", "default": 0 },
+    "product_amount": { "type": "number", "default": 0 },
+    "tip_amount": { "type": "number", "default": 0 },
     "artist_share": { "type": "number", "default": 0 },
     "shop_share": { "type": "number", "default": 0 },
     "split_percent": { "type": "number", "default": 0 }

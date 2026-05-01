@@ -66,6 +66,12 @@ function roundMoney2(n) {
   return Math.round(Number(n) * 100) / 100;
 }
 
+function parseMoneyInput(value) {
+  const parsed = parseFloat(value);
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.max(0, parsed);
+}
+
 /** Prefer saved charge, then appointment estimate, then type service_cost for piercing-style pricing. */
 function initialServiceLineUnitPrice(appointment, aptType) {
   const charge = parseFloat(appointment?.charge_amount);
@@ -98,6 +104,7 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
 
   const [lineItems, setLineItems] = useState([]);
   const [paymentMethod, setPaymentMethod] = useState('');
+  const [tipAmount, setTipAmount] = useState('');
   const [openLinkLoading, setOpenLinkLoading] = useState(false);
   const [emailLinkLoading, setEmailLinkLoading] = useState(false);
   const [stripeMessage, setStripeMessage] = useState(null);
@@ -147,6 +154,7 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
       }
       setLineItems(initialLines);
       setPaymentMethod(normalizePaymentMethodForSelect(appointment.payment_method));
+      setTipAmount(appointment.tip_amount ? String(appointment.tip_amount) : '');
       setStripeMessage(null);
       setShowManualAdd(false);
       setManualLine({ description: '', unit_price: '', quantity: 1, reporting_category_id: '', discount: '' });
@@ -302,14 +310,16 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
     appointment?.deposit_status === "paid" ? depositOnFile : 0;
   const lineDiscountsTotal = lineItems.reduce((sum, li) => sum + (li.discount_amount || 0), 0);
   const grandTotal = lineSubtotal + computedTax;
-  const amountDue = Math.max(0, grandTotal - depositCredited);
+  const tipTotal = parseMoneyInput(tipAmount);
+  const amountDueBeforeTip = Math.max(0, grandTotal - depositCredited);
+  const amountDue = amountDueBeforeTip + tipTotal;
 
   const checkoutMutation = useMutation({
     mutationFn: async () => {
       const stockErr = getStockValidationError();
       if (stockErr) throw new Error(stockErr);
 
-      if (lineSubtotal + computedTax <= 0) {
+      if (lineSubtotal + computedTax + tipTotal <= 0) {
         throw new Error('Total must be greater than zero.');
       }
 
@@ -352,6 +362,7 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
         status: 'completed',
         charge_amount: lineSubtotal,
         tax_amount: taxTotal,
+        tip_amount: tipTotal,
         discount_amount: lineItems.reduce((s, li) => s + (li.discount_amount || 0), 0),
         payment_method: paymentMethod || null
       });
@@ -376,16 +387,17 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
   };
 
   const validateStripeCheckout = () => {
-    const { grandTotal: gt, amountDue: due } = amountDueStripeSplit(
+    const { grandTotal: gt, amountDue: dueBeforeTip } = amountDueStripeSplit(
       lineSubtotal,
       computedTax,
       depositCredited
     );
-    if (lineSubtotal <= 0 && computedTax <= 0) {
+    const due = dueBeforeTip + tipTotal;
+    if (lineSubtotal <= 0 && computedTax <= 0 && tipTotal <= 0) {
       setStripeMessage({ type: 'error', text: 'Add at least one line item with a positive amount.' });
       return null;
     }
-    if (gt <= 0) {
+    if (gt <= 0 && tipTotal <= 0) {
       setStripeMessage({ type: 'error', text: 'Total must be greater than zero.' });
       return null;
     }
@@ -406,6 +418,7 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
         appointmentId: appointment.id,
         chargeAmount: stripePretax,
         taxAmount: stripeTax,
+        tipAmount: tipTotal,
         sendEmail,
         checkoutLineItems,
       },
@@ -715,6 +728,24 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
               </p>
             </div>
             <div className="space-y-1">
+              <Label className="text-xs">Tip</Label>
+              <Input
+                type="number"
+                min="0"
+                step="0.01"
+                value={tipAmount}
+                onChange={(e) => setTipAmount(e.target.value)}
+                placeholder="0.00"
+                className="text-sm"
+              />
+              <p className="text-[10px] text-gray-500 leading-snug">
+                Tips are not taxed or split with the studio; they are owed 100% to the assigned artist.
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-1">
               <Label className="text-xs">Payment Method</Label>
               <Select value={paymentMethod} onValueChange={setPaymentMethod}>
                 <SelectTrigger className="text-sm"><SelectValue placeholder="Method" /></SelectTrigger>
@@ -742,7 +773,13 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
             )}
             <div className="flex justify-between font-medium text-gray-800"><span>Net (taxable base):</span><span>${lineSubtotal.toFixed(2)}</span></div>
             <div className="flex justify-between"><span className="text-gray-500">Tax:</span><span>${computedTax.toFixed(2)}</span></div>
-            <div className="flex justify-between font-semibold border-t border-gray-200 pt-1 mt-1"><span>Total:</span><span>${grandTotal.toFixed(2)}</span></div>
+            {tipTotal > 0 && (
+              <div className="flex justify-between text-green-700">
+                <span>Tip to artist:</span>
+                <span>${tipTotal.toFixed(2)}</span>
+              </div>
+            )}
+            <div className="flex justify-between font-semibold border-t border-gray-200 pt-1 mt-1"><span>Total before tip:</span><span>${grandTotal.toFixed(2)}</span></div>
             {depositCredited > 0 && (
               <div className="flex justify-between text-green-700"><span>Paid deposit applied:</span><span>-${depositCredited.toFixed(2)}</span></div>
             )}

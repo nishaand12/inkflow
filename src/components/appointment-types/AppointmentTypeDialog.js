@@ -225,8 +225,8 @@ export default function AppointmentTypeDialog({ open, onOpenChange, appointmentT
               </Select>
               {useConfigurableKinds && kindSelectValue === "__legacy__" && (
                 <p className="text-xs text-amber-700">
-                  Choose a legacy label below for this type until you configure appointment kinds under
-                  Categories.
+                  Choose a legacy label below for this type until you configure the booking hierarchy
+                  under Categories.
                 </p>
               )}
               {useConfigurableKinds && kindSelectValue === "__legacy__" && (

@@ -175,6 +175,7 @@ create table if not exists appointments (
   total_estimate numeric,
   charge_amount numeric,
   tax_amount numeric,
+  tip_amount numeric not null default 0,
   payment_method text,
   design_description text,
   placement text,
@@ -198,7 +199,7 @@ create table if not exists appointments (
 create table if not exists payments (
   id uuid primary key default gen_random_uuid(),
   studio_id uuid references studios(id),
-  appointment_id uuid references appointments(id),
+  appointment_id uuid references appointments(id) on delete set null,
   customer_id uuid references customers(id),
   stripe_checkout_session_id text,
   stripe_payment_intent_id text,
@@ -311,8 +312,10 @@ create table if not exists daily_settlements (
   gross_total numeric not null default 0,
   tax_total numeric not null default 0,
   discount_total numeric not null default 0,
+  tip_total numeric not null default 0,
   net_total numeric not null default 0,
   pos_collected numeric not null default 0,
+  cash_collected numeric not null default 0,
   online_collected numeric not null default 0,
   gift_card_sales numeric not null default 0,
   gift_card_returns numeric not null default 0,
@@ -335,6 +338,9 @@ create table if not exists daily_settlement_lines (
   artist_id uuid references artists (id),
   appointment_id uuid references appointments (id),
   gross_amount numeric not null default 0,
+  service_amount numeric not null default 0,
+  product_amount numeric not null default 0,
+  tip_amount numeric not null default 0,
   artist_share numeric not null default 0,
   shop_share numeric not null default 0,
   split_percent numeric not null default 0,
@@ -343,6 +349,43 @@ create table if not exists daily_settlement_lines (
 
 create index if not exists daily_settlement_lines_settlement_idx on daily_settlement_lines(settlement_id);
 create index if not exists daily_settlement_lines_artist_idx on daily_settlement_lines(artist_id);
+
+create table if not exists artist_payouts (
+  id uuid primary key default gen_random_uuid(),
+  studio_id uuid not null references studios (id),
+  artist_id uuid not null references artists (id),
+  amount numeric not null check (amount > 0),
+  payout_method text,
+  payout_date date not null default current_date,
+  notes text,
+  created_by uuid references users (id),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists artist_payouts_studio_idx on artist_payouts(studio_id);
+create index if not exists artist_payouts_artist_date_idx on artist_payouts(artist_id, payout_date);
+
+create table if not exists artist_ledger_entries (
+  id uuid primary key default gen_random_uuid(),
+  studio_id uuid not null references studios (id),
+  artist_id uuid not null references artists (id),
+  settlement_id uuid references daily_settlements (id) on delete cascade,
+  settlement_line_id uuid references daily_settlement_lines (id) on delete cascade,
+  appointment_id uuid references appointments (id) on delete set null,
+  payout_id uuid references artist_payouts (id) on delete cascade,
+  entry_type text not null check (entry_type in ('settlement_share', 'tip', 'payout', 'adjustment')),
+  amount numeric not null,
+  description text,
+  occurred_on date not null default current_date,
+  created_by uuid references users (id),
+  created_at timestamptz not null default now()
+);
+
+create index if not exists artist_ledger_entries_studio_idx on artist_ledger_entries(studio_id);
+create index if not exists artist_ledger_entries_artist_date_idx on artist_ledger_entries(artist_id, occurred_on);
+create index if not exists artist_ledger_entries_settlement_idx on artist_ledger_entries(settlement_id);
+create index if not exists artist_ledger_entries_payout_idx on artist_ledger_entries(payout_id);
 
 create table if not exists artist_weekly_schedules (
   id uuid primary key default gen_random_uuid(),
@@ -430,6 +473,10 @@ for each row execute procedure set_updated_at();
 
 create trigger set_daily_settlements_updated_at
 before update on daily_settlements
+for each row execute procedure set_updated_at();
+
+create trigger set_artist_payouts_updated_at
+before update on artist_payouts
 for each row execute procedure set_updated_at();
 
 create trigger set_artist_weekly_schedules_updated_at
