@@ -8,20 +8,11 @@
       },
       "category": {
         "type": "string",
-        "enum": [
-          "Tattoo",
-          "Ear Lobe Piercings",
-          "Ear Cartilage Piercings",
-          "Facial Piercings",
-          "Oral Piercings",
-          "Body Piercings",
-          "Genital Piercings",
-          "Other Piercings",
-          "Piercing Services",
-          "Deposit",
-          "Other"
-        ],
-        "description": "Appointment category"
+        "description": "Legacy display label; prefer appointment_kind_category_id for hierarchy"
+      },
+      "appointment_kind_category_id": {
+        "type": "string",
+        "description": "Leaf reporting category (category_role=appointment_kind) for this appointment type"
       },
       "name": {
         "type": "string",
@@ -51,7 +42,6 @@
     },
     "required": [
       "studio_id",
-      "category",
       "name",
       "default_duration_minutes",
       "default_deposit"

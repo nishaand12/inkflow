@@ -124,20 +124,27 @@ create table if not exists customers (
 create table if not exists reporting_categories (
   id uuid primary key default gen_random_uuid(),
   studio_id uuid references studios (id),
+  parent_id uuid references reporting_categories (id) on delete set null,
   name text not null,
   category_type text not null default 'item',
+  category_role text not null default 'reporting',
+  clinical_profile text,
   display_order integer default 0,
   is_active boolean default true,
   created_at timestamptz default now(),
-  updated_at timestamptz default now()
+  updated_at timestamptz default now(),
+  constraint reporting_categories_category_role_check check (category_role in ('reporting', 'appointment_kind')),
+  constraint reporting_categories_clinical_profile_check check (clinical_profile is null or clinical_profile in ('tattoo', 'piercing'))
 );
 
 create index if not exists reporting_categories_studio_idx on reporting_categories(studio_id);
+create index if not exists reporting_categories_parent_idx on reporting_categories(parent_id);
 
 create table if not exists appointment_types (
   id uuid primary key default gen_random_uuid(),
   studio_id uuid references studios (id),
-  category text not null,
+  category text,
+  appointment_kind_category_id uuid references reporting_categories (id),
   name text not null,
   description text,
   default_duration_minutes integer not null,

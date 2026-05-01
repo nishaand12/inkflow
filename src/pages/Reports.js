@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,6 +10,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Download, TrendingUp, DollarSign, BarChart3, Users } from "lucide-react";
 import { format, startOfMonth, endOfMonth, parseISO } from "date-fns";
 import { normalizeUserRole } from "@/utils/roles";
+import {
+  CATEGORY_ROLE_REPORTING,
+  filterCategoriesByRole,
+  findCategoryById,
+  getRootAncestor,
+} from "@/utils/reportingCategories";
 
 export default function Reports() {
   const [user, setUser] = useState(null);
@@ -23,6 +29,8 @@ export default function Reports() {
   const loadUser = async () => {
     try { setUser(await base44.auth.me()); } catch (e) { console.error(e); }
   };
+
+  const [categoryRollupMode, setCategoryRollupMode] = useState("leaf");
 
   const qOpts = (key, fn) => ({
     queryKey: [key, user?.studio_id],
@@ -58,27 +66,76 @@ export default function Reports() {
 
   const completedAppointments = filteredAppointments.filter(a => a.status === 'completed');
 
-  const revenueByCategory = (() => {
+  const revenueByCategory = useMemo(() => {
+    const reportingOnly = filterCategoriesByRole(reportingCategories, CATEGORY_ROLE_REPORTING);
+
+    const resolveChargeCategoryKey = (ch) => {
+      if (ch.reporting_category_id) {
+        if (categoryRollupMode === "root") {
+          const root = getRootAncestor(reportingOnly, ch.reporting_category_id);
+          const id = root?.id || ch.reporting_category_id;
+          const label =
+            root?.name ||
+            findCategoryById(reportingOnly, ch.reporting_category_id)?.name ||
+            ch.reporting_category_name ||
+            "Uncategorized";
+          return { key: `id:${id}`, label };
+        }
+        const leaf = findCategoryById(reportingOnly, ch.reporting_category_id);
+        const label = leaf?.name || ch.reporting_category_name || "Uncategorized";
+        return { key: `id:${ch.reporting_category_id}`, label };
+      }
+      const nm = ch.reporting_category_name || "Uncategorized";
+      return { key: `name:${nm}`, label: nm };
+    };
+
+    const resolveFallbackAppointmentCategoryKey = (apt) => {
+      const type = appointmentTypes.find((t) => t.id === apt.appointment_type_id);
+      if (type?.reporting_category_id) {
+        if (categoryRollupMode === "root") {
+          const root = getRootAncestor(reportingOnly, type.reporting_category_id);
+          const id = root?.id || type.reporting_category_id;
+          const label =
+            root?.name ||
+            findCategoryById(reportingOnly, type.reporting_category_id)?.name ||
+            "Uncategorized";
+          return { key: `id:${id}`, label };
+        }
+        const leaf = findCategoryById(reportingOnly, type.reporting_category_id);
+        return {
+          key: `id:${type.reporting_category_id}`,
+          label: leaf?.name || "Uncategorized",
+        };
+      }
+      const legacy = type?.category || "Uncategorized";
+      return { key: `legacy:${legacy}`, label: legacy };
+    };
+
     const catMap = {};
     for (const apt of completedAppointments) {
-      const aptCharges = charges.filter(c => c.appointment_id === apt.id);
+      const aptCharges = charges.filter((c) => c.appointment_id === apt.id);
       if (aptCharges.length > 0) {
         for (const ch of aptCharges) {
-          const catName = ch.reporting_category_name || 'Uncategorized';
-          if (!catMap[catName]) catMap[catName] = { category: catName, revenue: 0, count: 0 };
-          catMap[catName].revenue += ch.line_total || 0;
-          catMap[catName].count += ch.quantity || 1;
+          const { key, label } = resolveChargeCategoryKey(ch);
+          if (!catMap[key]) catMap[key] = { category: label, revenue: 0, count: 0 };
+          catMap[key].revenue += ch.line_total || 0;
+          catMap[key].count += ch.quantity || 1;
         }
       } else {
-        const type = appointmentTypes.find(t => t.id === apt.appointment_type_id);
-        const catName = type?.category || 'Uncategorized';
-        if (!catMap[catName]) catMap[catName] = { category: catName, revenue: 0, count: 0 };
-        catMap[catName].revenue += (apt.charge_amount || 0) + (apt.deposit_amount || 0);
-        catMap[catName].count += 1;
+        const { key, label } = resolveFallbackAppointmentCategoryKey(apt);
+        if (!catMap[key]) catMap[key] = { category: label, revenue: 0, count: 0 };
+        catMap[key].revenue += (apt.charge_amount || 0) + (apt.deposit_amount || 0);
+        catMap[key].count += 1;
       }
     }
     return Object.values(catMap).sort((a, b) => b.revenue - a.revenue);
-  })();
+  }, [
+    completedAppointments,
+    charges,
+    appointmentTypes,
+    reportingCategories,
+    categoryRollupMode,
+  ]);
 
   const dailyTotals = (() => {
     const dayMap = {};
@@ -357,11 +414,31 @@ export default function Reports() {
 
           <TabsContent value="category">
             <Card className="bg-white border-none shadow-lg">
-              <CardHeader className="flex flex-row items-center justify-between">
-                <CardTitle>Revenue by Category</CardTitle>
-                <Button variant="outline" onClick={() => exportToCSV(revenueByCategory, 'revenue_by_category')} disabled={revenueByCategory.length === 0}>
-                  <Download className="w-4 h-4 mr-2" /> Export CSV
-                </Button>
+              <CardHeader>
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                  <CardTitle>Revenue by Category</CardTitle>
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                    <div className="flex items-center gap-2">
+                      <Label className="text-sm whitespace-nowrap">Roll up by</Label>
+                      <Select value={categoryRollupMode} onValueChange={setCategoryRollupMode}>
+                        <SelectTrigger className="w-[200px]">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="leaf">Leaf (detail)</SelectItem>
+                          <SelectItem value="root">Top-level parent</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <Button
+                      variant="outline"
+                      onClick={() => exportToCSV(revenueByCategory, "revenue_by_category")}
+                      disabled={revenueByCategory.length === 0}
+                    >
+                      <Download className="w-4 h-4 mr-2" /> Export CSV
+                    </Button>
+                  </div>
+                </div>
               </CardHeader>
               <CardContent>
                 {revenueByCategory.length === 0 ? (
