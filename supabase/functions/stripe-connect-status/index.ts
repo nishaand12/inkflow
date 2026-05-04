@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import Stripe from "npm:stripe@17";
+import { fetchAuthUserStudioId } from "../_shared/authStudio.ts";
 
 const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY")!;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -34,12 +35,20 @@ serve(async (req) => {
       return json({ error: "Unauthorized" }, 401);
     }
 
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+    const authStudioId = await fetchAuthUserStudioId(supabase, user.id);
+    if (!authStudioId) {
+      return json({ error: "Forbidden" }, 403);
+    }
+
     const { studioId } = await req.json();
     if (!studioId) {
       return json({ error: "Missing studioId" }, 400);
     }
 
-    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+    if (studioId !== authStudioId) {
+      return json({ error: "Forbidden" }, 403);
+    }
 
     const { data: studio, error: studioErr } = await supabase
       .from("studios")
