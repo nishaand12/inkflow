@@ -12,6 +12,11 @@ import { Wallet, Lock, Loader2 } from "lucide-react";
 import { format } from "date-fns";
 import { normalizeUserRole } from "@/utils/roles";
 import { createPageUrl } from "@/utils/index";
+import { getCollectionBucket } from "@/utils/collectionBuckets";
+import {
+  allocatePaidDepositToBuckets,
+  getPaidDepositRowsForAppointment,
+} from "@/utils/depositAllocation";
 
 function getAppointmentSettlementAmounts(appointment, appointmentCharges) {
   const tip = Number(appointment.tip_amount) || 0;
@@ -32,12 +37,6 @@ function getAppointmentSettlementAmounts(appointment, appointmentCharges) {
   const deposit = Number(appointment.deposit_amount) || 0;
   const gross = charge > 0 ? charge : deposit;
   return { gross, service: gross, product: 0, tip };
-}
-
-function getCollectionBucket(paymentMethod) {
-  if (paymentMethod === "Stripe") return "online";
-  if (paymentMethod === "Cash" || paymentMethod === "E-Transfer") return "cash";
-  return "terminal";
 }
 
 function getPaidDepositAmount(appointment, grossAmount) {
@@ -104,6 +103,8 @@ export default function Settlements() {
 
   const generateSettlement = useMutation({
     mutationFn: async ({ locationId, date }) => {
+      const allPayments = await base44.entities.Payment.filter({ studio_id: user.studio_id });
+
       const dayAppointments = appointments.filter(
         a => a.appointment_date === date && a.status === 'completed' &&
           (locationId === 'all' || a.location_id === locationId)
@@ -138,7 +139,11 @@ export default function Settlements() {
           const paidDeposit = getPaidDepositAmount(apt, amounts.gross);
           const finalCollectedAmount = Math.max(0, amounts.gross - paidDeposit) + amounts.tip;
           const collectionBucket = getCollectionBucket(apt.payment_method);
-          onlineCollected += paidDeposit;
+          const depositRows = getPaidDepositRowsForAppointment(allPayments, apt.id);
+          const depBuckets = allocatePaidDepositToBuckets(paidDeposit, depositRows);
+          onlineCollected += depBuckets.online;
+          cashCollected += depBuckets.cash;
+          terminalCollected += depBuckets.terminal;
           if (collectionBucket === "online") {
             onlineCollected += finalCollectedAmount;
           } else if (collectionBucket === "cash") {

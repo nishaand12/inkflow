@@ -10,9 +10,10 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { format, parseISO } from "date-fns";
-import { Trash2, Save, AlertCircle, CheckCircle, Unlock, Mail, CreditCard, Loader2, Link2, Copy, Check } from "lucide-react";
+import { Trash2, Save, AlertCircle, CheckCircle, Unlock, Mail, Loader2, Link2, Copy, Check, Wallet } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Checkbox } from "@/components/ui/checkbox";
 import CustomerSearch from "../customers/CustomerSearch";
 import CustomerDialog from "../customers/CustomerDialog";
 import AdvancedSearchDialog from "../customers/AdvancedSearchDialog";
@@ -21,6 +22,7 @@ import RefundDialog from "./RefundDialog";
 import { normalizeUserRole } from "@/utils/roles";
 import { addMinutesToTime, formatDuration } from "@/utils/index";
 import { getAppointmentTypeDisplaySections } from "@/utils/reportingCategories";
+import { CHECKOUT_PAYMENT_METHOD_OPTIONS } from "@/utils/checkoutPaymentMethods";
 
 // Stable empty array to prevent new references on each render
 const EMPTY_ARRAY = [];
@@ -59,6 +61,12 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
   const [depositLinkMessage, setDepositLinkMessage] = useState(null);
   const [depositCheckoutUrl, setDepositCheckoutUrl] = useState(null);
   const [copiedDepositUrl, setCopiedDepositUrl] = useState(false);
+
+  const [depositPaidInPersonCreate, setDepositPaidInPersonCreate] = useState(false);
+  const [inPersonDepositMethod, setInPersonDepositMethod] = useState("Cash");
+  const [inPersonDepositNote, setInPersonDepositNote] = useState("");
+  const [inPersonDepositAmountInput, setInPersonDepositAmountInput] = useState("");
+  const [recordInPersonLoading, setRecordInPersonLoading] = useState(false);
 
   const [validationErrors, setValidationErrors] = useState({
     artistConflict: null,
@@ -205,34 +213,42 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
   // Use userArtist?.id for stable dependency instead of the full object
   const userArtistId = userArtist?.id;
 
+  // Prefer list cache so deposit_status / status update after mutations without stale props
+  const appointmentForForm = useMemo(() => {
+    if (!appointment?.id) return null;
+    const cached = allAppointments.find((a) => a.id === appointment.id);
+    return cached ?? appointment;
+  }, [appointment, allAppointments]);
+
   useEffect(() => {
     if (appointment) {
+      const src = appointmentForForm || appointment;
       // Merge appointment with defaults to ensure no undefined/null values for inputs
       setFormData({
-        ...appointment,
+        ...src,
         // Ensure string fields have empty string defaults (not null/undefined)
-        artist_id: appointment.artist_id || '',
-        location_id: appointment.location_id || '',
-        work_station_id: appointment.work_station_id || '',
-        customer_id: appointment.customer_id || '',
-        appointment_type_id: appointment.appointment_type_id || '',
-        client_name: appointment.client_name || '',
-        client_email: appointment.client_email || '',
-        client_phone: appointment.client_phone || '',
-        appointment_date: appointment.appointment_date || format(new Date(), 'yyyy-MM-dd'),
-        start_time: appointment.start_time || '10:00',
-        design_description: appointment.design_description || '',
-        placement: appointment.placement || '',
-        notes: appointment.notes || '',
-        status: appointment.status || 'scheduled',
-        end_time: appointment.end_time || '12:00',
-        deposit_amount: appointment.deposit_amount ?? 0,
-        total_estimate: appointment.total_estimate ?? 0,
-        tax_amount: appointment.tax_amount ?? 0,
+        artist_id: src.artist_id || '',
+        location_id: src.location_id || '',
+        work_station_id: src.work_station_id || '',
+        customer_id: src.customer_id || '',
+        appointment_type_id: src.appointment_type_id || '',
+        client_name: src.client_name || '',
+        client_email: src.client_email || '',
+        client_phone: src.client_phone || '',
+        appointment_date: src.appointment_date || format(new Date(), 'yyyy-MM-dd'),
+        start_time: src.start_time || '10:00',
+        design_description: src.design_description || '',
+        placement: src.placement || '',
+        notes: src.notes || '',
+        status: src.status || 'scheduled',
+        end_time: src.end_time || '12:00',
+        deposit_amount: src.deposit_amount ?? 0,
+        total_estimate: src.total_estimate ?? 0,
+        tax_amount: src.tax_amount ?? 0,
       });
 
-      if (appointment.customer_id) {
-        const customer = customers.find(c => c.id === appointment.customer_id);
+      if (src.customer_id) {
+        const customer = customers.find(c => c.id === src.customer_id);
         setSelectedCustomer(customer || null);
       } else {
         setSelectedCustomer(null);
@@ -267,8 +283,13 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     setDepositLinkMessage(null);
     setDepositCheckoutUrl(null);
     setCopiedDepositUrl(false);
+    setDepositPaidInPersonCreate(false);
+    setInPersonDepositMethod("Cash");
+    setInPersonDepositNote("");
+    setInPersonDepositAmountInput("");
+    setRecordInPersonLoading(false);
     setSaveError(null);
-  }, [appointment, defaultDate, open, isArtist, isAdmin, userArtistId, customers]);
+  }, [appointment, appointmentForForm, defaultDate, open, isArtist, isAdmin, userArtistId, customers]);
 
   useEffect(() => {
     if (open && formData.artist_id && formData.appointment_date && formData.start_time && formData.location_id) {
@@ -278,6 +299,12 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formData.artist_id, formData.appointment_date, formData.start_time, formData.end_time, formData.location_id, open, allAppointments, workStations, availabilities]);
+
+  const depositSatisfied = useMemo(() => {
+    const ds = formData.deposit_status;
+    const st = formData.status;
+    return ds === "paid" || st === "deposit_paid";
+  }, [formData.deposit_status, formData.status]);
 
   const handleCustomerSelect = (customer) => {
     setSelectedCustomer(customer);
@@ -475,9 +502,47 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
   };
 
   const createMutation = useMutation({
-    mutationFn: (data) => base44.entities.Appointment.create(data),
-    onSuccess: async (createdAppointment) => {
+    mutationFn: async (vars) => {
+      const createdAppointment = await base44.entities.Appointment.create(vars.dataToSave);
+      return { createdAppointment, ...vars };
+    },
+    onSuccess: async ({
+      createdAppointment,
+      recordInPersonDeposit,
+      inPersonDepositMethod: method,
+      inPersonDepositNote: note,
+      inPersonDepositAmount,
+    }) => {
       queryClient.invalidateQueries({ queryKey: ['appointments'] });
+
+      const deposit = Number(createdAppointment.deposit_amount) || 0;
+      if (recordInPersonDeposit && deposit > 0) {
+        const { data, error } = await supabase.functions.invoke("record-in-person-deposit", {
+          body: {
+            appointmentId: createdAppointment.id,
+            method,
+            note: note || undefined,
+            amount:
+              inPersonDepositAmount != null && Number.isFinite(inPersonDepositAmount)
+                ? inPersonDepositAmount
+                : undefined,
+          },
+        });
+        if (error || data?.error) {
+          const msg =
+            data?.error ||
+            error?.message ||
+            "Could not record the in-person deposit.";
+          window.alert(
+            `Appointment was created, but ${msg} Open the appointment from the calendar and use "Record in-person deposit". Confirmation email was not sent so the customer does not get an incorrect online payment link.`
+          );
+          onOpenChange(false);
+          resetForm();
+          return;
+        }
+        await queryClient.refetchQueries({ queryKey: ['appointments'] });
+      }
+
       onOpenChange(false);
       resetForm();
       await sendAppointmentEmail(createdAppointment, "created");
@@ -593,7 +658,27 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     if (appointment) {
       updateMutation.mutate({ id: appointment.id, data: dataToSave });
     } else {
-      createMutation.mutate(dataToSave);
+      const depositNum = Number(formData.deposit_amount) || 0;
+      const recordInPersonDeposit = depositPaidInPersonCreate && depositNum > 0;
+      let inPersonDepositAmount = null;
+      if (recordInPersonDeposit && inPersonDepositAmountInput.trim() !== "") {
+        inPersonDepositAmount = parseFloat(inPersonDepositAmountInput);
+        if (!Number.isFinite(inPersonDepositAmount) || inPersonDepositAmount <= 0) {
+          setSaveError("Enter a valid in-person deposit amount, or leave blank to use the full deposit.");
+          return;
+        }
+        if (inPersonDepositAmount > depositNum + 0.0001) {
+          setSaveError("In-person deposit amount cannot exceed the appointment deposit.");
+          return;
+        }
+      }
+      createMutation.mutate({
+        dataToSave,
+        recordInPersonDeposit,
+        inPersonDepositMethod,
+        inPersonDepositNote: inPersonDepositNote.trim(),
+        inPersonDepositAmount,
+      });
     }
   };
 
@@ -635,7 +720,15 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
       if (error || data?.error) {
         setDepositLinkMessage({ type: 'error', text: data?.error || 'Failed to create deposit link.' });
       } else if (data?.paid) {
-        setDepositLinkMessage({ type: 'success', text: 'Deposit payment confirmed.' });
+        setDepositLinkMessage({
+          type: 'success',
+          text: 'Deposit already paid. Any online payment link has been cancelled.',
+        });
+        setFormData((prev) => ({
+          ...prev,
+          deposit_status: 'paid',
+          status: prev.status === 'completed' ? prev.status : 'deposit_paid',
+        }));
         queryClient.invalidateQueries({ queryKey: ['appointments'] });
       } else if (data?.checkout_url) {
         setDepositCheckoutUrl(data.checkout_url);
@@ -657,6 +750,55 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
       setDepositLinkMessage({ type: 'error', text: 'Failed to create deposit link.' });
     } finally {
       setDepositLinkLoading(false);
+    }
+  };
+
+  const handleRecordInPersonDeposit = async () => {
+    if (!appointment) return;
+    setRecordInPersonLoading(true);
+    setDepositLinkMessage(null);
+    try {
+      const trimmedAmt = inPersonDepositAmountInput.trim();
+      let amountPayload = undefined;
+      if (trimmedAmt !== "") {
+        const parsed = parseFloat(trimmedAmt);
+        if (!Number.isFinite(parsed) || parsed <= 0) {
+          setDepositLinkMessage({ type: 'error', text: 'Enter a valid amount or leave blank for the full deposit.' });
+          setRecordInPersonLoading(false);
+          return;
+        }
+        const due = Number(formData.deposit_amount) || 0;
+        if (parsed > due + 0.0001) {
+          setDepositLinkMessage({ type: 'error', text: `Amount cannot exceed deposit due (${due.toFixed(2)}).` });
+          setRecordInPersonLoading(false);
+          return;
+        }
+        amountPayload = parsed;
+      }
+      const { data, error } = await supabase.functions.invoke("record-in-person-deposit", {
+        body: {
+          appointmentId: appointment.id,
+          method: inPersonDepositMethod,
+          note: inPersonDepositNote.trim() || undefined,
+          amount: amountPayload,
+        },
+      });
+      if (error || data?.error) {
+        setDepositLinkMessage({ type: 'error', text: data?.error || error.message || 'Failed to record deposit.' });
+        return;
+      }
+      setDepositLinkMessage({ type: 'success', text: data?.message || 'Deposit recorded.' });
+      setFormData((prev) => ({
+        ...prev,
+        deposit_status: 'paid',
+        status: prev.status === 'completed' ? prev.status : 'deposit_paid',
+      }));
+      setDepositCheckoutUrl(null);
+      queryClient.invalidateQueries({ queryKey: ['appointments'] });
+    } catch (err) {
+      setDepositLinkMessage({ type: 'error', text: err?.message || 'Failed to record deposit.' });
+    } finally {
+      setRecordInPersonLoading(false);
     }
   };
 
@@ -746,6 +888,10 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     });
     setSelectedCustomer(null);
     setValidationErrors({ artistConflict: null, stationsFull: false });
+    setDepositPaidInPersonCreate(false);
+    setInPersonDepositMethod("Cash");
+    setInPersonDepositNote("");
+    setInPersonDepositAmountInput("");
   };
 
   const availableStations = getAvailableStations();
@@ -1063,79 +1209,225 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
               </div>
             </div>
 
-            {appointment && studio?.stripe_charges_enabled && formData.deposit_amount > 0 && (
-              <Accordion type="single" collapsible>
-                <AccordionItem value="deposit" className="border border-gray-200 rounded-lg overflow-hidden">
+            {!appointment && formData.deposit_amount > 0 && canEdit() && (
+              <div className="rounded-lg border border-gray-200 bg-gray-50/80 p-3 space-y-3">
+                <div className="flex items-start gap-3">
+                  <Checkbox
+                    id="deposit-paid-in-person-create"
+                    checked={depositPaidInPersonCreate}
+                    onCheckedChange={(v) => setDepositPaidInPersonCreate(v === true)}
+                  />
+                  <div className="space-y-1">
+                    <label htmlFor="deposit-paid-in-person-create" className="text-sm font-medium text-gray-800 cursor-pointer">
+                      Customer already paid deposit in person
+                    </label>
+                    <p className="text-xs text-gray-600">
+                      Confirmation email will not include an online payment link. Use when cash, card machine, or other in-shop payment was taken before saving. Appointment status will be set to deposit paid.
+                    </p>
+                  </div>
+                </div>
+                {depositPaidInPersonCreate && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pl-7 sm:pl-0">
+                    <div className="space-y-2">
+                      <Label className="text-xs text-gray-600">Payment method</Label>
+                          <Select value={inPersonDepositMethod} onValueChange={setInPersonDepositMethod}>
+                            <SelectTrigger className="text-sm h-9">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {CHECKOUT_PAYMENT_METHOD_OPTIONS.map(({ value, label }) => (
+                                <SelectItem key={value} value={value}>{label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-xs text-gray-600">Amount collected (optional)</Label>
+                      <Input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        placeholder={`Default: ${Number(formData.deposit_amount).toFixed(2)}`}
+                        value={inPersonDepositAmountInput}
+                        onChange={(e) => setInPersonDepositAmountInput(e.target.value)}
+                        className="text-sm h-9"
+                      />
+                    </div>
+                    <div className="space-y-2 sm:col-span-2">
+                      <Label className="text-xs text-gray-600">Note (optional)</Label>
+                      <Input
+                        value={inPersonDepositNote}
+                        onChange={(e) => setInPersonDepositNote(e.target.value)}
+                        placeholder="e.g. receipt #, reference"
+                        className="text-sm h-9"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {appointment && formData.deposit_amount > 0 && (
+              <Accordion type="single" collapsible className="border border-gray-200 rounded-lg overflow-hidden">
+                <AccordionItem value="deposit" className="border-0">
                   <AccordionTrigger className="px-3 py-2.5 hover:no-underline hover:bg-gray-50 [&[data-state=open]]:bg-gray-50">
                     <div className="flex items-center justify-between w-full pr-2">
                       <div className="flex items-center gap-2">
-                        <CreditCard className="w-4 h-4 text-purple-600" />
-                        <span className="text-sm font-medium text-gray-700">Online Deposit</span>
+                        <Wallet className="w-4 h-4 text-gray-700" />
+                        <span className="text-sm font-medium text-gray-700">Deposit</span>
                       </div>
-                      {appointment.deposit_status === 'paid' && (
+                      {depositSatisfied && (
                         <Badge className="bg-green-100 text-green-800 text-xs">Paid</Badge>
                       )}
-                      {appointment.deposit_status === 'pending' && (
+                      {!depositSatisfied && formData.deposit_status === 'pending' && (
                         <Badge className="bg-amber-100 text-amber-800 text-xs">Link Sent</Badge>
                       )}
-                      {appointment.deposit_status === 'failed' && (
+                      {!depositSatisfied && formData.deposit_status === 'failed' && (
                         <Badge className="bg-red-100 text-red-800 text-xs">Failed</Badge>
                       )}
-                      {(!appointment.deposit_status || appointment.deposit_status === 'none') && (
-                        <Badge className="bg-gray-100 text-gray-600 text-xs">Not Requested</Badge>
+                      {!depositSatisfied && (!formData.deposit_status || formData.deposit_status === 'none') && (
+                        <Badge className="bg-gray-100 text-gray-600 text-xs">Unpaid</Badge>
                       )}
                     </div>
                   </AccordionTrigger>
-                  <AccordionContent className="px-3 pb-3 pt-0 space-y-2">
-                    {appointment.deposit_status !== 'paid' && canEdit() && (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="w-full text-purple-700 border-purple-200 hover:bg-purple-50"
-                        onClick={handleSendDepositLink}
-                        disabled={depositLinkLoading}
-                      >
-                        {depositLinkLoading ? (
-                          <>
-                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                            Creating link...
-                          </>
-                        ) : (
-                          <>
-                            <Link2 className="w-4 h-4 mr-2" />
-                            {appointment.deposit_status === 'pending' ? 'Show Deposit Link' : 'Create Deposit Link'}
-                          </>
-                        )}
-                      </Button>
-                    )}
-
-                    {depositLinkMessage && (
-                      <p className={`text-xs ${depositLinkMessage.type === 'success' ? 'text-green-700' : 'text-red-700'}`}>
-                        {depositLinkMessage.text}
-                      </p>
-                    )}
-
-                    {depositCheckoutUrl && (
-                      <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-md px-2 py-1.5">
-                        <input
-                          readOnly
-                          value={depositCheckoutUrl}
-                          className="text-xs text-gray-600 flex-1 bg-transparent min-w-0 truncate outline-none"
-                          onFocus={e => e.target.select()}
-                        />
-                        <button
-                          type="button"
-                          onClick={handleCopyDepositUrl}
-                          className="shrink-0 text-gray-400 hover:text-gray-700 transition-colors"
-                          title="Copy link"
-                        >
-                          {copiedDepositUrl
-                            ? <Check className="w-3.5 h-3.5 text-green-600" />
-                            : <Copy className="w-3.5 h-3.5" />
-                          }
-                        </button>
+                  <AccordionContent className="px-3 pb-3 pt-0 space-y-3">
+                    {depositSatisfied ? (
+                      <div className="flex gap-3 rounded-lg border border-green-200 bg-green-50/80 p-3">
+                        <CheckCircle className="w-5 h-5 text-green-700 shrink-0 mt-0.5" />
+                        <div>
+                          <p className="text-sm font-medium text-green-900">Deposit already paid</p>
+                          <p className="text-xs text-green-800 mt-1">
+                            The deposit for this appointment has been collected (online or recorded in person). No further deposit action is needed.
+                          </p>
+                        </div>
                       </div>
+                    ) : (
+                      <>
+                        {studio?.stripe_charges_enabled ? (
+                          <div className="space-y-2">
+                            <p className="text-xs font-medium text-gray-700">Pay online (Stripe)</p>
+                            <p className="text-xs text-gray-600">
+                              Create or retrieve a checkout link to send or show the client. Links expire after 24 hours.
+                            </p>
+                            {canEdit() && (
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="w-full text-purple-700 border-purple-200 hover:bg-purple-50"
+                                onClick={handleSendDepositLink}
+                                disabled={depositLinkLoading}
+                              >
+                                {depositLinkLoading ? (
+                                  <>
+                                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                    Creating link...
+                                  </>
+                                ) : (
+                                  <>
+                                    <Link2 className="w-4 h-4 mr-2" />
+                                    {formData.deposit_status === 'pending' ? 'Show deposit link' : 'Create deposit link'}
+                                  </>
+                                )}
+                              </Button>
+                            )}
+                            {depositCheckoutUrl && (
+                              <div className="flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-md px-2 py-1.5">
+                                <input
+                                  readOnly
+                                  value={depositCheckoutUrl}
+                                  className="text-xs text-gray-600 flex-1 bg-transparent min-w-0 truncate outline-none"
+                                  onFocus={e => e.target.select()}
+                                />
+                                <button
+                                  type="button"
+                                  onClick={handleCopyDepositUrl}
+                                  className="shrink-0 text-gray-400 hover:text-gray-700 transition-colors"
+                                  title="Copy link"
+                                >
+                                  {copiedDepositUrl
+                                    ? <Check className="w-3.5 h-3.5 text-green-600" />
+                                    : <Copy className="w-3.5 h-3.5" />
+                                  }
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-gray-600">
+                            Stripe is not connected for this studio. Record an in-person deposit below, or connect Stripe under studio settings to generate payment links.
+                          </p>
+                        )}
+
+                        {canEdit() && (
+                          <div className={`space-y-3 ${studio?.stripe_charges_enabled ? 'border-t border-gray-200 pt-3' : ''}`}>
+                            <div>
+                              <p className="text-xs font-medium text-gray-700">Pay in person</p>
+                              <p className="text-xs text-gray-600 mt-1">
+                                Record cash, e-transfer, or card taken at the shop (non-Stripe). Any pending online deposit link will be cancelled.
+                              </p>
+                            </div>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              <div className="space-y-2">
+                                <Label className="text-xs text-gray-600">Payment method</Label>
+                          <Select value={inPersonDepositMethod} onValueChange={setInPersonDepositMethod}>
+                            <SelectTrigger className="text-sm h-9">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {CHECKOUT_PAYMENT_METHOD_OPTIONS.map(({ value, label }) => (
+                                <SelectItem key={value} value={value}>{label}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                              </div>
+                              <div className="space-y-2">
+                                <Label className="text-xs text-gray-600">Amount collected (optional)</Label>
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  placeholder={`Default: ${Number(formData.deposit_amount).toFixed(2)}`}
+                                  value={inPersonDepositAmountInput}
+                                  onChange={(e) => setInPersonDepositAmountInput(e.target.value)}
+                                  className="text-sm h-9"
+                                />
+                              </div>
+                              <div className="space-y-2 sm:col-span-2">
+                                <Label className="text-xs text-gray-600">Note (optional)</Label>
+                                <Input
+                                  value={inPersonDepositNote}
+                                  onChange={(e) => setInPersonDepositNote(e.target.value)}
+                                  placeholder="e.g. receipt #, reference"
+                                  className="text-sm h-9"
+                                />
+                              </div>
+                            </div>
+                            <Button
+                              type="button"
+                              size="sm"
+                              className="w-full sm:w-auto bg-emerald-700 hover:bg-emerald-800"
+                              onClick={handleRecordInPersonDeposit}
+                              disabled={recordInPersonLoading}
+                            >
+                              {recordInPersonLoading ? (
+                                <>
+                                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                  Recording…
+                                </>
+                              ) : (
+                                "Record in-person deposit"
+                              )}
+                            </Button>
+                          </div>
+                        )}
+
+                        {depositLinkMessage && (
+                          <p className={`text-xs ${depositLinkMessage.type === 'success' ? 'text-green-700' : 'text-red-700'}`}>
+                            {depositLinkMessage.text}
+                          </p>
+                        )}
+                      </>
                     )}
                   </AccordionContent>
                 </AccordionItem>

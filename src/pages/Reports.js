@@ -16,6 +16,10 @@ import {
   findCategoryById,
   getRootAncestor,
 } from "@/utils/reportingCategories";
+import {
+  allocatePaidDepositToBuckets,
+  getPaidDepositRowsForAppointment,
+} from "@/utils/depositAllocation";
 
 export default function Reports() {
   const [user, setUser] = useState(null);
@@ -55,6 +59,10 @@ export default function Reports() {
     return normalizeUserRole(user.user_role || (user.role === 'admin' ? 'Admin' : 'Front_Desk'));
   };
   const isAdmin = getUserRole() === 'Admin' || getUserRole() === 'Owner';
+
+  const { data: payments = [] } = useQuery(
+    qOpts("payments", () => base44.entities.Payment.filter({ studio_id: user.studio_id }))
+  );
 
   const filteredAppointments = appointments.filter(apt => {
     const d = apt.appointment_date;
@@ -137,7 +145,7 @@ export default function Reports() {
     categoryRollupMode,
   ]);
 
-  const dailyTotals = (() => {
+  const dailyTotals = useMemo(() => {
     const getPaidDepositAmount = (apt, grossAmount) => {
       if (apt.deposit_status !== "paid") return 0;
       const deposit = Number(apt.deposit_amount) || 0;
@@ -165,7 +173,11 @@ export default function Reports() {
 
       const paidDeposit = getPaidDepositAmount(apt, gross);
       const finalCollectedAmount = Math.max(0, gross - paidDeposit);
-      dayMap[d].online_collected += paidDeposit;
+      const depositRows = getPaidDepositRowsForAppointment(payments, apt.id);
+      const depBuckets = allocatePaidDepositToBuckets(paidDeposit, depositRows);
+      dayMap[d].online_collected += depBuckets.online;
+      dayMap[d].cash_collected += depBuckets.cash;
+      dayMap[d].pos_collected += depBuckets.terminal;
 
       if (apt.payment_method === "Stripe") {
         dayMap[d].online_collected += finalCollectedAmount;
@@ -211,7 +223,18 @@ export default function Reports() {
     return Object.values(dayMap)
       .map(d => ({ ...d, net: d.gross - d.tax - d.discounts }))
       .sort((a, b) => b.date.localeCompare(a.date));
-  })();
+  }, [
+    completedAppointments,
+    charges,
+    reportingCategories,
+    appointments,
+    appointmentRefunds,
+    filterLocation,
+    filterArtist,
+    startDate,
+    endDate,
+    payments,
+  ]);
 
   const revenueByArtist = completedAppointments.reduce((acc, apt) => {
     const artist = artists.find(a => a.id === apt.artist_id);

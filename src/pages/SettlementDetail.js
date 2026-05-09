@@ -22,6 +22,7 @@ import {
   filterCategoriesByRole,
   getCategoryPathLabel,
 } from "@/utils/reportingCategories";
+import { allocatePaidDepositToMethodLabels } from "@/utils/depositAllocation";
 
 function money(n) {
   const v = Number(n) || 0;
@@ -120,6 +121,25 @@ export default function SettlementDetail() {
     enabled: !!studioId && !!settlement,
   });
 
+  const { data: payments = [], isLoading: loadingPayments } = useQuery({
+    queryKey: ["paymentsForSettlement", studioId, appointmentIdsKey],
+    queryFn: async () => {
+      const all = await base44.entities.Payment.filter({ studio_id: studioId });
+      const idSet = new Set(appointmentIds);
+      return all.filter((p) => idSet.has(p.appointment_id));
+    },
+    enabled: !!studioId && appointmentIds.length > 0,
+  });
+
+  const paymentsByAppointment = useMemo(() => {
+    const m = {};
+    for (const p of payments) {
+      if (!m[p.appointment_id]) m[p.appointment_id] = [];
+      m[p.appointment_id].push(p);
+    }
+    return m;
+  }, [payments]);
+
   const getUserRole = () => {
     if (!user) return null;
     return normalizeUserRole(
@@ -208,21 +228,24 @@ export default function SettlementDetail() {
 
     for (const line of lines) {
       const apt = aptById[line.appointment_id];
-      const label = apt?.payment_method || "Unspecified";
+      const checkoutLabel = apt?.payment_method || "Unspecified";
       const gross = Number(line.gross_amount) || 0;
       const tips = Number(line.tip_amount) || 0;
       const paidDeposit = getPaidDepositAmount(apt, gross);
       const remainingGross = Math.max(0, gross - paidDeposit);
-
-      if (paidDeposit > 0 && label === "Stripe") {
-        addRow("Stripe", paidDeposit + remainingGross, tips);
-      } else {
-        if (paidDeposit > 0) addRow("Stripe", paidDeposit, 0);
-        if (remainingGross > 0 || tips > 0) addRow(label, remainingGross, tips);
+      const depositRows = (paymentsByAppointment[line.appointment_id] || []).filter(
+        (p) => p.payment_type === "deposit" && p.status === "paid"
+      );
+      const byLabel = allocatePaidDepositToMethodLabels(paidDeposit, depositRows);
+      for (const [label, amt] of Object.entries(byLabel)) {
+        addRow(label, amt, 0);
+      }
+      if (remainingGross > 0 || tips > 0) {
+        addRow(checkoutLabel, remainingGross, tips);
       }
     }
     return Object.values(map).sort((a, b) => (b.gross + b.tips) - (a.gross + a.tips));
-  }, [lines, aptById]);
+  }, [lines, aptById, paymentsByAppointment]);
 
   const totalsByReportingCategory = useMemo(() => {
     const map = {};
@@ -303,7 +326,7 @@ export default function SettlementDetail() {
   }, [lines, settlement]);
 
   const loadingBreakdowns =
-    loadingLines || loadingAppointments || loadingCharges || loadingReportingCategories;
+    loadingLines || loadingAppointments || loadingCharges || loadingReportingCategories || loadingPayments;
 
   if (!isAdmin) {
     return (

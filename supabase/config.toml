@@ -8,6 +8,9 @@ verify_jwt = false
 [functions.create-deposit-checkout]
 verify_jwt = false
 
+[functions.record-in-person-deposit]
+verify_jwt = false
+
 [functions.send-appointment-email]
 verify_jwt = false
 

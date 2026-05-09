@@ -14,6 +14,7 @@ import {
   getCategoryPathLabel,
   getLeafCategoryOptions,
 } from "@/utils/reportingCategories";
+import { CHECKOUT_PAYMENT_METHOD_OPTIONS } from "@/utils/checkoutPaymentMethods";
 
 const LEGACY_PAYMENT_METHOD_MAP = {
   Card: "Other",
@@ -628,13 +629,9 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
               <Select value={paymentMethod} onValueChange={setPaymentMethod}>
                 <SelectTrigger className="text-sm"><SelectValue placeholder="Method" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Cash">Cash</SelectItem>
-                  <SelectItem value="E-Transfer">E-Transfer</SelectItem>
-                  <SelectItem value="Amex">Amex</SelectItem>
-                  <SelectItem value="Mastercard">Mastercard</SelectItem>
-                  <SelectItem value="Visa">Visa</SelectItem>
-                  <SelectItem value="Debit">Debit</SelectItem>
-                  <SelectItem value="Other">Other</SelectItem>
+                  {CHECKOUT_PAYMENT_METHOD_OPTIONS.map(({ value, label }) => (
+                    <SelectItem key={value} value={value}>{label}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
