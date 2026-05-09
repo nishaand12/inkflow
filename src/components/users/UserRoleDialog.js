@@ -91,6 +91,7 @@ export default function UserRoleDialog({ open, onOpenChange, user }) {
                   <li>• View and manage all appointments</li>
                   <li>• Create appointments for any active artist</li>
                   <li>• Manage customer profiles</li>
+                  <li>• View and edit own availability (linked artist profile required; use inactive profile if not bookable)</li>
                   <li>• Cannot access reports or system settings</li>
                   <li>• Cannot manage users or locations</li>
                 </>

@@ -61,8 +61,8 @@ export default function OnboardingChoice() {
       return studio;
     },
     onSuccess: () => {
-      // Redirect to Studio Settings with the guide open for new owners
-      window.location.href = '/StudioSettings?showGuide=true';
+      // New studios are inactive until validated — full page load so session/studio state is fresh
+      window.location.replace('/pending-validation');
     },
     onError: (err) => {
       setIsSubmitting(false);

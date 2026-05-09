@@ -78,9 +78,11 @@ export default function Layout({ children, currentPageName = null }) {
         if (studios.length > 0) {
           setStudioActive(studios[0].is_active);
           if (!studios[0].is_active) {
-            const path = window.location.pathname;
-            if (!path.includes('PendingValidation') && !path.includes('StudioSettings')) {
-              navigate(createPageUrl('PendingValidation'), { replace: true });
+            const path = window.location.pathname.toLowerCase();
+            const allowedWhileInactive =
+              path.includes("/pending-validation") || path.includes("/onboarding-choice");
+            if (!allowedWhileInactive) {
+              navigate(createPageUrl("PendingValidation"), { replace: true });
               setUser(currentUser);
               setLoading(false);
               setCheckedAuth(true);
@@ -223,7 +225,7 @@ export default function Layout({ children, currentPageName = null }) {
         title: "Availability",
         url: createPageUrl("MyAvailability"),
         icon: Clock,
-        roles: ["Artist", "Owner", "Admin"]
+        roles: ["Artist", "Owner", "Admin", "Front_Desk"]
       }
     ];
 
@@ -274,9 +276,11 @@ export default function Layout({ children, currentPageName = null }) {
   }
 
   // Render pages without layout chrome during onboarding or pending validation
-  const isOnboardingFlow = !user?.is_onboarded || 
-    location.pathname.includes('OnboardingChoice') || 
-    location.pathname.includes('PendingValidation') ||
+  const pathLower = location.pathname.toLowerCase();
+  const isOnboardingFlow =
+    !user?.is_onboarded ||
+    pathLower.includes("/onboarding-choice") ||
+    pathLower.includes("/pending-validation") ||
     !studioActive;
   
   if (isOnboardingFlow) {

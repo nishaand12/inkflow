@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { CheckCircle, Loader2, Mail, ExternalLink, Plus, Trash2, ScanBarcode, Package } from "lucide-react";
+import { CheckCircle, Plus, Trash2, ScanBarcode, Package } from "lucide-react";
 import { supabase } from "@/utils/supabase";
 import {
   CATEGORY_ROLE_REPORTING,
@@ -16,13 +16,14 @@ import {
 } from "@/utils/reportingCategories";
 
 const LEGACY_PAYMENT_METHOD_MAP = {
-  Card: "Stripe",
+  Card: "Other",
   POS: "Other",
   "POS Terminal": "Other",
 };
 
 function normalizePaymentMethodForSelect(raw) {
   if (!raw) return "";
+  if (raw === "Stripe") return "";
   return LEGACY_PAYMENT_METHOD_MAP[raw] || raw;
 }
 
@@ -38,32 +39,10 @@ function aggregateProductCheckoutQuantities(lineItems) {
   return [...map.entries()].map(([product_id, quantity]) => ({ product_id, quantity }));
 }
 
-/** Snapshot for Stripe payment row + webhook materialization (no client-only keys). */
-function buildCheckoutLineItemsPayload(lineItems, resolveReportingCategoryName) {
-  return lineItems.map((li) => {
-    const lineTotal = (li.quantity * li.unit_price) - (li.discount_amount || 0);
-    return {
-      line_type: li.line_type,
-      description: li.description,
-      quantity: li.quantity,
-      unit_price: li.unit_price,
-      discount_amount: li.discount_amount || 0,
-      line_total: lineTotal,
-      reporting_category_id: li.reporting_category_id || null,
-      reporting_category_name: resolveReportingCategoryName(li.reporting_category_id) || null,
-      product_id: li.product_id || null,
-    };
-  });
-}
-
 function getProductTaxRate(product) {
   const r = product?.tax_rate;
   if (r != null && !Number.isNaN(Number(r))) return Number(r);
   return DEFAULT_SERVICE_TAX_RATE;
-}
-
-function roundMoney2(n) {
-  return Math.round(Number(n) * 100) / 100;
 }
 
 function parseMoneyInput(value) {
@@ -83,20 +62,6 @@ function initialServiceLineUnitPrice(appointment, aptType) {
   return 0;
 }
 
-/** Split pretax vs tax for Stripe when deposit reduces amount due (proportional). */
-function amountDueStripeSplit(lineSubtotal, computedTax, depositCredited) {
-  const grandTotal = roundMoney2(lineSubtotal + computedTax);
-  const amountDue = roundMoney2(Math.max(0, grandTotal - (depositCredited || 0)));
-  if (grandTotal <= 0 || amountDue <= 0) {
-    return { stripePretax: 0, stripeTax: 0, amountDue, grandTotal };
-  }
-  let stripePretax = roundMoney2((lineSubtotal / grandTotal) * amountDue);
-  let stripeTax = roundMoney2((computedTax / grandTotal) * amountDue);
-  const drift = roundMoney2(amountDue - stripePretax - stripeTax);
-  stripeTax = roundMoney2(stripeTax + drift);
-  return { stripePretax, stripeTax, amountDue, grandTotal };
-}
-
 export default function CheckoutDialog({ open, onOpenChange, appointment, artists, locations, appointmentTypes, customers, studio }) {
   const queryClient = useQueryClient();
   const barcodeInputRef = useRef(null);
@@ -105,9 +70,7 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
   const [lineItems, setLineItems] = useState([]);
   const [paymentMethod, setPaymentMethod] = useState('');
   const [tipAmount, setTipAmount] = useState('');
-  const [openLinkLoading, setOpenLinkLoading] = useState(false);
-  const [emailLinkLoading, setEmailLinkLoading] = useState(false);
-  const [stripeMessage, setStripeMessage] = useState(null);
+  const [checkoutMessage, setCheckoutMessage] = useState(null);
   const [showManualAdd, setShowManualAdd] = useState(false);
   const [manualLine, setManualLine] = useState({ description: '', unit_price: '', quantity: 1, reporting_category_id: '', discount: '' });
 
@@ -155,7 +118,7 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
       setLineItems(initialLines);
       setPaymentMethod(normalizePaymentMethodForSelect(appointment.payment_method));
       setTipAmount(appointment.tip_amount ? String(appointment.tip_amount) : '');
-      setStripeMessage(null);
+      setCheckoutMessage(null);
       setShowManualAdd(false);
       setManualLine({ description: '', unit_price: '', quantity: 1, reporting_category_id: '', discount: '' });
     }
@@ -210,8 +173,8 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
           }]);
         }
       } else {
-        setStripeMessage({ type: 'error', text: `Product not found: "${code}"` });
-        setTimeout(() => setStripeMessage(null), 3000);
+        setCheckoutMessage({ type: 'error', text: `Product not found: "${code}"` });
+        setTimeout(() => setCheckoutMessage(null), 3000);
       }
     }
   }, [barcodeBuffer, products, lineItems]);
@@ -377,7 +340,7 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
       onOpenChange(false);
     },
     onError: (err) => {
-      setStripeMessage({ type: 'error', text: err.message || 'Checkout failed.' });
+      setCheckoutMessage({ type: 'error', text: err.message || 'Checkout failed.' });
     },
   });
 
@@ -386,97 +349,12 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
     checkoutMutation.mutate();
   };
 
-  const validateStripeCheckout = () => {
-    const { grandTotal: gt, amountDue: dueBeforeTip } = amountDueStripeSplit(
-      lineSubtotal,
-      computedTax,
-      depositCredited
-    );
-    const due = dueBeforeTip + tipTotal;
-    if (lineSubtotal <= 0 && computedTax <= 0 && tipTotal <= 0) {
-      setStripeMessage({ type: 'error', text: 'Add at least one line item with a positive amount.' });
-      return null;
-    }
-    if (gt <= 0 && tipTotal <= 0) {
-      setStripeMessage({ type: 'error', text: 'Total must be greater than zero.' });
-      return null;
-    }
-    if (due <= 0) {
-      setStripeMessage({ type: 'error', text: 'Nothing to charge — the paid deposit covers the full balance.' });
-      return null;
-    }
-    return true;
-  };
-
-  const createCheckoutSession = async (sendEmail) => {
-    if (validateStripeCheckout() === null) return null;
-
-    const { stripePretax, stripeTax } = amountDueStripeSplit(lineSubtotal, computedTax, depositCredited);
-    const checkoutLineItems = buildCheckoutLineItemsPayload(lineItems, resolveReportingCategoryName);
-    const { data, error } = await supabase.functions.invoke('create-checkout-payment', {
-      body: {
-        appointmentId: appointment.id,
-        chargeAmount: stripePretax,
-        taxAmount: stripeTax,
-        tipAmount: tipTotal,
-        sendEmail,
-        checkoutLineItems,
-      },
-    });
-
-    if (error) throw error;
-    if (data?.error) throw new Error(data.error);
-
-    queryClient.invalidateQueries({ queryKey: ['appointments'] });
-    return data;
-  };
-
-  const handleOpenCheckout = async () => {
-    setOpenLinkLoading(true);
-    setStripeMessage(null);
-    try {
-      const data = await createCheckoutSession(false);
-      if (!data) return;
-      window.open(data.checkout_url, '_blank');
-      setStripeMessage({
-        type: 'success',
-        text: 'Checkout page opened. Payment will be confirmed automatically once completed.',
-        url: data.checkout_url,
-      });
-    } catch (err) {
-      setStripeMessage({ type: 'error', text: err.message || 'Failed to create payment link.' });
-    } finally {
-      setOpenLinkLoading(false);
-    }
-  };
-
-  const handleEmailPaymentLink = async () => {
-    setEmailLinkLoading(true);
-    setStripeMessage(null);
-    try {
-      const data = await createCheckoutSession(true);
-      if (!data) return;
-      setStripeMessage({
-        type: 'success',
-        text: data.email_sent
-          ? 'Payment link emailed to the customer.'
-          : 'Payment link created but no email address on file.',
-        url: data.checkout_url,
-      });
-    } catch (err) {
-      setStripeMessage({ type: 'error', text: err.message || 'Failed to create payment link.' });
-    } finally {
-      setEmailLinkLoading(false);
-    }
-  };
-
   if (!appointment) return null;
 
   const artist = artists?.find(a => a.id === appointment.artist_id);
   const appointmentType = appointmentTypes?.find(t => t.id === appointment.appointment_type_id);
   const customer = customers?.find(c => c.id === appointment.customer_id);
   const clientName = customer?.name || appointment.client_name || 'Unknown';
-  const stripeConnected = studio?.stripe_account_id && studio?.stripe_charges_enabled;
   const activeProducts = products.filter(p => p.is_active);
 
   return (
@@ -750,7 +628,6 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
               <Select value={paymentMethod} onValueChange={setPaymentMethod}>
                 <SelectTrigger className="text-sm"><SelectValue placeholder="Method" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="Stripe">Stripe</SelectItem>
                   <SelectItem value="Cash">Cash</SelectItem>
                   <SelectItem value="E-Transfer">E-Transfer</SelectItem>
                   <SelectItem value="Amex">Amex</SelectItem>
@@ -788,47 +665,19 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
             </div>
           </div>
 
-          {stripeMessage && (
+          {checkoutMessage && (
             <div className={`rounded-lg p-3 text-sm ${
-              stripeMessage.type === 'success' ? 'bg-green-50 text-green-800 border border-green-200' : 'bg-red-50 text-red-800 border border-red-200'
+              checkoutMessage.type === 'success' ? 'bg-green-50 text-green-800 border border-green-200' : 'bg-red-50 text-red-800 border border-red-200'
             }`}>
-              <p>{stripeMessage.text}</p>
-              {stripeMessage.url && (
-                <a href={stripeMessage.url} target="_blank" rel="noopener noreferrer" className="underline text-green-700 text-xs mt-1 inline-block">
-                  Open payment link
-                </a>
-              )}
+              <p>{checkoutMessage.text}</p>
             </div>
           )}
 
           <div className="flex flex-col gap-2 pt-4 border-t border-gray-100">
-            {stripeConnected && (
-              <>
-                <Button
-                  type="button"
-                  className="bg-indigo-600 hover:bg-indigo-700 w-full"
-                  disabled={openLinkLoading || emailLinkLoading || checkoutMutation.isPending || lineItems.length === 0}
-                  onClick={handleOpenCheckout}
-                >
-                  {openLinkLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <ExternalLink className="w-4 h-4 mr-2" />}
-                  Open Stripe Checkout
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="border-indigo-300 text-indigo-700 hover:bg-indigo-50 w-full"
-                  disabled={openLinkLoading || emailLinkLoading || checkoutMutation.isPending || lineItems.length === 0}
-                  onClick={handleEmailPaymentLink}
-                >
-                  {emailLinkLoading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Mail className="w-4 h-4 mr-2" />}
-                  Email Payment Link
-                </Button>
-              </>
-            )}
             <Button
               type="button"
               className="bg-green-600 hover:bg-green-700 w-full"
-              disabled={checkoutMutation.isPending || openLinkLoading || emailLinkLoading}
+              disabled={checkoutMutation.isPending}
               onClick={handleManualCheckout}
             >
               <CheckCircle className="w-4 h-4 mr-2" />

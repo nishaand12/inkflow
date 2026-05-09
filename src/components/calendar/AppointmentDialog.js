@@ -20,14 +20,13 @@ import CheckoutDialog from "./CheckoutDialog";
 import RefundDialog from "./RefundDialog";
 import { normalizeUserRole } from "@/utils/roles";
 import { addMinutesToTime, formatDuration } from "@/utils/index";
-import {
-  getAppointmentTypeDisplaySections,
-  isPiercingClinicalProfile,
-  isTattooClinicalProfile,
-} from "@/utils/reportingCategories";
+import { getAppointmentTypeDisplaySections } from "@/utils/reportingCategories";
 
 // Stable empty array to prevent new references on each render
 const EMPTY_ARRAY = [];
+
+/** Minimum span between start and end time (e.g. short piercing visits). */
+const MIN_APPOINTMENT_DURATION_MINUTES = 5;
 
 export default function AppointmentDialog({ open, onOpenChange, appointment, defaultDate, artists, locations, currentUser, userArtist }) {
   const queryClient = useQueryClient();
@@ -60,8 +59,6 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
   const [depositLinkMessage, setDepositLinkMessage] = useState(null);
   const [depositCheckoutUrl, setDepositCheckoutUrl] = useState(null);
   const [copiedDepositUrl, setCopiedDepositUrl] = useState(false);
-
-  const [healthFields, setHealthFields] = useState({});
 
   const [validationErrors, setValidationErrors] = useState({
     artistConflict: null,
@@ -101,7 +98,9 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
   const canCheckout = () => {
     if (!currentUser || !appointment) return false;
     if (appointment.status === 'completed') return false;
-    return isAdmin || userRole === 'Front_Desk';
+    if (!userRole) return false;
+    // All studio roles may run checkout; tax and payment are captured there.
+    return ['Admin', 'Owner', 'Front_Desk', 'Artist'].includes(userRole);
   };
 
   const canUnlockAppointment = () => {
@@ -231,8 +230,6 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
         total_estimate: appointment.total_estimate ?? 0,
         tax_amount: appointment.tax_amount ?? 0,
       });
-      
-      setHealthFields(appointment.health_fields || {});
 
       if (appointment.customer_id) {
         const customer = customers.find(c => c.id === appointment.customer_id);
@@ -265,7 +262,6 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
         status: 'scheduled'
       });
       setSelectedCustomer(null);
-      setHealthFields({});
     }
     setValidationErrors({ artistConflict: null, stationsFull: false });
     setDepositLinkMessage(null);
@@ -582,8 +578,13 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
       work_station_id: sanitizeUuid(formData.work_station_id),
       artist_id: sanitizeUuid(formData.artist_id),
       location_id: sanitizeUuid(formData.location_id),
-      health_fields: Object.keys(healthFields).length > 0 ? healthFields : {},
+      health_fields: appointment?.health_fields ?? {},
     };
+
+    // Tax is set at checkout only; do not persist it from the booking form.
+    if (formData.status !== "completed") {
+      delete dataToSave.tax_amount;
+    }
 
     if (appointment && formData.status === appointment.status) {
       delete dataToSave.status;
@@ -708,7 +709,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
         work_station_id: sanitizeUuid(formData.work_station_id),
         artist_id: sanitizeUuid(formData.artist_id),
         location_id: sanitizeUuid(formData.location_id),
-        health_fields: Object.keys(healthFields).length > 0 ? healthFields : {},
+        health_fields: appointment?.health_fields ?? {},
         status: "scheduled",
         charge_amount: 0,
         tax_amount: 0,
@@ -767,25 +768,6 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
       }))
       .sort((a, b) => (a.label || "").localeCompare(b.label || ""));
   }, [activeAppointmentTypes, reportingCategories]);
-  const selectedAppointmentType = appointmentTypes.find(t => t.id === formData.appointment_type_id);
-
-  const showPiercingHealthFields = useMemo(() => {
-    if (!selectedAppointmentType?.appointment_kind_category_id) return false;
-    return isPiercingClinicalProfile(
-      reportingCategories,
-      selectedAppointmentType.appointment_kind_category_id
-    );
-  }, [selectedAppointmentType, reportingCategories]);
-
-  const showTattooHealthFields = useMemo(() => {
-    if (!selectedAppointmentType?.appointment_kind_category_id) return false;
-    return isTattooClinicalProfile(
-      reportingCategories,
-      selectedAppointmentType.appointment_kind_category_id
-    );
-  }, [selectedAppointmentType, reportingCategories]);
-
-  const showHealthClinicalSection = showPiercingHealthFields || showTattooHealthFields;
 
   return (
     <>
@@ -963,7 +945,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                   onChange={(e) => {
                     const newStart = e.target.value;
                     const currentDuration = timeToMinutes(formData.end_time) - timeToMinutes(formData.start_time);
-                    const newEnd = addMinutesToTime(newStart, Math.max(currentDuration, 15));
+                    const newEnd = addMinutesToTime(newStart, Math.max(currentDuration, MIN_APPOINTMENT_DURATION_MINUTES));
                     setFormData({ ...formData, start_time: newStart, end_time: newEnd, work_station_id: '' });
                   }}
                   required
@@ -1053,7 +1035,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
               </div>
             )}
 
-            <div className="grid grid-cols-3 gap-2 sm:gap-4">
+            <div className="grid grid-cols-2 gap-2 sm:gap-4">
               <div className="space-y-2">
                 <Label htmlFor="deposit_amount" className="text-sm">Deposit ($)</Label>
                 <Input
@@ -1075,20 +1057,6 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                   min="0"
                   value={formData.total_estimate}
                   onChange={(e) => setFormData({ ...formData, total_estimate: parseFloat(e.target.value) })}
-                  disabled={!canEdit()}
-                  className="text-sm"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="tax_amount" className="text-sm">Tax ($)</Label>
-                <Input
-                  id="tax_amount"
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  value={formData.tax_amount}
-                  onChange={(e) => setFormData({ ...formData, tax_amount: parseFloat(e.target.value) })}
                   disabled={!canEdit()}
                   className="text-sm"
                 />
@@ -1199,7 +1167,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="notes" className="text-sm">Notes</Label>
+              <Label htmlFor="notes" className="text-sm">Health Notes</Label>
               <Textarea
                 id="notes"
                 value={formData.notes}
@@ -1209,82 +1177,6 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                 className="text-sm"
               />
             </div>
-
-            {showHealthClinicalSection && (
-              <details className="border border-gray-200 rounded-lg p-3">
-                <summary className="cursor-pointer text-sm font-medium text-gray-700">Health & Clinical Fields</summary>
-                <div className="grid grid-cols-2 gap-3 mt-3">
-                  {showPiercingHealthFields && (
-                    <>
-                      <div className="space-y-1">
-                        <Label className="text-xs">Needle Lot #</Label>
-                        <Input
-                          value={healthFields.needle_lot || ''}
-                          onChange={(e) => setHealthFields({ ...healthFields, needle_lot: e.target.value })}
-                          disabled={!canEdit()}
-                          className="text-sm"
-                          placeholder="Lot number"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs">Jewellery Lot #</Label>
-                        <Input
-                          value={healthFields.jewellery_lot || ''}
-                          onChange={(e) => setHealthFields({ ...healthFields, jewellery_lot: e.target.value })}
-                          disabled={!canEdit()}
-                          className="text-sm"
-                          placeholder="Lot number"
-                        />
-                      </div>
-                    </>
-                  )}
-                  {showTattooHealthFields && (
-                    <>
-                      <div className="space-y-1">
-                        <Label className="text-xs">Ink Brand / Lot #</Label>
-                        <Input
-                          value={healthFields.ink_lot || ''}
-                          onChange={(e) => setHealthFields({ ...healthFields, ink_lot: e.target.value })}
-                          disabled={!canEdit()}
-                          className="text-sm"
-                          placeholder="Brand and lot number"
-                        />
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-xs">Needle Cartridge Lot #</Label>
-                        <Input
-                          value={healthFields.needle_cartridge_lot || ''}
-                          onChange={(e) => setHealthFields({ ...healthFields, needle_cartridge_lot: e.target.value })}
-                          disabled={!canEdit()}
-                          className="text-sm"
-                          placeholder="Cartridge lot number"
-                        />
-                      </div>
-                    </>
-                  )}
-                  <div className="space-y-1 col-span-2">
-                    <Label className="text-xs">Sterilization Notes</Label>
-                    <Input
-                      value={healthFields.sterilization_notes || ''}
-                      onChange={(e) => setHealthFields({ ...healthFields, sterilization_notes: e.target.value })}
-                      disabled={!canEdit()}
-                      className="text-sm"
-                      placeholder="Autoclave cycle, spore test, etc."
-                    />
-                  </div>
-                  <div className="space-y-1 col-span-2">
-                    <Label className="text-xs">Skin Prep / Aftercare Notes</Label>
-                    <Input
-                      value={healthFields.skin_prep_notes || ''}
-                      onChange={(e) => setHealthFields({ ...healthFields, skin_prep_notes: e.target.value })}
-                      disabled={!canEdit()}
-                      className="text-sm"
-                      placeholder="Skin prep method, aftercare instructions given, etc."
-                    />
-                  </div>
-                </div>
-              </details>
-            )}
 
             {appointment && canEdit() && appointment.status !== 'completed' && (
               <div className="space-y-2">

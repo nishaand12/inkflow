@@ -66,12 +66,12 @@ export default function RefundDialog({ open, onOpenChange, appointment, studio }
     if (!open || !appointment) return;
     setNotes("");
     setRefundMethod("cash");
-  }, [open, appointment?.id]);
+  }, [open, appointment]);
 
   useEffect(() => {
     if (!open || !appointment) return;
     setAmount(maxRefund > 0 ? String(maxRefund) : "");
-  }, [open, appointment?.id, maxRefund]);
+  }, [open, appointment, maxRefund]);
 
   const handleSubmit = (e) => {
     e.preventDefault();

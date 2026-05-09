@@ -79,21 +79,20 @@ test.describe('Phase 1 - Account and Studio Setup', () => {
     // Currency defaults to USD — leave as-is
     await page.getByRole('button', { name: /create studio/i }).click();
 
-    // ── Step 16-17: Wait for redirect to studio settings ─────────────────────
-    await page.waitForURL(/studio.?settings/i, { timeout: 15000 });
+    // ── Step 16-17: Wait for redirect to pending validation (new studios are inactive) ──
+    await page.waitForURL(/pending-validation/i, { timeout: 15000 });
     await page.waitForLoadState('networkidle');
 
-    // Confirm page loaded — look for any recognizable studio settings content
-    await expect(
-      page.getByText(/studio|settings|stripe|email/i).first()
-    ).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('heading', { name: /pending validation/i })).toBeVisible({
+      timeout: 10000,
+    });
 
     // ── Pause Point 2: manual studio activation + Stripe connect ─────────────
     console.log('\n=== ACTION REQUIRED ===');
     console.log(`Studio name created: "${studioName}"`);
     console.log('1. Go to your Supabase dashboard → Table Editor → studios');
     console.log(`   Find "${studioName}" and set is_active = true`);
-    console.log('2. Return to the app at http://localhost:3000/studio-settings');
+    console.log('2. Sign out from the app, sign in again at /auth, then open /studio-settings');
     console.log('   Connect your Stripe test account using the Connect Stripe button.');
     console.log('   Wait until stripe_charges_enabled = true (the page will show a green connected badge).');
     console.log('3. Once both are done, click Resume in the Playwright Inspector.');

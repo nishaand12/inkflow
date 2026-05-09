@@ -32,7 +32,7 @@ import {
 } from "@/utils/reportingCategories";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
-const DURATION_PRESETS = [10, 15, 20, 30, 45, 60, 90, 120, 150, 180, 240, 300, 360];
+const DURATION_PRESETS = [5, 10, 15, 20, 30, 45, 60, 90, 120, 150, 180, 240, 300, 360];
 
 const DEFAULT_FORM = {
   appointment_kind_category_id: "",
@@ -268,13 +268,16 @@ export default function AppointmentTypeDialog({ open, onOpenChange, appointmentT
                   <div className="flex items-center gap-2 mt-1">
                     <Input
                       type="number"
-                      min="1"
+                      min="5"
                       step="1"
                       value={formData.default_duration_minutes}
                       onChange={(e) =>
                         setFormData({
                           ...formData,
-                          default_duration_minutes: parseInt(e.target.value, 10) || 1,
+                          default_duration_minutes: Math.max(
+                            5,
+                            parseInt(e.target.value, 10) || 5
+                          ),
                         })
                       }
                       className="w-28"

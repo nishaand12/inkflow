@@ -9,6 +9,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Plus, Calendar, Clock, X, ChevronLeft, ChevronRight, Save, Trash2 } from "lucide-react";
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, startOfWeek, endOfWeek, addMonths, subMonths, parseISO, isWithinInterval, isSameMonth } from "date-fns";
 import AvailabilityDialog from "../components/availability/AvailabilityDialog";
+import { normalizeUserRole } from "@/utils/roles";
+
+const ROLES_WITH_MY_AVAILABILITY = ["Artist", "Owner", "Admin", "Front_Desk"];
 
 export default function MyAvailability() {
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -23,7 +26,10 @@ export default function MyAvailability() {
     queryFn: () => base44.auth.me()
   });
 
-  const isAdmin = user?.user_role === 'Admin' || user?.user_role === 'Owner';
+  const normalizedRole = user
+    ? normalizeUserRole(user.user_role || (user.role === "admin" ? "Admin" : "Front_Desk"))
+    : null;
+  const isAdmin = normalizedRole === "Admin" || normalizedRole === "Owner";
 
   const { data: artists = [] } = useQuery({
     queryKey: ['artists', user?.studio_id],
@@ -216,7 +222,7 @@ export default function MyAvailability() {
     );
   }
 
-  if (user.user_role !== 'Artist' && user.user_role !== 'Admin' && user.user_role !== 'Owner') {
+  if (!ROLES_WITH_MY_AVAILABILITY.includes(normalizedRole)) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-6">
         <div className="max-w-4xl mx-auto">
@@ -225,7 +231,7 @@ export default function MyAvailability() {
               <Calendar className="w-16 h-16 text-gray-300 mx-auto mb-4" />
               <h2 className="text-xl font-bold text-gray-900 mb-2">Access Restricted</h2>
               <p className="text-gray-500">
-                Only Artists, Owners, and Admins can manage availability. Your current role is: {user.user_role}
+                Your role cannot open this page. Current role: {user.user_role || "—"}
               </p>
             </CardContent>
           </Card>
@@ -245,7 +251,9 @@ export default function MyAvailability() {
               <p className="text-gray-500">
                 {isAdmin
                   ? 'No active artists found. Add an artist from the Artists page first.'
-                  : 'You need an artist profile to manage availability. Ask an admin to create one for you.'}
+                  : normalizedRole === 'Front_Desk'
+                    ? 'Ask an admin to link an artist profile to your account so you can log hours (they can mark it inactive if you should not appear on public booking).'
+                    : 'You need an artist profile to manage availability. Ask an admin to create one for you.'}
               </p>
             </CardContent>
           </Card>
@@ -261,7 +269,11 @@ export default function MyAvailability() {
           <div>
             <h1 className="text-3xl font-bold text-gray-900">Availability</h1>
             <p className="text-gray-500 mt-1">
-              {isAdmin ? 'Manage artist working hours and time off' : 'Set your working hours and time off'}
+              {isAdmin
+                ? 'Manage artist working hours and time off'
+                : normalizedRole === 'Front_Desk'
+                  ? 'Log your working hours and time off'
+                  : 'Set your working hours and time off'}
             </p>
           </div>
           {isAdmin && activeArtists.length > 1 && (

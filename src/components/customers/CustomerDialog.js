@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
 import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { Save, Trash2, AlertTriangle } from "lucide-react";
+import { Save, Trash2, AlertTriangle, Calendar } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -18,6 +18,27 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
+import { parseISO, startOfDay, isBefore, isSameDay } from "date-fns";
+
+const appointmentStatusStyles = {
+  scheduled: "bg-blue-100 text-blue-800 border-blue-200",
+  confirmed: "bg-green-100 text-green-800 border-green-200",
+  deposit_paid: "bg-purple-100 text-purple-800 border-purple-200",
+  completed: "bg-gray-100 text-gray-800 border-gray-200",
+  cancelled: "bg-red-100 text-red-800 border-red-200",
+  no_show: "bg-orange-100 text-orange-800 border-orange-200",
+};
+
+function isPastAppointment(apt) {
+  const aptDate = startOfDay(parseISO(apt.appointment_date));
+  const today = startOfDay(new Date());
+  if (isBefore(aptDate, today)) return true;
+  if (isSameDay(aptDate, today)) {
+    return ["completed", "cancelled", "no_show"].includes(apt.status);
+  }
+  return false;
+}
 
 export default function CustomerDialog({ open, onOpenChange, customer, locations, isAdmin, currentUser }) {
   const queryClient = useQueryClient();
@@ -44,6 +65,30 @@ export default function CustomerDialog({ open, onOpenChange, customer, locations
     enabled: !!currentUser?.studio_id
   });
 
+  const { data: customerAppointments = [], isLoading: customerAppointmentsLoading } = useQuery({
+    queryKey: ["customerAppointments", customer?.id, currentUser?.studio_id],
+    queryFn: async () => {
+      if (!currentUser?.studio_id || !customer?.id) return [];
+      return base44.entities.Appointment.filter(
+        { studio_id: currentUser.studio_id, customer_id: customer.id },
+        "-appointment_date"
+      );
+    },
+    enabled: open && !!customer?.id && !!currentUser?.studio_id,
+  });
+
+  const { data: appointmentTypes = [] } = useQuery({
+    queryKey: ["appointmentTypes", currentUser?.studio_id],
+    queryFn: async () => {
+      if (!currentUser?.studio_id) return [];
+      return base44.entities.AppointmentType.filter({ studio_id: currentUser.studio_id });
+    },
+    enabled: open && !!customer?.id && !!currentUser?.studio_id,
+  });
+
+  const pastAppointments = useMemo(() => {
+    return customerAppointments.filter(isPastAppointment);
+  }, [customerAppointments]);
   useEffect(() => {
     if (customer) {
       setFormData({
@@ -287,6 +332,56 @@ export default function CustomerDialog({ open, onOpenChange, customer, locations
                 onCheckedChange={(checked) => setFormData({ ...formData, is_active: checked })}
               />
             </div>
+
+            {customer && (
+              <div className="space-y-3 border-t border-gray-200 pt-6">
+                <div className="flex items-start gap-2">
+                  <Calendar className="w-4 h-4 text-gray-500 mt-0.5 shrink-0" />
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-900">Past appointments</h3>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      Earlier visits and completed same-day appointments, newest first.
+                    </p>
+                  </div>
+                </div>
+                {customerAppointmentsLoading ? (
+                  <p className="text-sm text-gray-500 pl-6">Loading appointments…</p>
+                ) : pastAppointments.length === 0 ? (
+                  <p className="text-sm text-gray-500 pl-6">No past appointments on file.</p>
+                ) : (
+                  <ul className="divide-y divide-gray-100 rounded-lg border border-gray-200 max-h-56 overflow-y-auto text-sm">
+                    {pastAppointments.map((apt) => {
+                      const typeName =
+                        appointmentTypes.find((t) => t.id === apt.appointment_type_id)?.name || "—";
+                      const status = apt.status || "scheduled";
+                      return (
+                        <li key={apt.id} className="px-3 py-2.5 flex flex-wrap items-center gap-2 justify-between bg-white">
+                          <div className="min-w-0">
+                            <p className="font-medium text-gray-900">
+                              {apt.appointment_date}
+                              {apt.start_time ? (
+                                <span className="font-normal text-gray-600">
+                                  {" · "}
+                                  {apt.start_time}
+                                  {apt.end_time ? `–${apt.end_time}` : ""}
+                                </span>
+                              ) : null}
+                            </p>
+                            <p className="text-xs text-gray-500 truncate">{typeName}</p>
+                          </div>
+                          <Badge
+                            variant="outline"
+                            className={`text-xs capitalize shrink-0 ${appointmentStatusStyles[status] || "bg-gray-50 text-gray-700"}`}
+                          >
+                            {status.replace(/_/g, " ")}
+                          </Badge>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+            )}
 
             <DialogFooter className="flex justify-between gap-2">
               {customer && isAdmin && (

@@ -1,12 +1,13 @@
 import React, { useEffect, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Clock } from "lucide-react";
-import { createPageUrl } from "@/utils";
+import { Clock, LogIn } from "lucide-react";
 import { Link } from "react-router-dom";
+import { base44 } from "@/api/base44Client";
 
 export default function PendingValidation() {
   const [autoRedirectTime, setAutoRedirectTime] = useState(30);
+  const [signingOut, setSigningOut] = useState(false);
 
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -23,6 +24,17 @@ export default function PendingValidation() {
     };
   }, []);
 
+  const handleSignOutToAuth = async () => {
+    setSigningOut(true);
+    try {
+      await base44.auth.logout();
+    } catch (e) {
+      console.error(e);
+    } finally {
+      window.location.replace("/auth");
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center p-6">
       <Card className="max-w-md w-full">
@@ -33,7 +45,10 @@ export default function PendingValidation() {
           <div>
             <h1 className="text-2xl font-bold text-gray-900 mb-3">Pending Validation</h1>
             <p className="text-gray-600">
-              Your studio is awaiting validation. You'll be able to access the full application once your studio has been approved.
+              Your studio is awaiting validation. You will be able to use the full application after your studio has been approved.
+            </p>
+            <p className="text-gray-600 text-sm mt-3">
+              Once you have confirmation that your studio is active, sign out and sign in again at the login page so your account picks up the updated access.
             </p>
           </div>
           
@@ -51,11 +66,22 @@ export default function PendingValidation() {
             )}
           </div>
 
-          <Link to={createPageUrl("StudioSettings")}>
-            <Button variant="outline" className="w-full">
-              View Studio Settings
-            </Button>
-          </Link>
+          <Button
+            type="button"
+            className="w-full bg-indigo-600 hover:bg-indigo-700"
+            disabled={signingOut}
+            onClick={handleSignOutToAuth}
+          >
+            <LogIn className="w-4 h-4 mr-2" />
+            {signingOut ? "Signing out…" : "Sign out — then sign in at Login"}
+          </Button>
+          <p className="text-xs text-gray-500 text-center">
+            Or go to{" "}
+            <Link to="/auth" className="text-indigo-600 font-medium underline">
+              /auth
+            </Link>{" "}
+            after you sign out (or use Sign out above).
+          </p>
         </CardContent>
       </Card>
     </div>
