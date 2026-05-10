@@ -28,20 +28,42 @@ const CHECKOUT_PAYMENT_METHODS = new Set([
   "Other",
 ]);
 
-/** Older API / UI values mapped to checkout labels. */
-const LEGACY_DEPOSIT_METHOD_TO_CHECKOUT: Record<string, string> = {
-  cash: "Cash",
-  e_transfer: "E-Transfer",
-  card_terminal: "Debit",
-  other: "Other",
+/** Collapsed lowercase key (no spaces/hyphens) -> checkout label */
+const CHECKOUT_BY_COLLAPSED = (() => {
+  const m = new Map<string, string>();
+  for (const label of CHECKOUT_PAYMENT_METHODS) {
+    const key = label.toLowerCase().replace(/[\s-]+/g, "");
+    m.set(key, label);
+  }
+  return m;
+})();
+
+/** Legacy deposit API / aliases not matching checkout spelling (collapsed key) */
+const LEGACY_DEPOSIT_ALIASES: Record<string, string> = {
+  cardterminal: "Debit",
+  pos: "Debit",
+  terminal: "Debit",
+  interac: "Debit",
 };
+
+function collapseMethodKey(raw: string): string {
+  return raw.trim().toLowerCase().replace(/[\s_-]+/g, "");
+}
 
 function normalizeCheckoutPaymentMethod(raw: string): string | null {
   const trimmed = raw?.trim();
   if (!trimmed) return null;
   if (CHECKOUT_PAYMENT_METHODS.has(trimmed)) return trimmed;
-  const legacy = LEGACY_DEPOSIT_METHOD_TO_CHECKOUT[trimmed.toLowerCase()];
-  if (legacy) return legacy;
+
+  const collapsed = collapseMethodKey(trimmed);
+  if (!collapsed) return null;
+
+  const checkout = CHECKOUT_BY_COLLAPSED.get(collapsed);
+  if (checkout) return checkout;
+
+  const legacy = LEGACY_DEPOSIT_ALIASES[collapsed];
+  if (legacy && CHECKOUT_PAYMENT_METHODS.has(legacy)) return legacy;
+
   return null;
 }
 
