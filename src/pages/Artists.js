@@ -17,6 +17,7 @@ import {
   getCategoryPathLabel,
 } from "@/utils/reportingCategories";
 import ArtistDialog from "../components/artists/ArtistDialog";
+import { sortByFullNameThenId } from "@/utils/listSort";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -196,7 +197,9 @@ export default function Artists() {
   const isAdmin = userRole === 'Admin' || userRole === 'Owner';
   const canEdit = isAdmin;
 
-  const filteredArtists = artists.filter(artist =>
+  const sortedArtists = useMemo(() => sortByFullNameThenId(artists), [artists]);
+
+  const filteredArtists = sortedArtists.filter(artist =>
     artist.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     artist.specialty?.toLowerCase().includes(searchTerm.toLowerCase())
   );

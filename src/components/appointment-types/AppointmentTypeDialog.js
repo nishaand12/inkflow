@@ -44,6 +44,7 @@ const DEFAULT_FORM = {
   service_cost: "",
   is_active: true,
   is_public_bookable: false,
+  price_includes_tax: false,
   reporting_category_id: "",
 };
 
@@ -83,6 +84,7 @@ export default function AppointmentTypeDialog({ open, onOpenChange, appointmentT
         service_cost: appointmentType.service_cost ?? "",
         is_active: appointmentType.is_active !== undefined ? appointmentType.is_active : true,
         is_public_bookable: appointmentType.is_public_bookable || false,
+        price_includes_tax: Boolean(appointmentType.price_includes_tax),
         reporting_category_id: appointmentType.reporting_category_id || "",
       });
     } else {
@@ -325,6 +327,25 @@ export default function AppointmentTypeDialog({ open, onOpenChange, appointmentT
                     deposit applies toward the total.
                   </p>
                 )}
+              </div>
+
+              <div className="flex items-center justify-between p-4 rounded-lg border border-gray-200 col-span-2">
+                <div>
+                  <Label htmlFor="price_includes_tax" className="cursor-pointer">
+                    Service price includes sales tax
+                  </Label>
+                  <p className="text-sm text-gray-500">
+                    On (common for piercing): the service amount at checkout already includes tax—tax is backed out for
+                    reporting. Off (common for tattoo): tax is calculated on top of the service line.
+                  </p>
+                </div>
+                <Switch
+                  id="price_includes_tax"
+                  checked={formData.price_includes_tax}
+                  onCheckedChange={(checked) =>
+                    setFormData({ ...formData, price_includes_tax: checked })
+                  }
+                />
               </div>
             </div>
 

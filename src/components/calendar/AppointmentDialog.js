@@ -20,7 +20,7 @@ import AdvancedSearchDialog from "../customers/AdvancedSearchDialog";
 import CheckoutDialog from "./CheckoutDialog";
 import RefundDialog from "./RefundDialog";
 import { normalizeUserRole } from "@/utils/roles";
-import { addMinutesToTime, formatDuration } from "@/utils/index";
+import { addMinutesToTime, formatDuration, formatTime12h } from "@/utils/index";
 import { getAppointmentTypeDisplaySections } from "@/utils/reportingCategories";
 import { CHECKOUT_PAYMENT_METHOD_OPTIONS } from "@/utils/checkoutPaymentMethods";
 
@@ -29,6 +29,146 @@ const EMPTY_ARRAY = [];
 
 /** Minimum span between start and end time (e.g. short piercing visits). */
 const MIN_APPOINTMENT_DURATION_MINUTES = 5;
+
+function sortLocationsByCreatedAt(locationsList) {
+  return [...locationsList].sort((a, b) =>
+    String(a.created_at || "").localeCompare(String(b.created_at || ""))
+  );
+}
+
+/** Active locations sorted by created_at; prefer artist primary, else keep previous if valid, else first. */
+function resolveDefaultLocationId(locations, artistId, artists, previousLocationId) {
+  const activeSorted = sortLocationsByCreatedAt(locations.filter((l) => l.is_active));
+  if (activeSorted.length === 0) return "";
+  if (artistId) {
+    const artist = artists.find((a) => a.id === artistId);
+    if (
+      artist?.primary_location_id &&
+      activeSorted.some((l) => l.id === artist.primary_location_id)
+    ) {
+      return artist.primary_location_id;
+    }
+  }
+  if (previousLocationId && activeSorted.some((l) => l.id === previousLocationId)) {
+    return previousLocationId;
+  }
+  return activeSorted[0].id;
+}
+
+function timeToMinutesFromTime(time) {
+  const [hours, minutes] = time.split(":").map(Number);
+  return hours * 60 + minutes;
+}
+
+/** Stations at location free for the slot (always includes includeStationId if set, e.g. current appt when editing). */
+function computeAvailableStations({
+  locationId,
+  appointmentDate,
+  startTime,
+  endTime,
+  workStations,
+  allAppointments,
+  excludeAppointmentId,
+  includeStationId,
+}) {
+  if (!locationId || !appointmentDate || !startTime) return [];
+
+  const locationStations = workStations.filter(
+    (ws) => ws.location_id === locationId && ws.status === "active"
+  );
+
+  const startMinutes = timeToMinutesFromTime(startTime);
+  const endMinutes = endTime ? timeToMinutesFromTime(endTime) : startMinutes + 60;
+
+  const occupiedStationIds = allAppointments
+    .filter((apt) => {
+      if (excludeAppointmentId && apt.id === excludeAppointmentId) return false;
+      if (apt.location_id !== locationId) return false;
+      if (apt.appointment_date !== appointmentDate) return false;
+      if (apt.status === "cancelled" || apt.status === "no_show") return false;
+
+      const aptStart = timeToMinutesFromTime(apt.start_time);
+      const aptEnd = apt.end_time ? timeToMinutesFromTime(apt.end_time) : aptStart + 60;
+
+      return startMinutes < aptEnd && endMinutes > aptStart;
+    })
+    .map((apt) => apt.work_station_id)
+    .filter(Boolean);
+
+  return locationStations.filter(
+    (ws) => !occupiedStationIds.includes(ws.id) || ws.id === includeStationId
+  );
+}
+
+function sortStationsForDefault(stations) {
+  return [...stations].sort(
+    (a, b) =>
+      String(a.created_at || "").localeCompare(String(b.created_at || "")) ||
+      String(a.name || "").localeCompare(String(b.name || ""))
+  );
+}
+
+/** Prefer artist's saved station if free for the slot; else first available by created_at/name. */
+function pickDefaultWorkStationId(availableStations, artistId, artists) {
+  const sorted = sortStationsForDefault(availableStations);
+  if (artistId) {
+    const pref = artists.find((a) => a.id === artistId)?.preferred_work_station_id;
+    if (pref && sorted.some((s) => s.id === pref)) {
+      return pref;
+    }
+  }
+  return sorted[0]?.id || "";
+}
+
+function numSnapshot(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/**
+ * Deposit / Stripe edge functions read `deposit_amount` from the DB. Changing appointment type
+ * only updates local form state until Save — sync these snapshot fields first so recording
+ * a deposit or creating a link sees the correct amount.
+ */
+function buildAppointmentTypeDepositSnapshotPatch(appointment, formData, sanitizeUuid) {
+  if (!appointment?.id) return null;
+  const typeSaved = appointment.appointment_type_id || "";
+  const typeForm = formData.appointment_type_id || "";
+  const depSaved = numSnapshot(appointment.deposit_amount);
+  const depForm = numSnapshot(formData.deposit_amount);
+  const endSaved = appointment.end_time || "";
+  const endForm = formData.end_time || "";
+  const estSaved = numSnapshot(appointment.total_estimate);
+  const estForm = numSnapshot(formData.total_estimate);
+
+  if (
+    typeSaved !== typeForm ||
+    depSaved !== depForm ||
+    endSaved !== endForm ||
+    estSaved !== estForm
+  ) {
+    return {
+      appointment_type_id: sanitizeUuid(formData.appointment_type_id),
+      deposit_amount: formData.deposit_amount,
+      end_time: formData.end_time,
+      total_estimate: formData.total_estimate,
+    };
+  }
+  return null;
+}
+
+async function persistAppointmentDepositSnapshotIfStale(appointment, formData, queryClient) {
+  const sanitizeUuid = (v) => (v === "" || v == null ? null : v);
+  const patch = buildAppointmentTypeDepositSnapshotPatch(appointment, formData, sanitizeUuid);
+  if (!patch) return { ok: true };
+  try {
+    await base44.entities.Appointment.update(appointment.id, patch);
+    await queryClient.invalidateQueries({ queryKey: ["appointments"] });
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e?.message || "Could not save appointment changes." };
+  }
+}
 
 export default function AppointmentDialog({ open, onOpenChange, appointment, defaultDate, artists, locations, currentUser, userArtist }) {
   const queryClient = useQueryClient();
@@ -84,7 +224,12 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
   const isArtist = useMemo(() => userRole === 'Artist', [userRole]);
   const isAdmin = useMemo(() => userRole === 'Admin' || userRole === 'Owner', [userRole]);
   const selectableLocations = useMemo(
-    () => locations.filter(location => location.is_active || location.id === formData.location_id),
+    () =>
+      sortLocationsByCreatedAt(
+        locations.filter(
+          (location) => location.is_active || location.id === formData.location_id
+        )
+      ),
     [locations, formData.location_id]
   );
   
@@ -256,10 +401,11 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     } else {
       // For new appointments, auto-assign artist if user is an artist
       const initialArtistId = (isArtist && !isAdmin && userArtistId) ? userArtistId : '';
+      const defaultLocationId = resolveDefaultLocationId(locations, initialArtistId, artists, "");
 
       setFormData({
         artist_id: initialArtistId,
-        location_id: '',
+        location_id: defaultLocationId,
         work_station_id: '',
         customer_id: '',
         appointment_type_id: '',
@@ -289,7 +435,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     setInPersonDepositAmountInput("");
     setRecordInPersonLoading(false);
     setSaveError(null);
-  }, [appointment, appointmentForForm, defaultDate, open, isArtist, isAdmin, userArtistId, customers]);
+  }, [appointment, appointmentForForm, defaultDate, open, isArtist, isAdmin, userArtistId, customers, artists, locations]);
 
   useEffect(() => {
     if (open && formData.artist_id && formData.appointment_date && formData.start_time && formData.location_id) {
@@ -298,7 +444,66 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
       setValidationErrors({ artistConflict: null, stationsFull: false });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [formData.artist_id, formData.appointment_date, formData.start_time, formData.end_time, formData.location_id, open, allAppointments, workStations, availabilities]);
+  }, [formData.artist_id, formData.appointment_date, formData.start_time, formData.end_time, formData.location_id, formData.work_station_id, open, allAppointments, workStations, availabilities, appointment, weeklySchedules, locations]);
+
+  const availableStations = useMemo(
+    () =>
+      computeAvailableStations({
+        locationId: formData.location_id,
+        appointmentDate: formData.appointment_date,
+        startTime: formData.start_time,
+        endTime: formData.end_time,
+        workStations,
+        allAppointments,
+        excludeAppointmentId: appointment?.id,
+        includeStationId: appointment?.work_station_id,
+      }),
+    [
+      formData.location_id,
+      formData.appointment_date,
+      formData.start_time,
+      formData.end_time,
+      workStations,
+      allAppointments,
+      appointment?.id,
+      appointment?.work_station_id,
+    ]
+  );
+
+  useEffect(() => {
+    if (!open || appointment) return;
+    if (!formData.location_id || !formData.appointment_date || !formData.start_time) return;
+
+    setFormData((prev) => {
+      const stations = computeAvailableStations({
+        locationId: prev.location_id,
+        appointmentDate: prev.appointment_date,
+        startTime: prev.start_time,
+        endTime: prev.end_time,
+        workStations,
+        allAppointments,
+        excludeAppointmentId: undefined,
+        includeStationId: undefined,
+      });
+      if (prev.work_station_id && stations.some((s) => s.id === prev.work_station_id)) {
+        return prev;
+      }
+      const pick = pickDefaultWorkStationId(stations, prev.artist_id, artists);
+      if (pick === prev.work_station_id) return prev;
+      return { ...prev, work_station_id: pick };
+    });
+  }, [
+    open,
+    appointment,
+    formData.artist_id,
+    formData.location_id,
+    formData.appointment_date,
+    formData.start_time,
+    formData.end_time,
+    workStations,
+    allAppointments,
+    artists,
+  ]);
 
   const depositSatisfied = useMemo(() => {
     const ds = formData.deposit_status;
@@ -307,15 +512,28 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
   }, [formData.deposit_status, formData.status]);
 
   const handleCustomerSelect = (customer) => {
-    setSelectedCustomer(customer);
     const preferredLocation = locations.find(location => location.id === customer.preferred_location_id);
+    setSelectedCustomer(customer);
     setFormData(prev => ({
       ...prev,
       customer_id: customer.id,
       client_name: customer.name,
       client_email: customer.email || '',
       client_phone: customer.phone_number || '',
-      location_id: preferredLocation?.is_active ? customer.preferred_location_id : prev.location_id
+      location_id: preferredLocation?.is_active ? customer.preferred_location_id : prev.location_id,
+      work_station_id:
+        preferredLocation?.is_active && customer.preferred_location_id !== prev.location_id
+          ? ''
+          : prev.work_station_id,
+    }));
+  };
+
+  const handleArtistChange = (value) => {
+    setFormData((prev) => ({
+      ...prev,
+      artist_id: value,
+      location_id: resolveDefaultLocationId(locations, value, artists, prev.location_id),
+      work_station_id: '',
     }));
   };
 
@@ -395,7 +613,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
         const location = unavailableSlot.location_id 
           ? locations.find(l => l.id === unavailableSlot.location_id)?.name || 'this location'
           : 'all locations';
-        errors.artistConflict = `This artist is unavailable from ${unavailableSlot.start_time} to ${unavailableSlot.end_time} at ${location}.`;
+        errors.artistConflict = `This artist is unavailable from ${formatTime12h(unavailableSlot.start_time)} to ${formatTime12h(unavailableSlot.end_time)} at ${location}.`;
       } else {
         const dow = appointmentDate.getDay();
         const artistWeeklyEntries = weeklySchedules.filter(
@@ -443,18 +661,27 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
 
           if (conflictingAppointment) {
             const conflictLocation = locations.find(l => l.id === conflictingAppointment.location_id);
-            errors.artistConflict = `This artist is already booked from ${conflictingAppointment.start_time} to ${conflictingAppointment.end_time} at ${conflictLocation?.name || 'another location'}.`;
+            errors.artistConflict = `This artist is already booked from ${formatTime12h(conflictingAppointment.start_time)} to ${formatTime12h(conflictingAppointment.end_time)} at ${conflictLocation?.name || 'another location'}.`;
           }
         }
       }
     }
 
     if (formData.location_id && formData.appointment_date && formData.start_time && formData.artist_id) {
-      const availableStations = getAvailableStations();
-      if (availableStations.length === 0 && formData.work_station_id === '') {
+      const stationsForValidation = computeAvailableStations({
+        locationId: formData.location_id,
+        appointmentDate: formData.appointment_date,
+        startTime: formData.start_time,
+        endTime: formData.end_time,
+        workStations,
+        allAppointments,
+        excludeAppointmentId: appointment?.id,
+        includeStationId: appointment?.work_station_id,
+      });
+      if (stationsForValidation.length === 0 && formData.work_station_id === '') {
         errors.stationsFull = true;
-      } else if (formData.work_station_id && !availableStations.find(ws => ws.id === formData.work_station_id)) {
-        if (availableStations.length === 0) errors.stationsFull = true;
+      } else if (formData.work_station_id && !stationsForValidation.find(ws => ws.id === formData.work_station_id)) {
+        if (stationsForValidation.length === 0) errors.stationsFull = true;
       }
     }
 
@@ -464,41 +691,6 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
   const timeToMinutes = (time) => {
     const [hours, minutes] = time.split(':').map(Number);
     return hours * 60 + minutes;
-  };
-
-  const getAvailableStations = () => {
-    if (!formData.location_id || !formData.appointment_date || !formData.start_time) {
-      return [];
-    }
-
-    const locationStations = workStations.filter(ws => 
-      ws.location_id === formData.location_id && ws.status === 'active'
-    );
-
-    const startMinutes = timeToMinutes(formData.start_time);
-    const endMinutes = formData.end_time ? timeToMinutes(formData.end_time) : startMinutes + 60;
-
-    const occupiedStationIds = allAppointments
-      .filter(apt => {
-        if (appointment && apt.id === appointment.id) return false;
-        if (apt.location_id !== formData.location_id) return false;
-        if (apt.appointment_date !== formData.appointment_date) return false;
-        if (apt.status === 'cancelled' || apt.status === 'no_show') return false;
-
-        const aptStart = timeToMinutes(apt.start_time);
-        const aptEnd = apt.end_time ? timeToMinutes(apt.end_time) : aptStart + 60;
-
-        return (startMinutes < aptEnd && endMinutes > aptStart);
-      })
-      .map(apt => apt.work_station_id)
-      .filter(Boolean);
-
-    // Always include the current appointment's station if editing
-    const currentStationId = appointment?.work_station_id;
-    
-    return locationStations.filter(ws => 
-      !occupiedStationIds.includes(ws.id) || ws.id === currentStationId
-    );
   };
 
   const createMutation = useMutation({
@@ -612,7 +804,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     }
 
     if (formData.location_id && formData.appointment_date && formData.start_time && !formData.work_station_id) {
-      if (getAvailableStations().length > 0) {
+      if (availableStations.length > 0) {
         alert('Please select a work station.');
         return;
       }
@@ -714,6 +906,11 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     setDepositCheckoutUrl(null);
     setCopiedDepositUrl(false);
     try {
+      const sync = await persistAppointmentDepositSnapshotIfStale(appointment, formData, queryClient);
+      if (!sync.ok) {
+        setDepositLinkMessage({ type: "error", text: sync.error || "Could not save appointment before creating link." });
+        return;
+      }
       const { data, error } = await supabase.functions.invoke("create-deposit-checkout", {
         body: { appointmentId: appointment.id }
       });
@@ -758,6 +955,11 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     setRecordInPersonLoading(true);
     setDepositLinkMessage(null);
     try {
+      const sync = await persistAppointmentDepositSnapshotIfStale(appointment, formData, queryClient);
+      if (!sync.ok) {
+        setDepositLinkMessage({ type: "error", text: sync.error || "Could not save appointment before recording deposit." });
+        return;
+      }
       const trimmedAmt = inPersonDepositAmountInput.trim();
       let amountPayload = undefined;
       if (trimmedAmt !== "") {
@@ -894,7 +1096,6 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     setInPersonDepositAmountInput("");
   };
 
-  const availableStations = getAvailableStations();
   const hasErrors = validationErrors.artistConflict || validationErrors.stationsFull;
 
   const selectableArtists = (isAdmin || userRole === 'Front_Desk') 
@@ -1051,7 +1252,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                 <Label htmlFor="artist_id" className="text-sm">Artist *</Label>
                 <Select
                   value={formData.artist_id}
-                  onValueChange={(value) => setFormData({ ...formData, artist_id: value })}
+                  onValueChange={handleArtistChange}
                   required
                   disabled={!canEditArtist() || !canEdit()}
                 >

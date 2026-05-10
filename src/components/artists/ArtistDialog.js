@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
 import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
@@ -6,12 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Save, Trash2, AlertCircle } from "lucide-react";
 import { ARTIST_PALETTE, autoAssignColor } from "@/utils/artistColors";
 
 const EMPTY_ARTISTS = [];
+const EMPTY_WORK_STATIONS = [];
 
 export default function ArtistDialog({ open, onOpenChange, artist, locations }) {
   const queryClient = useQueryClient();
@@ -26,6 +27,7 @@ export default function ArtistDialog({ open, onOpenChange, artist, locations }) 
     instagram: '',
     hourly_rate: 150,
     primary_location_id: '',
+    preferred_work_station_id: '',
     is_active: true,
     calendar_color: ARTIST_PALETTE[0]
   });
@@ -78,9 +80,38 @@ export default function ArtistDialog({ open, onOpenChange, artist, locations }) 
   });
   const artists = artistsData ?? EMPTY_ARTISTS;
 
+  const { data: workStationsData = EMPTY_WORK_STATIONS } = useQuery({
+    queryKey: ['workStations', currentUser?.studio_id],
+    queryFn: async () => {
+      if (!currentUser?.studio_id) return [];
+      return base44.entities.WorkStation.filter({ studio_id: currentUser.studio_id });
+    },
+    enabled: open && !!currentUser?.studio_id
+  });
+  const workStations = workStationsData ?? EMPTY_WORK_STATIONS;
+
+  const stationsAtPrimary = useMemo(() => {
+    if (!formData.primary_location_id) return [];
+    return workStations
+      .filter(
+        (ws) =>
+          ws.location_id === formData.primary_location_id &&
+          ws.status === 'active'
+      )
+      .sort(
+        (a, b) =>
+          String(a.created_at || '').localeCompare(String(b.created_at || '')) ||
+          String(a.name || '').localeCompare(String(b.name || ''))
+      );
+  }, [workStations, formData.primary_location_id]);
+
   useEffect(() => {
     if (artist) {
-      setFormData({ ...artist, calendar_color: artist.calendar_color || ARTIST_PALETTE[0] });
+      setFormData({
+        ...artist,
+        calendar_color: artist.calendar_color || ARTIST_PALETTE[0],
+        preferred_work_station_id: artist.preferred_work_station_id || '',
+      });
     } else {
       const autoColor = autoAssignColor(artists);
       setFormData({
@@ -93,6 +124,7 @@ export default function ArtistDialog({ open, onOpenChange, artist, locations }) 
         instagram: '',
         hourly_rate: 150,
         primary_location_id: '',
+        preferred_work_station_id: '',
         is_active: true,
         calendar_color: autoColor
       });
@@ -145,7 +177,8 @@ export default function ArtistDialog({ open, onOpenChange, artist, locations }) 
     setErrorMessage(null);
     const submitData = {
       ...formData,
-      studio_id: currentUser?.studio_id
+      studio_id: currentUser?.studio_id,
+      preferred_work_station_id: formData.preferred_work_station_id || null,
     };
     if (artist) {
       updateMutation.mutate({ id: artist.id, data: submitData });
@@ -172,6 +205,7 @@ export default function ArtistDialog({ open, onOpenChange, artist, locations }) 
       instagram: '',
       hourly_rate: 150,
       primary_location_id: '',
+      preferred_work_station_id: '',
       is_active: true,
       calendar_color: autoAssignColor(artists)
     });
@@ -300,7 +334,22 @@ export default function ArtistDialog({ open, onOpenChange, artist, locations }) 
               <Label htmlFor="primary_location_id">Primary Location *</Label>
               <Select
                 value={formData.primary_location_id}
-                onValueChange={(value) => setFormData({ ...formData, primary_location_id: value })}
+                onValueChange={(value) => {
+                  setFormData((prev) => {
+                    const keepStation =
+                      prev.preferred_work_station_id &&
+                      workStations.some(
+                        (ws) =>
+                          ws.id === prev.preferred_work_station_id &&
+                          ws.location_id === value
+                      );
+                    return {
+                      ...prev,
+                      primary_location_id: value,
+                      preferred_work_station_id: keepStation ? prev.preferred_work_station_id : '',
+                    };
+                  });
+                }}
                 required
               >
                 <SelectTrigger>
@@ -314,6 +363,44 @@ export default function ArtistDialog({ open, onOpenChange, artist, locations }) 
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="preferred_work_station_id">Preferred work station</Label>
+              <Select
+                value={formData.preferred_work_station_id || '__none__'}
+                onValueChange={(value) =>
+                  setFormData({
+                    ...formData,
+                    preferred_work_station_id: value === '__none__' ? '' : value,
+                  })
+                }
+                disabled={!formData.primary_location_id}
+              >
+                <SelectTrigger id="preferred_work_station_id">
+                  <SelectValue
+                    placeholder={
+                      !formData.primary_location_id
+                        ? 'Select a primary location first'
+                        : stationsAtPrimary.length === 0
+                          ? 'No stations at this location'
+                          : 'Auto (first available when booking)'
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">None — use first available when booking</SelectItem>
+                  {stationsAtPrimary.length > 0 && <SelectSeparator />}
+                  {stationsAtPrimary.map((ws) => (
+                    <SelectItem key={ws.id} value={ws.id}>
+                      {ws.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-gray-500">
+                When booking, this station is selected if it is free for the time slot (staff can change it).
+              </p>
             </div>
 
             <div className="space-y-2">

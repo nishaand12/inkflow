@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
@@ -10,6 +10,8 @@ import { Plus, Calendar, Clock, X, ChevronLeft, ChevronRight, Save, Trash2 } fro
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, startOfWeek, endOfWeek, addMonths, subMonths, parseISO, isWithinInterval, isSameMonth } from "date-fns";
 import AvailabilityDialog from "../components/availability/AvailabilityDialog";
 import { normalizeUserRole } from "@/utils/roles";
+import { formatTimeRange12h } from "@/utils/index";
+import { sortByFullNameThenId, sortByNameThenId } from "@/utils/listSort";
 
 const ROLES_WITH_MY_AVAILABILITY = ["Artist", "Owner", "Admin", "Front_Desk"];
 
@@ -49,21 +51,24 @@ export default function MyAvailability() {
     enabled: !!user?.studio_id
   });
 
-  const activeArtists = artists.filter(a => a.is_active);
+  const sortedArtists = useMemo(() => sortByFullNameThenId(artists), [artists]);
+  const sortedLocations = useMemo(() => sortByNameThenId(locations), [locations]);
+
+  const activeArtists = sortedArtists.filter(a => a.is_active);
 
   useEffect(() => {
-    if (!user || artists.length === 0) return;
+    if (!user || sortedArtists.length === 0) return;
     if (selectedArtistId) return;
 
-    const ownArtist = artists.find(a => a.user_id === user.id);
+    const ownArtist = sortedArtists.find(a => a.user_id === user.id);
     if (ownArtist) {
       setSelectedArtistId(ownArtist.id);
     } else if (isAdmin && activeArtists.length > 0) {
       setSelectedArtistId(activeArtists[0].id);
     }
-  }, [user, artists, activeArtists, isAdmin, selectedArtistId]);
+  }, [user, sortedArtists, activeArtists, isAdmin, selectedArtistId]);
 
-  const currentArtist = artists.find(a => a.id === selectedArtistId) || null;
+  const currentArtist = sortedArtists.find(a => a.id === selectedArtistId) || null;
 
   const { data: availabilities = [] } = useQuery({
     queryKey: ['availabilities', user?.studio_id, selectedArtistId],
@@ -321,12 +326,12 @@ export default function MyAvailability() {
             {activeSchedules.length > 0 && (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 mb-4">
                 {activeSchedules.map(sched => {
-                  const loc = locations.find(l => l.id === sched.location_id);
+                  const loc = sortedLocations.find(l => l.id === sched.location_id);
                   return (
                     <div key={sched.id} className="flex items-center justify-between bg-green-50 border border-green-200 rounded-lg px-3 py-2 text-sm group">
                       <div>
                         <span className="font-semibold text-green-900">{DAY_NAMES[sched.day_of_week]}</span>
-                        <span className="text-green-700 ml-2">{sched.start_time} – {sched.end_time}</span>
+                        <span className="text-green-700 ml-2">{formatTimeRange12h(sched.start_time, sched.end_time)}</span>
                         {loc && <span className="text-green-600 ml-1 text-xs">({loc.name})</span>}
                       </div>
                       {canEdit && (
@@ -389,7 +394,7 @@ export default function MyAvailability() {
                       <SelectTrigger className="text-sm"><SelectValue /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="__all__">All Locations</SelectItem>
-                        {locations.map(l => (
+                        {sortedLocations.map(l => (
                           <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>
                         ))}
                       </SelectContent>
@@ -470,16 +475,16 @@ export default function MyAvailability() {
 
                     <div className="space-y-1">
                       {dayWeeklySchedules.map(ws => {
-                        const loc = locations.find(l => l.id === ws.location_id);
+                        const loc = sortedLocations.find(l => l.id === ws.location_id);
                         return (
                           <div key={'ws-' + ws.id} className="text-xs p-1.5 rounded bg-indigo-50 border border-indigo-200 text-indigo-700">
-                            <div className="font-medium">{ws.start_time} – {ws.end_time}</div>
+                            <div className="font-medium">{formatTimeRange12h(ws.start_time, ws.end_time)}</div>
                             <div className="text-indigo-500 text-[10px]">{loc ? loc.name : 'All'} (weekly)</div>
                           </div>
                         );
                       })}
                       {dayAvailabilities.map(avail => {
-                        const location = locations.find(l => l.id === avail.location_id);
+                        const location = sortedLocations.find(l => l.id === avail.location_id);
                         const isMultiDay = avail.start_date !== avail.end_date;
                         
                         return (
@@ -503,7 +508,7 @@ export default function MyAvailability() {
                             <div className={`font-medium ${
                               avail.is_blocked ? 'text-red-900' : 'text-green-900'
                             }`}>
-                              {avail.start_time} - {avail.end_time}
+                              {formatTimeRange12h(avail.start_time, avail.end_time)}
                             </div>
                             {isMultiDay && (
                               <div className={`text-xs ${
@@ -567,7 +572,7 @@ export default function MyAvailability() {
           date={selectedDate}
           availability={selectedAvailability}
           artistId={selectedArtistId}
-          locations={locations}
+          locations={sortedLocations}
           currentUser={user}
         />
       )}

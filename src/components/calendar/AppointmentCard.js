@@ -2,6 +2,7 @@ import React from "react";
 import { Badge } from "@/components/ui/badge";
 import { Clock, MapPin, User, CreditCard } from "lucide-react";
 import { hexToRgba } from "@/utils/artistColors";
+import { formatTime12h, formatTimeRange12h } from "@/utils/index";
 
 export default function AppointmentCard({
   appointment,
@@ -49,7 +50,7 @@ export default function AppointmentCard({
         }}
       >
         <div className="font-semibold truncate" style={{ color }}>
-          {appointment.start_time}
+          {formatTime12h(appointment.start_time)}
         </div>
         <div className="truncate text-gray-800 leading-tight">
           {appointment.client_name || 'Client'}
@@ -91,7 +92,7 @@ export default function AppointmentCard({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 sm:gap-3 text-xs sm:text-sm">
             <div className="flex items-center gap-2 text-gray-600">
               <Clock className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
-              <span className="truncate">{appointment.start_time}{appointment.end_time ? `–${appointment.end_time}` : ''}</span>
+              <span className="truncate">{formatTimeRange12h(appointment.start_time, appointment.end_time)}</span>
             </div>
             <div className="flex items-center gap-2 text-gray-600">
               <MapPin className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
@@ -142,7 +143,7 @@ export default function AppointmentCard({
         <div className="flex items-center gap-2 min-w-0">
           <Clock className="w-4 h-4 text-gray-400 shrink-0" />
           <span className="font-medium text-gray-900 truncate">
-            {appointment.start_time} - {appointment.client_name}
+            {formatTime12h(appointment.start_time)} - {appointment.client_name}
           </span>
         </div>
         <Badge className={`${statusColors[appointment.status]} border text-xs shrink-0`}>

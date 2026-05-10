@@ -23,6 +23,12 @@ import {
 } from "@/utils/reportingCategories";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { formatTime12h, formatTimeRange12h } from "@/utils/index";
+import {
+  sortAppointmentsForCalendarDay,
+  sortByNameThenId,
+  sortByFullNameThenId,
+} from "@/utils/listSort";
 
 // ─── Time grid constants ───────────────────────────────────────────────────
 const HOUR_HEIGHT = 64;   // px per hour
@@ -59,9 +65,7 @@ function topFromTime(timeStr) {
 
 // ─── Overlap layout ────────────────────────────────────────────────────────
 function layoutDayAppointments(apts) {
-  const sorted = [...apts].sort(
-    (a, b) => parseTimeToMinutes(a.start_time) - parseTimeToMinutes(b.start_time)
-  );
+  const sorted = sortAppointmentsForCalendarDay(apts);
 
   const colEnds = [];   // end-time (minutes) of last apt in each column
   const layout  = [];   // { apt, col }
@@ -140,7 +144,7 @@ export default function Calendar() {
 
   const { data: appointments = [] } = useQuery({
     queryKey: ['appointments', user?.studio_id],
-    queryFn: () => base44.entities.Appointment.filter({ studio_id: user.studio_id }, '-created_date'),
+    queryFn: () => base44.entities.Appointment.filter({ studio_id: user.studio_id }),
     enabled: !!user?.studio_id
   });
 
@@ -178,7 +182,11 @@ export default function Calendar() {
     const opts = [{ value: "all", label: "All Types" }];
     const roots = filterCategoriesByRole(reportingCategories, CATEGORY_ROLE_APPOINTMENT_KIND)
       .filter((c) => !c.parent_id)
-      .sort((a, b) => (a.display_order ?? 0) - (b.display_order ?? 0) || (a.name || '').localeCompare(b.name || ''));
+      .sort((a, b) =>
+        (a.display_order ?? 0) - (b.display_order ?? 0) ||
+        (a.name || '').localeCompare(b.name || '') ||
+        String(a.id || '').localeCompare(String(b.id || ''))
+      );
     for (const r of roots) {
       opts.push({ value: `kind:${r.id}`, label: r.name || 'Kind' });
     }
@@ -284,8 +292,11 @@ export default function Calendar() {
   };
 
   const getAppointmentsForDay = (day) =>
-    filteredAppointments.filter(apt => isSameDay(parseISO(apt.appointment_date + 'T00:00:00'), day))
-      .sort((a, b) => a.start_time.localeCompare(b.start_time));
+    sortAppointmentsForCalendarDay(
+      filteredAppointments.filter(apt =>
+        isSameDay(parseISO(apt.appointment_date + 'T00:00:00'), day)
+      )
+    );
 
   const isOwnAppointment = (apt) => !userArtist || apt.artist_id === userArtist.id;
 
@@ -410,7 +421,7 @@ export default function Calendar() {
                     <SelectTrigger className="text-sm"><SelectValue placeholder="All Artists" /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Artists</SelectItem>
-                      {artists.filter(a => a.is_active).map(a => (
+                      {sortByFullNameThenId(artists.filter(a => a.is_active)).map(a => (
                         <SelectItem key={a.id} value={a.id}>
                           <span className="flex items-center gap-2">
                             <span
@@ -456,7 +467,7 @@ export default function Calendar() {
                     <SelectTrigger className="text-sm"><SelectValue placeholder="All Locations" /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Locations</SelectItem>
-                      {locations.map(loc => (
+                      {sortByNameThenId(locations).map(loc => (
                         <SelectItem key={loc.id} value={loc.id}>{loc.name}</SelectItem>
                       ))}
                     </SelectContent>
@@ -466,7 +477,7 @@ export default function Calendar() {
                     <SelectTrigger className="text-sm"><SelectValue placeholder="All Workstations" /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Workstations</SelectItem>
-                      {workStations.map(ws => (
+                      {sortByNameThenId(workStations).map(ws => (
                         <SelectItem key={ws.id} value={ws.id}>{ws.name}</SelectItem>
                       ))}
                     </SelectContent>
@@ -476,7 +487,7 @@ export default function Calendar() {
                     <SelectTrigger className="text-sm"><SelectValue placeholder="All Appointment Types" /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Appointment Types</SelectItem>
-                      {[...appointmentTypes].sort((a, b) => a.name.localeCompare(b.name)).map(t => (
+                      {sortByNameThenId(appointmentTypes).map(t => (
                         <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
                       ))}
                     </SelectContent>
@@ -501,7 +512,7 @@ export default function Calendar() {
               {!isMobile && view !== 'month' && artists.filter(a => a.is_active).length > 0 && (
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-600">
                   <span className="font-semibold text-gray-700">Artists:</span>
-                  {artists.filter(a => a.is_active).map(a => (
+                  {sortByFullNameThenId(artists.filter(a => a.is_active)).map(a => (
                     <span key={a.id} className="flex items-center gap-1.5">
                       <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: artistColorMap[a.id] }} />
                       {a.full_name}
@@ -708,7 +719,7 @@ export default function Calendar() {
                             >
                               <div className="p-1 h-full overflow-hidden">
                                 <div className="text-[10px] font-bold leading-none" style={{ color }}>
-                                  {apt.start_time}
+                                  {formatTime12h(apt.start_time)}
                                 </div>
                                 {height >= 28 && (
                                   <div className="text-xs font-semibold text-gray-900 truncate mt-0.5 leading-tight">
@@ -722,7 +733,7 @@ export default function Calendar() {
                                 )}
                                 {height >= 58 && apt.end_time && (
                                   <div className="text-[10px] text-gray-400 leading-tight">
-                                    {apt.start_time}–{apt.end_time}
+                                    {formatTimeRange12h(apt.start_time, apt.end_time)}
                                   </div>
                                 )}
                               </div>

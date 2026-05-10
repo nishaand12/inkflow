@@ -2,13 +2,14 @@ import React, { useState, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { createPageUrl } from "@/utils";
+import { createPageUrl, formatTime12h } from "@/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Calendar, Users, MapPin, Clock, TrendingUp, Plus } from "lucide-react";
 import { format, parseISO, startOfWeek, endOfWeek, isWithinInterval, startOfDay } from "date-fns";
 import AppointmentDialog from "../components/calendar/AppointmentDialog";
 import { normalizeUserRole } from "@/utils/roles";
+import { compareAppointmentsByDateTimeAsc } from "@/utils/listSort";
 
 export default function Dashboard() {
   const [user, setUser] = useState(null);
@@ -32,7 +33,7 @@ export default function Dashboard() {
     queryKey: ['appointments', user?.studio_id],
     queryFn: async () => {
       if (!user?.studio_id) return [];
-      return base44.entities.Appointment.filter({ studio_id: user.studio_id }, '-created_date');
+      return base44.entities.Appointment.filter({ studio_id: user.studio_id });
     },
     enabled: !!user?.studio_id
   });
@@ -94,9 +95,7 @@ export default function Dashboard() {
 
   const upcomingAppointments = filteredAppointments
     .filter(apt => parseISO(apt.appointment_date + 'T00:00:00') >= startOfDay(new Date()) && apt.status !== 'cancelled')
-    .sort((a, b) => a.appointment_date !== b.appointment_date
-      ? a.appointment_date.localeCompare(b.appointment_date)
-      : (a.start_time || '').localeCompare(b.start_time || ''))
+    .sort(compareAppointmentsByDateTimeAsc)
     .slice(0, 5);
 
   const totalRevenue = filteredAppointments
@@ -238,7 +237,7 @@ export default function Dashboard() {
                         <div>
                           <p className="font-semibold text-gray-900">{customerName}</p>
                           <p className="text-sm text-gray-500">
-                            {format(parseISO(appointment.appointment_date + 'T00:00:00'), 'MMM d, yyyy')} at {appointment.start_time}
+                            {format(parseISO(appointment.appointment_date + 'T00:00:00'), 'MMM d, yyyy')} at {formatTime12h(appointment.start_time)}
                           </p>
                         </div>
                       </div>

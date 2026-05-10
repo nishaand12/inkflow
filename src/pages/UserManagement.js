@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Search, UserCog } from "lucide-react";
 import UserRoleDialog from "../components/users/UserRoleDialog";
+import { sortByLocaleThenId } from "@/utils/listSort";
 
 const roleColors = {
   'Owner': 'bg-indigo-100 text-indigo-800 border-indigo-200',
@@ -24,7 +25,13 @@ export default function UserManagement() {
     queryFn: () => base44.entities.User.list()
   });
 
-  const filteredUsers = users.filter(user =>
+  const sortedUsers = useMemo(
+    () =>
+      sortByLocaleThenId(users, (u) => (u.full_name || u.email || "").toString()),
+    [users]
+  );
+
+  const filteredUsers = sortedUsers.filter(user =>
     user.full_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     user.email?.toLowerCase().includes(searchTerm.toLowerCase())
   );

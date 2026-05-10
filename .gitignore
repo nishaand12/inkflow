@@ -8,3 +8,4 @@ playwright.env
 playwright-results/
 playwright-report/
 resetforprod.sql
+supabase/.temp/

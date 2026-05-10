@@ -3,6 +3,8 @@
  * (`category_role === appointment_kind` in DB; shown in the UI as "booking hierarchy").
  */
 
+import { sortByNameThenId } from "./listSort";
+
 export const CATEGORY_ROLE_REPORTING = "reporting";
 export const CATEGORY_ROLE_APPOINTMENT_KIND = "appointment_kind";
 
@@ -27,7 +29,9 @@ export function sortCategoriesFlat(list) {
     const oa = a.display_order ?? 0;
     const ob = b.display_order ?? 0;
     if (oa !== ob) return oa - ob;
-    return (a.name || "").localeCompare(b.name || "");
+    const n = (a.name || "").localeCompare(b.name || "");
+    if (n !== 0) return n;
+    return String(a.id || "").localeCompare(String(b.id || ""));
   });
 }
 
@@ -205,7 +209,8 @@ export function getAppointmentTypeDisplaySections(appointmentTypes, reportingCat
     .sort(
       (a, b) =>
         (a.display_order ?? 0) - (b.display_order ?? 0) ||
-        (a.name || "").localeCompare(b.name || "")
+        (a.name || "").localeCompare(b.name || "") ||
+        String(a.id || "").localeCompare(String(b.id || ""))
     );
 
   const sections = [];
@@ -218,7 +223,7 @@ export function getAppointmentTypeDisplaySections(appointmentTypes, reportingCat
     });
     if (types.length === 0) continue;
     types.forEach((t) => assigned.add(t.id));
-    sections.push({ key: `kind:${root.id}`, label: root.name, types });
+    sections.push({ key: `kind:${root.id}`, label: root.name, types: sortByNameThenId(types) });
   }
 
   const orphanKinds = (appointmentTypes || []).filter(
@@ -232,7 +237,7 @@ export function getAppointmentTypeDisplaySections(appointmentTypes, reportingCat
     sections.push({
       key: "kind:orphan",
       label: "Unlinked hierarchy reference",
-      types: orphanKinds,
+      types: sortByNameThenId(orphanKinds),
     });
   }
 
@@ -244,7 +249,7 @@ export function getAppointmentTypeDisplaySections(appointmentTypes, reportingCat
     sections.push({
       key: "unassigned:kind",
       label: "Missing booking hierarchy",
-      types: missingHierarchy,
+      types: sortByNameThenId(missingHierarchy),
     });
   }
 

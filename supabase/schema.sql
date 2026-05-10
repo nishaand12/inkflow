@@ -60,6 +60,7 @@ create table if not exists artists (
   instagram text,
   hourly_rate numeric,
   primary_location_id uuid references locations (id),
+  preferred_work_station_id uuid references workstations (id) on delete set null,
   is_active boolean default true,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
@@ -152,6 +153,7 @@ create table if not exists appointment_types (
   service_cost numeric,
   is_active boolean default true,
   is_public_bookable boolean default false,
+  price_includes_tax boolean not null default false,
   reporting_category_id uuid references reporting_categories (id),
   created_at timestamptz default now(),
   updated_at timestamptz default now()
@@ -251,6 +253,7 @@ create table if not exists products (
   cost numeric,
   stock_quantity integer,
   tax_rate numeric not null default 0.13,
+  price_includes_tax boolean not null default false,
   is_active boolean default true,
   created_at timestamptz default now(),
   updated_at timestamptz default now()

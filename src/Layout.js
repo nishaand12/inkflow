@@ -4,6 +4,7 @@ import { createPageUrl } from "@/utils";
 import { normalizeUserRole } from "@/utils/roles";
 import { base44 } from "@/api/base44Client";
 import ArtistDialog from "@/components/artists/ArtistDialog";
+import { sortByNameThenId } from "@/utils/listSort";
 import {
   Calendar,
   LayoutDashboard,
@@ -112,7 +113,7 @@ export default function Layout({ children, currentPageName = null }) {
       ]);
       const artist = artists.find(a => a.user_id === currentUser.id) || null;
       setUserArtist(artist);
-      setLocations(fetchedLocations);
+      setLocations(sortByNameThenId(fetchedLocations));
     } catch (error) {
       console.error("Error loading artist profile:", error);
     }

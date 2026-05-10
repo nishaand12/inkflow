@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { formatTime12h } from "../_shared/timeDisplay.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -70,7 +71,7 @@ serve(async (req) => {
       const customerName =
         apt.client_name || apt.customer?.name || "Customer";
 
-      const body = `Hi There,\n\nThis is a friendly reminder that your deposit of $${(apt.deposit_amount || 0).toFixed(2)} for your upcoming appointment on ${apt.appointment_date} at ${apt.start_time} has not yet been received.\n\nPlease contact ${studioEmail} to arrange your deposit payment.\n\nThank you!`;
+      const body = `Hi There,\n\nThis is a friendly reminder that your deposit of $${(apt.deposit_amount || 0).toFixed(2)} for your upcoming appointment on ${apt.appointment_date} at ${formatTime12h(apt.start_time)} has not yet been received.\n\nPlease contact ${studioEmail} to arrange your deposit payment.\n\nThank you!`;
 
       const payload = {
         Messages: [

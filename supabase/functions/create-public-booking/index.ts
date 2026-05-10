@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import Stripe from "npm:stripe@17";
+import { formatTime12h } from "../_shared/timeDisplay.ts";
 
 const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY")!;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -150,7 +151,7 @@ serve(async (req) => {
                   currency,
                   product_data: {
                     name: `Deposit – ${studio.name}`,
-                    description: `${aptType.name} on ${date} at ${startTime}`,
+                    description: `${aptType.name} on ${date} at ${formatTime12h(startTime)}`,
                   },
                   unit_amount: unitAmount,
                 },

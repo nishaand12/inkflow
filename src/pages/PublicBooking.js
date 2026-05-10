@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Calendar, Clock, CreditCard, CheckCircle, Loader2, AlertCircle, ChevronRight, ArrowLeft } from "lucide-react";
-import { addMinutesToTime, formatDuration } from "@/utils/index";
+import { addMinutesToTime, formatDuration, formatTime12h } from "@/utils/index";
 import {
   CATEGORY_ROLE_APPOINTMENT_KIND,
   filterCategoriesByRole,
@@ -350,7 +350,7 @@ export default function PublicBooking() {
                 <h2 className="text-2xl font-bold text-gray-900 mb-2">Pay deposit to reserve</h2>
                 <p className="text-gray-600 mb-6">
                   Paying the deposit is required to reserve your booking at {studio.name} for{" "}
-                  {selectedDate} at {selectedTime}. Your appointment is not confirmed until payment
+                  {selectedDate} at {formatTime12h(selectedTime)}. Your appointment is not confirmed until payment
                   completes.
                 </p>
                 <a
@@ -369,7 +369,7 @@ export default function PublicBooking() {
                 <h2 className="text-2xl font-bold text-gray-900 mb-2">Booking Confirmed!</h2>
                 <p className="text-gray-600 mb-6">
                   Your appointment at {studio.name} has been booked for {selectedDate} at{" "}
-                  {selectedTime}.
+                  {formatTime12h(selectedTime)}.
                 </p>
                 <p className="text-sm text-gray-500">No deposit required. See you at your appointment!</p>
               </>
@@ -559,7 +559,7 @@ export default function PublicBooking() {
                               : 'bg-gray-100 text-gray-700 hover:bg-indigo-100'
                           }`}
                         >
-                          {slot.time}
+                          {formatTime12h(slot.time)}
                         </button>
                       ))}
                     </div>
@@ -590,10 +590,12 @@ export default function PublicBooking() {
                 <p><span className="font-medium">Service:</span> {selectedType?.name}</p>
                 <p><span className="font-medium">Piercer:</span> {selectedArtist === '__any__' ? 'Any Available Piercer' : piercers.find(a => a.id === selectedArtist)?.full_name}</p>
                 <p><span className="font-medium">Location:</span> {locations.find(l => l.id === selectedLocation)?.name}</p>
-                <p><span className="font-medium">Date:</span> {selectedDate} at {selectedTime}</p>
+                <p><span className="font-medium">Date:</span> {selectedDate} at {formatTime12h(selectedTime)}</p>
                 <p><span className="font-medium">Duration:</span> {formatDuration(selectedType?.default_duration_minutes)}</p>
                 {selectedType?.service_cost > 0 && (
-                  <p><span className="font-medium">Service Cost:</span> ${selectedType.service_cost}</p>
+                  <p><span className="font-medium">Service Cost:</span> ${selectedType.service_cost}
+                    {selectedType.price_includes_tax ? <span className="text-gray-600"> (includes tax)</span> : null}
+                  </p>
                 )}
                 {selectedType?.default_deposit > 0 && (
                   <p><span className="font-medium">Deposit Due Now:</span> ${selectedType.default_deposit}</p>
@@ -679,7 +681,10 @@ function ServiceTypeList({ types, selectedType, onSelect }) {
                 {formatDuration(type.default_duration_minutes)}
               </div>
               {type.service_cost > 0 && (
-                <p className="text-sm font-semibold text-gray-900">${type.service_cost}</p>
+                <p className="text-sm font-semibold text-gray-900">
+                  ${type.service_cost}
+                  {type.price_includes_tax ? <span className="text-xs font-normal text-gray-500"> incl. tax</span> : null}
+                </p>
               )}
               {type.default_deposit > 0 && (
                 <Badge className="bg-indigo-100 text-indigo-700 text-xs">

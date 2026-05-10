@@ -34,6 +34,11 @@
         "type": "number",
         "description": "Optional fixed service cost shown to customers at booking"
       },
+      "price_includes_tax": {
+        "type": "boolean",
+        "default": false,
+        "description": "If true, service price at checkout is tax-inclusive (tax backed out for reporting). If false, tax is added on top."
+      },
       "is_active": {
         "type": "boolean",
         "default": true,

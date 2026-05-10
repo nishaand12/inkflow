@@ -15,6 +15,7 @@ import {
   getLeafCategoryOptions,
 } from "@/utils/reportingCategories";
 import { CHECKOUT_PAYMENT_METHOD_OPTIONS } from "@/utils/checkoutPaymentMethods";
+import { formatTimeRange12h } from "@/utils/index";
 
 const LEGACY_PAYMENT_METHOD_MAP = {
   Card: "Other",
@@ -44,6 +45,39 @@ function getProductTaxRate(product) {
   const r = product?.tax_rate;
   if (r != null && !Number.isNaN(Number(r))) return Number(r);
   return DEFAULT_SERVICE_TAX_RATE;
+}
+
+function productPriceIncludesTax(product) {
+  return Boolean(product?.price_includes_tax);
+}
+
+function lineAmountAfterDiscount(li) {
+  return Math.max(0, li.quantity * li.unit_price - (li.discount_amount || 0));
+}
+
+function resolveLineTaxRate(li) {
+  let rate = li.tax_rate;
+  if (rate == null || Number.isNaN(Number(rate))) {
+    rate = li.line_type === "service" ? DEFAULT_SERVICE_TAX_RATE : 0;
+  }
+  return Number(rate);
+}
+
+/** Pre-tax net (appointment charge_amount is sum of these). */
+function linePreTaxNet(li) {
+  const gross = lineAmountAfterDiscount(li);
+  const rate = resolveLineTaxRate(li);
+  if (rate <= 0) return gross;
+  if (li.tax_inclusive) return gross / (1 + rate);
+  return gross;
+}
+
+function lineTaxAmount(li) {
+  const gross = lineAmountAfterDiscount(li);
+  const rate = resolveLineTaxRate(li);
+  if (rate <= 0) return 0;
+  if (li.tax_inclusive) return gross - gross / (1 + rate);
+  return gross * rate;
 }
 
 function parseMoneyInput(value) {
@@ -114,6 +148,7 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
           reporting_category_name: '',
           product_id: null,
           tax_rate: DEFAULT_SERVICE_TAX_RATE,
+          tax_inclusive: Boolean(aptType?.price_includes_tax),
         });
       }
       setLineItems(initialLines);
@@ -157,6 +192,7 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
             ...updated[existingIdx],
             quantity: updated[existingIdx].quantity + 1,
             tax_rate: getProductTaxRate(product),
+            tax_inclusive: productPriceIncludesTax(product),
           };
           setLineItems(updated);
         } else {
@@ -171,6 +207,7 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
             reporting_category_name: '',
             product_id: product.id,
             tax_rate: getProductTaxRate(product),
+            tax_inclusive: productPriceIncludesTax(product),
           }]);
         }
       } else {
@@ -197,6 +234,7 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
       reporting_category_name: '',
       product_id: null,
       tax_rate: 0,
+      tax_inclusive: false,
     }]);
     setManualLine({ description: '', unit_price: '', quantity: 1, reporting_category_id: '', discount: '' });
     setShowManualAdd(false);
@@ -212,6 +250,7 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
         ...updated[existingIdx],
         quantity: updated[existingIdx].quantity + 1,
         tax_rate: getProductTaxRate(product),
+        tax_inclusive: productPriceIncludesTax(product),
       };
       setLineItems(updated);
     } else {
@@ -226,6 +265,7 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
         reporting_category_name: '',
         product_id: product.id,
         tax_rate: getProductTaxRate(product),
+        tax_inclusive: productPriceIncludesTax(product),
       }]);
     }
   };
@@ -250,23 +290,14 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
     return null;
   };
 
-  const lineSubtotal = lineItems.reduce((sum, li) => {
-    return sum + (li.quantity * li.unit_price) - (li.discount_amount || 0);
-  }, 0);
+  const lineSubtotal = lineItems.reduce((sum, li) => sum + linePreTaxNet(li), 0);
 
   const grossBeforeLineDiscounts = lineItems.reduce(
     (sum, li) => sum + li.quantity * li.unit_price,
     0
   );
 
-  const computedTax = lineItems.reduce((sum, li) => {
-    const lineNet = (li.quantity * li.unit_price) - (li.discount_amount || 0);
-    let rate = li.tax_rate;
-    if (rate == null || Number.isNaN(Number(rate))) {
-      rate = li.line_type === 'service' ? DEFAULT_SERVICE_TAX_RATE : 0;
-    }
-    return sum + lineNet * Number(rate);
-  }, 0);
+  const computedTax = lineItems.reduce((sum, li) => sum + lineTaxAmount(li), 0);
 
   const depositOnFile = appointment?.deposit_amount || 0;
   /** Only reduce balance when deposit was actually collected (walk-ins often have no paid deposit). */
@@ -287,14 +318,7 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
         throw new Error('Total must be greater than zero.');
       }
 
-      const taxTotal = lineItems.reduce((sum, li) => {
-        const lineNet = (li.quantity * li.unit_price) - (li.discount_amount || 0);
-        let rate = li.tax_rate;
-        if (rate == null || Number.isNaN(Number(rate))) {
-          rate = li.line_type === 'service' ? DEFAULT_SERVICE_TAX_RATE : 0;
-        }
-        return sum + lineNet * Number(rate);
-      }, 0);
+      const taxTotal = lineItems.reduce((sum, li) => sum + lineTaxAmount(li), 0);
 
       const chargePromises = lineItems.map(li => {
         const lineTotal = (li.quantity * li.unit_price) - (li.discount_amount || 0);
@@ -389,7 +413,7 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
               </div>
               <div>
                 <span className="text-gray-500">Time:</span>
-                <p className="font-medium">{appointment.start_time}{appointment.end_time ? ` – ${appointment.end_time}` : ''}</p>
+                <p className="font-medium">{formatTimeRange12h(appointment.start_time, appointment.end_time)}</p>
               </div>
               <div>
                 <span className="text-gray-500">Service:</span>
@@ -534,12 +558,18 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {lineItems.map(li => {
-                    const lineGross = li.quantity * li.unit_price;
-                    const lineTotal = lineGross - (li.discount_amount || 0);
+                    const lineAfterDisc = lineAmountAfterDiscount(li);
+                    const rate = resolveLineTaxRate(li);
                     return (
                       <tr key={li._key}>
                         <td className="px-3 py-2">
                           <div className="font-medium text-gray-900 text-xs">{li.description}</div>
+                          {li.tax_inclusive && rate > 0 && (
+                            <span className="text-[10px] text-amber-700">Price includes tax</span>
+                          )}
+                          {!li.tax_inclusive && rate > 0 && li.line_type !== "adjustment" && (
+                            <span className="text-[10px] text-gray-500">Tax added at total</span>
+                          )}
                           {li.reporting_category_id && (
                             <span className="text-[10px] text-gray-400">
                               {resolveReportingCategoryName(li.reporting_category_id)}
@@ -575,7 +605,7 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
                             className="text-xs h-7 w-[4.5rem] text-right"
                           />
                         </td>
-                        <td className="px-3 py-2 text-right text-xs font-medium">${lineTotal.toFixed(2)}</td>
+                        <td className="px-3 py-2 text-right text-xs font-medium">${lineAfterDisc.toFixed(2)}</td>
                         <td className="px-1 py-2">
                           <button type="button" onClick={() => removeLine(li._key)} className="text-gray-400 hover:text-red-500">
                             <Trash2 className="w-3.5 h-3.5" />
@@ -603,7 +633,9 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
                 ${computedTax.toFixed(2)}
               </div>
               <p className="text-[10px] text-gray-500 leading-snug">
-                Tax is calculated per line on the amount after that line&apos;s discount. Services {DEFAULT_SERVICE_TAX_RATE * 100}%; manual lines 0%.
+                Per line after that line&apos;s discount. Service lines use {DEFAULT_SERVICE_TAX_RATE * 100}% unless exempt;
+                products use their own rate. <strong>Tax-inclusive</strong> lines include tax in the price (tax shown is extracted);
+                <strong> tax-exclusive</strong> adds tax on top. Manual items use 0% tax.
               </p>
             </div>
             <div className="space-y-1">
@@ -645,7 +677,7 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
                 <span>-${lineDiscountsTotal.toFixed(2)}</span>
               </div>
             )}
-            <div className="flex justify-between font-medium text-gray-800"><span>Net (taxable base):</span><span>${lineSubtotal.toFixed(2)}</span></div>
+            <div className="flex justify-between font-medium text-gray-800"><span>Net (pre-tax):</span><span>${lineSubtotal.toFixed(2)}</span></div>
             <div className="flex justify-between"><span className="text-gray-500">Tax:</span><span>${computedTax.toFixed(2)}</span></div>
             {tipTotal > 0 && (
               <div className="flex justify-between text-green-700">

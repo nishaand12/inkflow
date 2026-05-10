@@ -174,7 +174,12 @@ export default function AppointmentTypes() {
                       {type.service_cost != null && (
                         <div className="flex items-center gap-1 text-indigo-600 font-medium">
                           <DollarSign className="w-4 h-4" />
-                          <span>${type.service_cost}</span>
+                          <span>
+                            ${type.service_cost}
+                            {type.price_includes_tax ? (
+                              <span className="text-xs font-normal text-indigo-500 ml-1">(incl. tax)</span>
+                            ) : null}
+                          </span>
                         </div>
                       )}
                     </div>

@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import Stripe from "npm:stripe@17";
+import { formatTime12h } from "../_shared/timeDisplay.ts";
 
 const MAILJET_API_KEY = Deno.env.get("MAILJET_API_KEY");
 const MAILJET_SECRET_KEY = Deno.env.get("MAILJET_SECRET_KEY");
@@ -253,7 +254,7 @@ function formatAppointmentTime(date: string, time: string, timezone: string) {
   } catch (e) {
     // Fallback if timezone formatting fails
     const tzAbbrev = getTimezoneAbbreviation(timezone);
-    return `${date} at ${time} (${tzAbbrev})`;
+    return `${date} at ${formatTime12h(time)} (${tzAbbrev})`;
   }
 }
 
@@ -666,7 +667,7 @@ async function createDepositCheckout(
             currency,
             product_data: {
               name: `Deposit – ${studio.name}`,
-              description: `Appointment on ${appointment.appointment_date} at ${appointment.start_time}`,
+              description: `Appointment on ${appointment.appointment_date} at ${formatTime12h(appointment.start_time)}`,
             },
             unit_amount: unitAmount,
           },

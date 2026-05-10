@@ -13,6 +13,7 @@
     "cost": { "type": "number", "description": "Cost price (optional)" },
     "stock_quantity": { "type": "number", "description": "Counted on-hand units; omit or null when not tracking inventory" },
     "tax_rate": { "type": "number", "default": 0.13, "description": "Decimal sales tax rate (e.g. 0.13 for 13%); 0 for exempt items" },
+    "price_includes_tax": { "type": "boolean", "default": false, "description": "If true, retail price includes sales tax (tax is extracted from the total). If false, tax is added on top at checkout." },
     "is_active": { "type": "boolean", "default": true, "description": "Whether product is available for sale" }
   },
   "required": ["studio_id", "name", "price"],

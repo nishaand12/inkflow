@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Search, Plus, Phone, Mail, Instagram, MapPin, CheckCircle2, XCircle } from "lucide-react";
 import { normalizeUserRole } from "@/utils/roles";
 import CustomerDialog from "../components/customers/CustomerDialog";
+import { sortByNameThenId } from "@/utils/listSort";
 
 export default function Customers() {
   const [searchTerm, setSearchTerm] = useState('');
@@ -32,7 +33,7 @@ export default function Customers() {
     queryKey: ['customers', user?.studio_id],
     queryFn: async () => {
       if (!user?.studio_id) return [];
-      return base44.entities.Customer.filter({ studio_id: user.studio_id }, '-created_date');
+      return base44.entities.Customer.filter({ studio_id: user.studio_id });
     },
     enabled: !!user?.studio_id
   });
@@ -55,7 +56,9 @@ export default function Customers() {
   const isAdmin = userRole === 'Admin' || userRole === 'Owner';
   const canEdit = isAdmin || userRole === 'Front_Desk';
 
-  const filteredCustomers = customers.filter(customer =>
+  const sortedCustomers = useMemo(() => sortByNameThenId(customers, 'name'), [customers]);
+
+  const filteredCustomers = sortedCustomers.filter(customer =>
     customer.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     customer.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     customer.phone_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||

@@ -40,6 +40,7 @@ import {
   getCategoryPathLabel,
   getLeafCategoryOptions,
 } from "@/utils/reportingCategories";
+import { sortByNameThenId } from "@/utils/listSort";
 
 const emptyForm = {
   name: "",
@@ -51,6 +52,7 @@ const emptyForm = {
   cost: "",
   stock_quantity: "",
   tax_rate_percent: "13",
+  price_includes_tax: false,
   reporting_category_id: "",
   is_active: true,
 };
@@ -147,7 +149,9 @@ export default function Products() {
   const userRole = getUserRole();
   const isAdmin = userRole === "Admin" || userRole === "Owner";
 
-  const filteredProducts = products.filter((p) => {
+  const sortedProducts = useMemo(() => sortByNameThenId(products), [products]);
+
+  const filteredProducts = sortedProducts.filter((p) => {
     const q = searchTerm.toLowerCase();
     return (
       p.name?.toLowerCase().includes(q) ||
@@ -192,6 +196,7 @@ export default function Products() {
       stock_quantity:
         product.stock_quantity != null ? String(product.stock_quantity) : "",
       tax_rate_percent: tr,
+      price_includes_tax: Boolean(product.price_includes_tax),
       reporting_category_id: product.reporting_category_id || "",
       is_active: product.is_active ?? true,
     });
@@ -216,6 +221,7 @@ export default function Products() {
           ? null
           : Math.max(0, parseInt(form.stock_quantity, 10) || 0),
       tax_rate,
+      price_includes_tax: form.price_includes_tax,
       reporting_category_id: form.reporting_category_id || null,
       is_active: form.is_active,
       studio_id: user?.studio_id,
@@ -271,6 +277,12 @@ export default function Products() {
 
       const errors = [];
       const toCreate = [];
+
+      const csvTruthy = (v) => {
+        if (v === undefined || v === null || v === "") return false;
+        const s = String(v).trim().toLowerCase();
+        return s === "1" || s === "true" || s === "yes" || s === "y" || s === "inclusive" || s === "inc";
+      };
 
       rows.forEach((row, idx) => {
         const lineNum = idx + 2;
@@ -328,6 +340,7 @@ export default function Products() {
           cost: row.cost ? parseFloat(row.cost) : null,
           stock_quantity,
           tax_rate: taxRate,
+          price_includes_tax: csvTruthy(row.price_includes_tax ?? row.tax_inclusive ?? row.tax_inclusive_price),
           reporting_category_id: matchedCategoryId,
           is_active: true,
           studio_id: user?.studio_id,
@@ -553,9 +566,18 @@ export default function Products() {
                             : "—"}
                         </td>
                         <td className="py-3 px-4 text-right text-gray-700 text-sm tabular-nums">
-                          {product.tax_rate != null
-                            ? `${(Number(product.tax_rate) * 100).toFixed(2)}%`
-                            : "—"}
+                          {product.tax_rate != null ? (
+                            <span>
+                              {(Number(product.tax_rate) * 100).toFixed(2)}%
+                              {product.price_includes_tax ? (
+                                <span className="block text-[10px] font-normal text-amber-800">incl.</span>
+                              ) : (
+                                <span className="block text-[10px] font-normal text-gray-500">+tax</span>
+                              )}
+                            </span>
+                          ) : (
+                            "—"
+                          )}
                         </td>
                         <td className="py-3 px-4 text-right text-gray-900">
                           {product.price != null
@@ -709,6 +731,23 @@ export default function Products() {
                   Use 0 for gift cards, store credit, or other exempt items.
                 </p>
               </div>
+            </div>
+            <div className="flex items-center justify-between rounded-lg border p-4">
+              <div>
+                <Label htmlFor="price_includes_tax" className="font-medium">
+                  Price includes sales tax
+                </Label>
+                <p className="text-sm text-gray-500">
+                  On: sticker price is what the customer pays; tax is shown as extracted. Off: tax is added on top at checkout.
+                </p>
+              </div>
+              <Switch
+                id="price_includes_tax"
+                checked={form.price_includes_tax}
+                onCheckedChange={(checked) =>
+                  setForm({ ...form, price_includes_tax: checked })
+                }
+              />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">

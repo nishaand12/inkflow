@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { parseISO, startOfDay, isBefore, isSameDay } from "date-fns";
+import { formatTimeRange12h } from "@/utils/index";
 
 const appointmentStatusStyles = {
   scheduled: "bg-blue-100 text-blue-800 border-blue-200",
@@ -362,8 +363,7 @@ export default function CustomerDialog({ open, onOpenChange, customer, locations
                               {apt.start_time ? (
                                 <span className="font-normal text-gray-600">
                                   {" · "}
-                                  {apt.start_time}
-                                  {apt.end_time ? `–${apt.end_time}` : ""}
+                                  {formatTimeRange12h(apt.start_time, apt.end_time)}
                                 </span>
                               ) : null}
                             </p>

@@ -43,6 +43,10 @@
         "type": "string",
         "description": "Primary location ID"
       },
+      "preferred_work_station_id": {
+        "type": "string",
+        "description": "Optional preferred work station at the primary location; used when booking appointments"
+      },
       "is_active": {
         "type": "boolean",
         "default": true,

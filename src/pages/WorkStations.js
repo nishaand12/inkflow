@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Plus, Settings, Pencil } from "lucide-react";
 import WorkStationDialog from "../components/workstations/WorkStationDialog";
 import LocationCapacityDialog from "../components/workstations/LocationCapacityDialog";
+import { sortByNameThenId } from "@/utils/listSort";
 
 export default function WorkStations() {
   const [showStationDialog, setShowStationDialog] = useState(false);
@@ -47,6 +48,8 @@ export default function WorkStations() {
     enabled: !!user?.studio_id
   });
 
+  const sortedLocations = useMemo(() => sortByNameThenId(locations), [locations]);
+
   const handleEditStation = (station) => {
     setSelectedStation(station);
     setShowStationDialog(true);
@@ -63,9 +66,8 @@ export default function WorkStations() {
     setShowCapacityDialog(true);
   };
 
-  const getStationsForLocation = (locationId) => {
-    return workStations.filter(ws => ws.location_id === locationId);
-  };
+  const getStationsForLocation = (locationId) =>
+    sortByNameThenId(workStations.filter(ws => ws.location_id === locationId));
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-6">
@@ -77,16 +79,16 @@ export default function WorkStations() {
           </div>
         </div>
 
-        <Tabs defaultValue={locations[0]?.id} className="space-y-6">
+        <Tabs defaultValue={sortedLocations[0]?.id} className="space-y-6">
           <TabsList className="bg-white border border-gray-200">
-            {locations.map(location => (
+            {sortedLocations.map(location => (
               <TabsTrigger key={location.id} value={location.id}>
                 {location.name}
               </TabsTrigger>
             ))}
           </TabsList>
 
-          {locations.map(location => {
+          {sortedLocations.map(location => {
             const locationStations = getStationsForLocation(location.id);
             const activeCount = locationStations.filter(ws => ws.status === 'active').length;
 
@@ -182,7 +184,7 @@ export default function WorkStations() {
         onOpenChange={setShowStationDialog}
         station={selectedStation}
         locationId={selectedLocation}
-        locations={locations}
+        locations={sortedLocations}
         currentUser={user}
       />
 

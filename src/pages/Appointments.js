@@ -16,6 +16,13 @@ import {
   filterCategoriesByRole,
   appointmentTypeMatchesFilter,
 } from "@/utils/reportingCategories";
+import { formatTimeRange12h } from "@/utils/index";
+import {
+  compareAppointmentsByDateTimeAsc,
+  compareAppointmentsByDateTimeDesc,
+  sortByNameThenId,
+  sortByFullNameThenId,
+} from "@/utils/listSort";
 
 const statusColors = {
   scheduled:     "bg-blue-100 text-blue-800 border-blue-200",
@@ -60,7 +67,7 @@ export default function Appointments() {
     queryKey: ['appointments', user?.studio_id],
     queryFn: async () => {
       if (!user?.studio_id) return [];
-      return base44.entities.Appointment.filter({ studio_id: user.studio_id }, '-appointment_date');
+      return base44.entities.Appointment.filter({ studio_id: user.studio_id });
     },
     enabled: !!user?.studio_id
   });
@@ -114,7 +121,11 @@ export default function Appointments() {
     const opts = [{ value: "all", label: "All Types" }];
     const roots = filterCategoriesByRole(reportingCategories, CATEGORY_ROLE_APPOINTMENT_KIND)
       .filter((c) => !c.parent_id)
-      .sort((a, b) => (a.display_order ?? 0) - (b.display_order ?? 0) || (a.name || '').localeCompare(b.name || ''));
+      .sort((a, b) =>
+        (a.display_order ?? 0) - (b.display_order ?? 0) ||
+        (a.name || '').localeCompare(b.name || '') ||
+        String(a.id || '').localeCompare(String(b.id || ''))
+      );
     for (const r of roots) {
       opts.push({ value: `kind:${r.id}`, label: r.name || 'Kind' });
     }
@@ -269,7 +280,7 @@ export default function Appointments() {
                     <SelectTrigger className="text-sm"><SelectValue placeholder="All Artists" /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Artists</SelectItem>
-                      {artists.filter(a => a.is_active).map(a => (
+                      {sortByFullNameThenId(artists.filter(a => a.is_active)).map(a => (
                         <SelectItem key={a.id} value={a.id}>{a.full_name}</SelectItem>
                       ))}
                     </SelectContent>
@@ -307,7 +318,7 @@ export default function Appointments() {
                     <SelectTrigger className="text-sm"><SelectValue placeholder="All Locations" /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Locations</SelectItem>
-                      {locations.map(l => (
+                      {sortByNameThenId(locations).map(l => (
                         <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>
                       ))}
                     </SelectContent>
@@ -317,7 +328,7 @@ export default function Appointments() {
                     <SelectTrigger className="text-sm"><SelectValue placeholder="All Workstations" /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Workstations</SelectItem>
-                      {workStations.map(ws => (
+                      {sortByNameThenId(workStations).map(ws => (
                         <SelectItem key={ws.id} value={ws.id}>{ws.name}</SelectItem>
                       ))}
                     </SelectContent>
@@ -327,7 +338,7 @@ export default function Appointments() {
                     <SelectTrigger className="text-sm"><SelectValue placeholder="All Appointment Types" /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Appointment Types</SelectItem>
-                      {[...appointmentTypes].sort((a, b) => a.name.localeCompare(b.name)).map(t => (
+                      {sortByNameThenId(appointmentTypes).map(t => (
                         <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
                       ))}
                     </SelectContent>
@@ -342,12 +353,10 @@ export default function Appointments() {
           const today = format(new Date(), 'yyyy-MM-dd');
           const upcoming = filteredAppointments
             .filter(apt => apt.appointment_date >= today)
-            .sort((a, b) => a.appointment_date !== b.appointment_date
-              ? a.appointment_date.localeCompare(b.appointment_date)
-              : (a.start_time || '').localeCompare(b.start_time || ''));
+            .sort(compareAppointmentsByDateTimeAsc);
           const past = filteredAppointments
             .filter(apt => apt.appointment_date < today)
-            .sort((a, b) => b.appointment_date.localeCompare(a.appointment_date));
+            .sort(compareAppointmentsByDateTimeDesc);
 
           const renderRow = (appointment) => {
             const artist = artists.find(a => a.id === appointment.artist_id);
@@ -378,7 +387,7 @@ export default function Appointments() {
                       </div>
                       <div className="flex items-center gap-2 text-gray-600">
                         <Clock className="w-4 h-4" />
-                        {appointment.start_time}{appointment.end_time ? `–${appointment.end_time}` : ''}
+                        {formatTimeRange12h(appointment.start_time, appointment.end_time)}
                       </div>
                       <div className="flex items-center gap-2 text-gray-600">
                         <User className="w-4 h-4" />

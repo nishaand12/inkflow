@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Plus, MapPin, Phone, Mail } from "lucide-react";
 import LocationDialog from "../components/locations/LocationDialog";
+import { sortByNameThenId } from "@/utils/listSort";
 
 export default function Locations() {
   const [showDialog, setShowDialog] = useState(false);
@@ -33,6 +34,8 @@ export default function Locations() {
     },
     enabled: !!user?.studio_id
   });
+
+  const sortedLocations = useMemo(() => sortByNameThenId(locations), [locations]);
 
   const handleEdit = (location) => {
     setSelectedLocation(location);
@@ -62,7 +65,7 @@ export default function Locations() {
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {locations.map(location => (
+          {sortedLocations.map(location => (
             <Card
               key={location.id}
               onClick={() => handleEdit(location)}
@@ -102,7 +105,7 @@ export default function Locations() {
           ))}
         </div>
 
-        {locations.length === 0 && (
+        {sortedLocations.length === 0 && (
           <Card className="bg-white border-none shadow-lg">
             <CardContent className="p-12 text-center">
               <MapPin className="w-12 h-12 text-gray-300 mx-auto mb-3" />
