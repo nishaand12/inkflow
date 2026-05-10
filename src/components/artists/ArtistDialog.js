@@ -296,7 +296,8 @@ export default function ArtistDialog({ open, onOpenChange, artist, locations }) 
                 <SelectContent>
                   <SelectItem value="tattoo">Tattoo Artist</SelectItem>
                   <SelectItem value="piercer">Piercer</SelectItem>
-                  <SelectItem value="both">Both</SelectItem>
+                  <SelectItem value="counter">Counter</SelectItem>
+                  <SelectItem value="scrub">Scrub</SelectItem>
                 </SelectContent>
               </Select>
             </div>

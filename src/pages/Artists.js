@@ -273,11 +273,25 @@ export default function Artists() {
                       <h3 className="font-bold text-lg text-gray-900">{artist.full_name}</h3>
                       <div className="flex gap-1 mt-1 flex-wrap">
                         <Badge variant="secondary" className={
-                          artist.artist_type === 'piercer' ? 'bg-purple-50 text-purple-700' :
-                          artist.artist_type === 'both' ? 'bg-amber-50 text-amber-700' :
-                          'bg-indigo-50 text-indigo-700'
+                          artist.artist_type === 'piercer'
+                            ? 'bg-purple-50 text-purple-700'
+                            : artist.artist_type === 'counter'
+                              ? 'bg-slate-100 text-slate-800'
+                              : artist.artist_type === 'scrub'
+                                ? 'bg-teal-50 text-teal-800'
+                                : artist.artist_type === 'both'
+                                  ? 'bg-amber-50 text-amber-700'
+                                  : 'bg-indigo-50 text-indigo-700'
                         }>
-                          {artist.artist_type === 'piercer' ? 'Piercer' : artist.artist_type === 'both' ? 'Tattoo & Piercer' : 'Tattoo Artist'}
+                          {artist.artist_type === 'piercer'
+                            ? 'Piercer'
+                            : artist.artist_type === 'counter'
+                              ? 'Counter'
+                              : artist.artist_type === 'scrub'
+                                ? 'Scrub'
+                                : artist.artist_type === 'both'
+                                  ? 'Tattoo & Piercer'
+                                  : 'Tattoo Artist'}
                         </Badge>
                         {artist.specialty && (
                           <Badge variant="secondary" className="bg-gray-50 text-gray-600">

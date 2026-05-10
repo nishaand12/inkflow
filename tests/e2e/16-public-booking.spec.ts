@@ -247,7 +247,7 @@ test.describe('Public Booking Flow (migrate3 + migrate4)', () => {
     // This test validates the success state rendering — a full E2E booking
     // flow requires live slot availability from the artist weekly schedule.
     // To run the full flow, ensure:
-    //   1. An artist with artist_type "piercer" or "both" exists
+    //   1. An artist with artist_type piercer exists
     //   2. That artist has a weekly_schedule entry for tomorrow's day_of_week
     //   3. An appointment_type with is_public_bookable=true exists
     //   4. The create-public-booking edge function is deployed

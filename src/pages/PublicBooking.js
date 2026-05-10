@@ -16,6 +16,7 @@ import {
 } from "@/utils/reportingCategories";
 import { format, addDays } from "date-fns";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { isPublicPiercingBookableArtistType } from "@/utils/artistTypes";
 
 export default function PublicBooking() {
   const [searchParams] = useSearchParams();
@@ -89,8 +90,8 @@ export default function PublicBooking() {
     return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
   };
 
-  const piercers = useMemo(() =>
-    artists.filter(a => a.artist_type === 'piercer' || a.artist_type === 'both'),
+  const piercers = useMemo(
+    () => artists.filter((a) => isPublicPiercingBookableArtistType(a.artist_type)),
     [artists]
   );
 

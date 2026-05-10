@@ -16,8 +16,8 @@
       },
       "artist_type": {
         "type": "string",
-        "enum": ["tattoo", "piercer", "both"],
-        "description": "Type of artist: tattoo artist, piercer, or both"
+        "enum": ["tattoo", "piercer", "counter", "scrub"],
+        "description": "Tattoo artist, piercer (bookable), or counter/scrub (staff — not bookable for client appointments)"
       },
       "specialty": {
         "type": "string",

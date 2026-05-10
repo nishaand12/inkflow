@@ -13,7 +13,7 @@ test.describe('Artist Type (migrate4)', () => {
     await page.waitForLoadState('networkidle');
   });
 
-  test('HP-ARTYPE-1: ArtistDialog contains Artist Type select with tattoo/piercer/both options', async ({ page }) => {
+  test('HP-ARTYPE-1: ArtistDialog contains Artist Type select with tattoo/piercer/counter/scrub options', async ({ page }) => {
     await page.getByRole('button', { name: /add artist/i }).click();
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible({ timeout: 8000 });
@@ -23,13 +23,14 @@ test.describe('Artist Type (migrate4)', () => {
     // <option> inside a native <select> — both match the text, causing a strict-mode error.
     await expect(dialog.getByText(/tattoo artist/i).first()).toBeVisible({ timeout: 5000 });
 
-    // Open the select and verify all three options exist
+    // Open the select and verify booking + support roles
     const typeTrigger = dialog.getByRole('combobox').filter({ hasText: /tattoo artist/i });
     if (await typeTrigger.isVisible({ timeout: 3000 }).catch(() => false)) {
       await typeTrigger.click();
       await expect(page.getByRole('option', { name: /tattoo artist/i })).toBeVisible();
-      await expect(page.getByRole('option', { name: /piercer/i })).toBeVisible();
-      await expect(page.getByRole('option', { name: /both/i })).toBeVisible();
+      await expect(page.getByRole('option', { name: /^piercer$/i })).toBeVisible();
+      await expect(page.getByRole('option', { name: /^counter$/i })).toBeVisible();
+      await expect(page.getByRole('option', { name: /^scrub$/i })).toBeVisible();
     }
 
     await page.keyboard.press('Escape');
@@ -95,7 +96,7 @@ test.describe('Artist Type (migrate4)', () => {
     await expect(page.getByText(/piercer/i).first()).toBeVisible({ timeout: 10000 });
   });
 
-  test('HP-ARTYPE-4: Edit existing artist to change type to "both", verify badge', async ({ page }) => {
+  test('HP-ARTYPE-4: Edit existing artist to change type to "counter", verify badge', async ({ page }) => {
     // Find any existing artist card to edit
     const firstCard = page.locator('[class*="CardContent"]').first();
     if (!await firstCard.isVisible({ timeout: 5000 }).catch(() => false)) {
@@ -107,11 +108,11 @@ test.describe('Artist Type (migrate4)', () => {
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible({ timeout: 8000 });
 
-    // Change artist_type to "both"
-    const typeTrigger = dialog.getByRole('combobox').filter({ hasText: /tattoo artist|piercer|both/i });
+    // Change artist_type to "counter"
+    const typeTrigger = dialog.getByRole('combobox').filter({ hasText: /tattoo artist|piercer|counter|scrub/i });
     if (await typeTrigger.isVisible({ timeout: 3000 }).catch(() => false)) {
       await typeTrigger.click();
-      await page.getByRole('option', { name: /both/i }).click();
+      await page.getByRole('option', { name: /^counter$/i }).click();
     }
 
     const saveBtn = dialog.getByRole('button', { name: /^(create|update)$/i });
@@ -120,8 +121,7 @@ test.describe('Artist Type (migrate4)', () => {
     await expect(dialog).not.toBeVisible({ timeout: 15000 });
     await page.waitForLoadState('networkidle');
 
-    // "Tattoo & Piercer" badge should now appear
-    await expect(page.getByText(/tattoo & piercer/i)).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText(/^counter$/i).first()).toBeVisible({ timeout: 10000 });
   });
 });
 

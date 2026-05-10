@@ -9,6 +9,7 @@
 # Usage:
 #   ./scripts/docker-publish-gcp.sh              # tags: git short SHA + latest
 #   ./scripts/docker-publish-gcp.sh v1.2.3       # tags: v1.2.3 + latest
+#   DOCKER_PLATFORM=linux/arm64 ./scripts/docker-publish-gcp.sh  # override platform (default: linux/amd64)
 
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -36,8 +37,11 @@ set +a
 : "${REACT_APP_SUPABASE_PUBLISHABLE_DEFAULT_KEY:?}"
 : "${REACT_APP_STRIPE_PUBLISHABLE_KEY:?}"
 
-echo "Building ${IMAGE}:${TAG} (+ latest)"
+PLATFORM="${DOCKER_PLATFORM:-linux/amd64}"
+
+echo "Building ${IMAGE}:${TAG} (+ latest) for platform ${PLATFORM}"
 docker build \
+  --platform "${PLATFORM}" \
   --build-arg REACT_APP_SUPABASE_URL="${REACT_APP_SUPABASE_URL}" \
   --build-arg REACT_APP_SUPABASE_PUBLISHABLE_DEFAULT_KEY="${REACT_APP_SUPABASE_PUBLISHABLE_DEFAULT_KEY}" \
   --build-arg REACT_APP_STRIPE_PUBLISHABLE_KEY="${REACT_APP_STRIPE_PUBLISHABLE_KEY}" \

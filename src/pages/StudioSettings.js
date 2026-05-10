@@ -780,7 +780,7 @@ export default function StudioSettings() {
                           <p className="font-medium text-gray-900">Artists</p>
                           <p className="text-sm text-gray-600">
                             Once users exist in your studio, add artist profiles linked to those users: set{' '}
-                            <strong className="font-medium text-gray-800">artist type</strong> (tattoo, piercer, or both), primary location, and keep them active. Public online booking currently lists piercers (&quot;piercer&quot; or &quot;both&quot;) when clients choose an artist; plan types and artist types accordingly.
+                            <strong className="font-medium text-gray-800">artist type</strong> (tattoo, piercer, counter, scrub), primary location, and keep them active. Public online booking lists active piercers for artist selection; counter and scrub are for internal staffing and calendars only.
                           </p>
                         </div>
                       </div>

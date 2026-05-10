@@ -23,6 +23,7 @@ import { normalizeUserRole } from "@/utils/roles";
 import { addMinutesToTime, formatDuration, formatTime12h } from "@/utils/index";
 import { getAppointmentTypeDisplaySections } from "@/utils/reportingCategories";
 import { CHECKOUT_PAYMENT_METHOD_OPTIONS } from "@/utils/checkoutPaymentMethods";
+import { filterArtistsSelectableForBooking } from "@/utils/artistTypes";
 
 // Stable empty array to prevent new references on each render
 const EMPTY_ARRAY = [];
@@ -1098,9 +1099,17 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
 
   const hasErrors = validationErrors.artistConflict || validationErrors.stationsFull;
 
-  const selectableArtists = (isAdmin || userRole === 'Front_Desk') 
-    ? (isAdmin ? artists : artists.filter(a => a.is_active))
-    : artists;
+  const selectableArtists = useMemo(() => {
+    const fallbackId =
+      appointmentForForm?.artist_id ||
+      appointment?.artist_id ||
+      null;
+    if (isAdmin || userRole === "Front_Desk") {
+      const base = isAdmin ? artists : artists.filter((a) => a.is_active);
+      return filterArtistsSelectableForBooking(base, { alwaysIncludeArtistId: fallbackId });
+    }
+    return artists;
+  }, [isAdmin, userRole, artists, appointmentForForm?.artist_id, appointment?.artist_id]);
 
   const activeAppointmentTypes = useMemo(
     () => appointmentTypes.filter(t => t.is_active),

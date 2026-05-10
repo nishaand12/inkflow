@@ -72,6 +72,24 @@ serve(async (req) => {
       return json({ error: "Location is not available for online booking" }, 400);
     }
 
+    const { data: bookArtist, error: artistErr } = await supabase
+      .from("artists")
+      .select("id, studio_id, is_active, artist_type")
+      .eq("id", artistId)
+      .maybeSingle();
+
+    if (artistErr || !bookArtist || bookArtist.studio_id !== studioId) {
+      return json({ error: "Artist not found" }, 400);
+    }
+    if (!bookArtist.is_active) {
+      return json({ error: "This artist is not accepting new bookings" }, 400);
+    }
+    const at = bookArtist.artist_type || "tattoo";
+    const pierceOk = at === "piercer" || at === "both";
+    if (!pierceOk) {
+      return json({ error: "Artist is not available for online booking" }, 400);
+    }
+
     // Find or create customer
     const { data: existingCustomers } = await supabase
       .from("customers")

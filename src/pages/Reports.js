@@ -7,9 +7,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Download, TrendingUp, DollarSign, BarChart3, Users } from "lucide-react";
+import { Download, TrendingUp, DollarSign, BarChart3, Users, Clock } from "lucide-react";
 import { format, startOfMonth, endOfMonth, parseISO } from "date-fns";
 import { normalizeUserRole } from "@/utils/roles";
+import { getArtistTypeLabel, isSupportStaffArtistType } from "@/utils/artistTypes";
+import { sumExplicitAvailableHoursInRange } from "@/utils/explicitAvailabilityHours";
 import {
   CATEGORY_ROLE_REPORTING,
   filterCategoriesByRole,
@@ -51,6 +53,9 @@ export default function Reports() {
   const { data: splitRules = [] } = useQuery(qOpts('artistSplitRules', () => base44.entities.ArtistSplitRule.filter({ studio_id: user.studio_id })));
   const { data: appointmentRefunds = [] } = useQuery(
     qOpts('appointmentRefunds', () => base44.entities.AppointmentRefund.filter({ studio_id: user.studio_id }))
+  );
+  const { data: availabilities = [] } = useQuery(
+    qOpts('availabilities', () => base44.entities.Availability.filter({ studio_id: user.studio_id }))
   );
   useQuery(qOpts('settlements', () => base44.entities.DailySettlement.filter({ studio_id: user.studio_id })));
 
@@ -294,6 +299,30 @@ export default function Reports() {
     return acc;
   }, {});
 
+  const supportStaffAvailabilityHours = useMemo(() => {
+    const supportArtists = artists.filter(
+      (a) =>
+        isSupportStaffArtistType(a.artist_type) &&
+        (filterArtist === "all" || a.id === filterArtist)
+    );
+    const rows = supportArtists.map((artist) => {
+      const artistRows = availabilities.filter((v) => v.artist_id === artist.id);
+      const hours = sumExplicitAvailableHoursInRange(artistRows, {
+        rangeStartStr: startDate,
+        rangeEndStr: endDate,
+        filterLocationId: filterLocation,
+      });
+      return {
+        artist: artist.full_name,
+        role: getArtistTypeLabel(artist.artist_type),
+        hours,
+      };
+    });
+    rows.sort((a, b) => b.hours - a.hours || String(a.artist).localeCompare(String(b.artist)));
+    const totalHours = rows.reduce((s, r) => s + r.hours, 0);
+    return { rows, totalHours };
+  }, [artists, availabilities, startDate, endDate, filterLocation, filterArtist]);
+
   const exportToCSV = (data, filename) => {
     if (data.length === 0) return;
     const headers = Object.keys(data[0]);
@@ -408,6 +437,7 @@ export default function Reports() {
             <TabsTrigger value="artist">By Artist</TabsTrigger>
             <TabsTrigger value="splits">Artist Splits</TabsTrigger>
             <TabsTrigger value="location">By Location</TabsTrigger>
+            <TabsTrigger value="support_staff_hours">Counter / scrub hours</TabsTrigger>
           </TabsList>
 
           <TabsContent value="daily">
@@ -639,6 +669,80 @@ export default function Reports() {
                             <td className="px-4 py-3 text-sm text-gray-900 text-right font-bold">${r.revenue.toFixed(2)}</td>
                           </tr>
                         ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="support_staff_hours">
+            <Card className="bg-white border-none shadow-lg">
+              <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <Clock className="w-5 h-5 text-indigo-600" />
+                    Counter &amp; scrub — explicit availability hours
+                  </CardTitle>
+                  <p className="text-sm text-muted-foreground font-normal mt-1 max-w-xl">
+                    Totals come from calendar availability entries only (per-day date ranges under My
+                    Availability). Recurring weekly schedules are excluded.
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  className="shrink-0"
+                  onClick={() =>
+                    exportToCSV(supportStaffAvailabilityHours.rows, "counter_scrub_explicit_hours")
+                  }
+                  disabled={supportStaffAvailabilityHours.rows.length === 0}
+                >
+                  <Download className="w-4 h-4 mr-2" /> Export CSV
+                </Button>
+              </CardHeader>
+              <CardContent>
+                {supportStaffAvailabilityHours.rows.length === 0 ? (
+                  <div className="text-center py-12">
+                    <Clock className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                    <p className="text-gray-500">
+                      No Counter or Scrub profiles in scope, or none match the Artist filter.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">
+                            Staff
+                          </th>
+                          <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">
+                            Type
+                          </th>
+                          <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">
+                            Hours (explicit avail.)
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-200">
+                        {supportStaffAvailabilityHours.rows.map((r, i) => (
+                          <tr key={i} className="hover:bg-gray-50">
+                            <td className="px-4 py-3 text-sm text-gray-900 font-medium">{r.artist}</td>
+                            <td className="px-4 py-3 text-sm text-gray-600">{r.role}</td>
+                            <td className="px-4 py-3 text-sm text-gray-900 text-right font-semibold tabular-nums">
+                              {r.hours.toFixed(2)}
+                            </td>
+                          </tr>
+                        ))}
+                        <tr className="bg-gray-50 font-semibold">
+                          <td colSpan={2} className="px-4 py-3 text-sm text-gray-900">
+                            Total
+                          </td>
+                          <td className="px-4 py-3 text-sm text-gray-900 text-right tabular-nums">
+                            {supportStaffAvailabilityHours.totalHours.toFixed(2)}
+                          </td>
+                        </tr>
                       </tbody>
                     </table>
                   </div>

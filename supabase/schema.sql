@@ -53,6 +53,7 @@ create table if not exists artists (
   user_id uuid references users (id),
   full_name text not null,
   artist_type text not null default 'tattoo',
+  -- tattoo | piercer (bookable) | counter | scrub (explicit calendar avail., not client-bookable)
   calendar_color text,
   specialty text,
   bio text,
