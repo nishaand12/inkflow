@@ -53,6 +53,20 @@ serve(async (req) => {
       return json({ error: "Appointment not found" }, 404);
     }
 
+    const { data: staffUser, error: staffErr } = await supabase
+      .from("users")
+      .select("studio_id")
+      .eq("id", user.id)
+      .maybeSingle();
+
+    if (staffErr || !staffUser?.studio_id) {
+      return json({ error: "Staff profile not found" }, 403);
+    }
+
+    if (appointment.studio_id !== staffUser.studio_id) {
+      return json({ error: "Forbidden" }, 403);
+    }
+
     const studio = appointment.studio;
     if (!studio?.stripe_account_id || !studio.stripe_charges_enabled) {
       return json({ error: "Studio Stripe account not connected or charges not enabled" }, 400);
