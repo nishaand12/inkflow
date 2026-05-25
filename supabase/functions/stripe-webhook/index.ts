@@ -183,42 +183,79 @@ serve(async (req) => {
 
       case "checkout.session.expired": {
         const session = event.data.object as Stripe.Checkout.Session;
-        const appointmentId = session.metadata?.appointment_id;
+
+        const { data: payRow } = await supabase
+          .from("payments")
+          .select("appointment_id, payment_type")
+          .eq("stripe_checkout_session_id", session.id)
+          .maybeSingle();
 
         await supabase
           .from("payments")
           .update({ status: "expired" })
           .eq("stripe_checkout_session_id", session.id);
 
-        if (appointmentId) {
-          // Only reset to 'none' if there are no other paid payments for this appointment
-          const { data: paidPayments } = await supabase
-            .from("payments")
-            .select("id")
-            .eq("appointment_id", appointmentId)
-            .eq("status", "paid")
-            .limit(1);
+        const appointmentId =
+          payRow?.appointment_id || session.metadata?.appointment_id;
+        const effectiveType = payRow?.payment_type ||
+          session.metadata?.payment_type;
 
-          if (!paidPayments?.length) {
-            await supabase
-              .from("appointments")
-              .update({ deposit_status: "none" })
-              .eq("id", appointmentId);
-          }
+        // Service checkout expiry must not clear a pending or paid deposit.
+        if (!appointmentId || effectiveType !== "deposit") {
+          break;
+        }
+
+        const { data: paidDepositRows } = await supabase
+          .from("payments")
+          .select("id")
+          .eq("appointment_id", appointmentId)
+          .eq("payment_type", "deposit")
+          .eq("status", "paid")
+          .limit(1);
+
+        if (!paidDepositRows?.length) {
+          await supabase
+            .from("appointments")
+            .update({ deposit_status: "none" })
+            .eq("id", appointmentId);
         }
         break;
       }
 
       case "checkout.session.async_payment_failed": {
         const session = event.data.object as Stripe.Checkout.Session;
-        const appointmentId = session.metadata?.appointment_id;
+
+        const { data: payRow } = await supabase
+          .from("payments")
+          .select("appointment_id, payment_type")
+          .eq("stripe_checkout_session_id", session.id)
+          .maybeSingle();
 
         await supabase
           .from("payments")
           .update({ status: "failed" })
           .eq("stripe_checkout_session_id", session.id);
 
-        if (appointmentId) {
+        const appointmentId =
+          payRow?.appointment_id || session.metadata?.appointment_id;
+        const effectiveType = payRow?.payment_type ||
+          session.metadata?.payment_type;
+
+        // Only deposit failures may change deposit_status. Service checkout
+        // failures must not clobber a paid deposit or pending deposit UI.
+        if (!appointmentId || effectiveType !== "deposit") {
+          break;
+        }
+
+        const { data: paidDepositRows } = await supabase
+          .from("payments")
+          .select("id")
+          .eq("appointment_id", appointmentId)
+          .eq("payment_type", "deposit")
+          .eq("status", "paid")
+          .limit(1);
+
+        if (!paidDepositRows?.length) {
           await supabase
             .from("appointments")
             .update({ deposit_status: "failed" })
