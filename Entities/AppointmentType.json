@@ -22,6 +22,10 @@
         "type": "string",
         "description": "Detailed description"
       },
+      "image_url": {
+        "type": "string",
+        "description": "Optional HTTPS URL to a service image shown on the public booking page"
+      },
       "default_duration_minutes": {
         "type": "integer",
         "description": "Default duration in minutes"

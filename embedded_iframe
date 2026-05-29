@@ -1,0 +1,70 @@
+<!--
+  InkFlow — WordPress embed snippet
+  =================================
+
+  1. In InkFlow → Studio Settings, copy your studio ID from the booking link
+     (the UUID after ?studio=).
+
+  2. Replace YOUR_INKFLOW_DOMAIN below with your InkFlow app URL
+     (e.g. https://app.inkflow.com — no trailing slash).
+
+  3. In WordPress, edit the booking page (e.g. /book-a-piercing/) and add a
+     Custom HTML block. Paste everything below this comment block.
+
+  4. Keep age/deposit policies in the WordPress page content above this embed.
+     The embed uses ?embed=1 so those disclaimers are not duplicated inside the iframe.
+
+  5. Use a full-width page template with no sidebar for best mobile layout.
+-->
+
+<div class="inkflow-booking-embed">
+  <iframe
+    id="inkflow-booking-iframe"
+    src="https://YOUR_INKFLOW_DOMAIN/book?studio=YOUR_STUDIO_UUID&amp;embed=1"
+    title="Book an appointment"
+    loading="lazy"
+    allow="payment"
+    referrerpolicy="strict-origin-when-cross-origin"
+  ></iframe>
+</div>
+
+<style>
+  .inkflow-booking-embed {
+    width: 100%;
+    max-width: 720px;
+    margin: 0 auto;
+  }
+
+  .inkflow-booking-embed iframe {
+    display: block;
+    width: 100%;
+    height: 720px;
+    border: 0;
+    border-radius: 12px;
+    background: linear-gradient(to bottom right, #eef2ff, #faf5ff);
+  }
+
+  @media (max-width: 767px) {
+    .inkflow-booking-embed {
+      max-width: 100%;
+    }
+
+    .inkflow-booking-embed iframe {
+      border-radius: 0;
+    }
+  }
+</style>
+
+<script>
+  (function () {
+    var iframe = document.getElementById("inkflow-booking-iframe");
+    if (!iframe) return;
+
+    window.addEventListener("message", function (event) {
+      if (!event.data || event.data.type !== "inkflow-resize") return;
+      if (typeof event.data.height !== "number" || event.data.height < 1) return;
+
+      iframe.style.height = event.data.height + "px";
+    });
+  })();
+</script>

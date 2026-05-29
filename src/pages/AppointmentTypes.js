@@ -14,6 +14,7 @@ import {
   getCategoryPathLabel,
 } from "@/utils/reportingCategories";
 import AppointmentTypeDialog from "@/components/appointment-types/AppointmentTypeDialog";
+import AppointmentTypeImage from "@/components/appointment-types/AppointmentTypeImage";
 
 const getCategoryStyle = (sectionKey) => {
   if (sectionKey === "kind:orphan") return "bg-amber-100 text-amber-900 border-amber-200";
@@ -144,12 +145,21 @@ export default function AppointmentTypes() {
                     onClick={() => handleEdit(type)}
                     className="p-4 rounded-xl border-2 border-gray-100 hover:border-indigo-200 hover:shadow-md transition-all duration-200 cursor-pointer"
                   >
-                    <div className="flex justify-between items-start mb-3">
-                      <div>
-                        <h3 className="font-bold text-gray-900">{type.name}</h3>
-                        {typeSubtitle(type) && (
-                          <p className="text-xs text-gray-500 mt-0.5">{typeSubtitle(type)}</p>
+                    <div className="flex justify-between items-start mb-3 gap-3">
+                      <div className="flex items-start gap-3 min-w-0">
+                        {type.image_url && (
+                          <AppointmentTypeImage
+                            imageUrl={type.image_url}
+                            alt={type.name}
+                            className="h-12 w-12 shrink-0 rounded-md object-cover"
+                          />
                         )}
+                        <div className="min-w-0">
+                          <h3 className="font-bold text-gray-900">{type.name}</h3>
+                          {typeSubtitle(type) && (
+                            <p className="text-xs text-gray-500 mt-0.5">{typeSubtitle(type)}</p>
+                          )}
+                        </div>
                       </div>
                       <Badge
                         className={

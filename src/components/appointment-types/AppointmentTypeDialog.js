@@ -31,6 +31,7 @@ import {
   isPiercingClinicalProfile,
 } from "@/utils/reportingCategories";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import AppointmentTypeImage from "@/components/appointment-types/AppointmentTypeImage";
 
 const DURATION_PRESETS = [5, 10, 15, 20, 30, 45, 60, 90, 120, 150, 180, 240, 300, 360];
 
@@ -39,6 +40,7 @@ const DEFAULT_FORM = {
   category: "",
   name: "",
   description: "",
+  image_url: "",
   default_duration_minutes: 120,
   default_deposit: 10,
   service_cost: "",
@@ -79,6 +81,7 @@ export default function AppointmentTypeDialog({ open, onOpenChange, appointmentT
         category: appointmentType.category || "",
         name: appointmentType.name || "",
         description: appointmentType.description || "",
+        image_url: appointmentType.image_url || "",
         default_duration_minutes: appointmentType.default_duration_minutes || 120,
         default_deposit: appointmentType.default_deposit ?? 10,
         service_cost: appointmentType.service_cost ?? "",
@@ -139,6 +142,7 @@ export default function AppointmentTypeDialog({ open, onOpenChange, appointmentT
       category: leaf?.name || "",
       reporting_category_id: formData.reporting_category_id || null,
       service_cost: formData.service_cost !== "" ? parseFloat(formData.service_cost) : null,
+      image_url: formData.image_url?.trim() || null,
     };
 
     if (appointmentType) {
@@ -237,6 +241,34 @@ export default function AppointmentTypeDialog({ open, onOpenChange, appointmentT
                 rows={3}
                 placeholder="Describe this appointment type..."
               />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="image_url">
+                Image URL
+                <span className="ml-1 text-xs font-normal text-gray-400">
+                  (optional — shown to customers on public booking)
+                </span>
+              </Label>
+              <Input
+                id="image_url"
+                type="url"
+                value={formData.image_url}
+                onChange={(e) => setFormData({ ...formData, image_url: e.target.value })}
+                placeholder="https://example.com/piercing-photo.jpg"
+              />
+              <p className="text-xs text-gray-500">
+                Paste a direct link to an image hosted elsewhere (HTTPS recommended).
+              </p>
+              {formData.image_url?.trim() && (
+                <div className="mt-2 rounded-lg border border-gray-200 p-2 bg-gray-50">
+                  <AppointmentTypeImage
+                    imageUrl={formData.image_url}
+                    alt={`Preview of ${formData.name || "appointment type"}`}
+                    className="h-24 w-24 rounded-md object-cover"
+                  />
+                </div>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-4">

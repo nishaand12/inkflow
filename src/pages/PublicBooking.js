@@ -17,10 +17,14 @@ import {
 import { format, addDays } from "date-fns";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { isPublicPiercingBookableArtistType } from "@/utils/artistTypes";
+import AppointmentTypeImage from "@/components/appointment-types/AppointmentTypeImage";
+import { useEmbedResize } from "@/hooks/useEmbedResize";
 
 export default function PublicBooking() {
   const [searchParams] = useSearchParams();
   const studioParam = searchParams.get("studio");
+  const isEmbed = searchParams.get("embed") === "1";
+  const isInIframe = typeof window !== "undefined" && window.self !== window.top;
 
   const [loading, setLoading] = useState(true);
   const [studioId, setStudioId] = useState(null);
@@ -45,6 +49,8 @@ export default function PublicBooking() {
   const [submitting, setSubmitting] = useState(false);
   const [bookingResult, setBookingResult] = useState(null);
   const [error, setError] = useState(null);
+
+  useEmbedResize(isEmbed, [loading, step, bookingResult, error, studio, selectedCategoryPath.length]);
 
   useEffect(() => {
     if (studioParam) {
@@ -311,9 +317,15 @@ export default function PublicBooking() {
     }
   };
 
+  const shellMinHeight = isEmbed ? "min-h-0" : "min-h-screen";
+  const shellPadding = isEmbed ? "p-4 sm:p-6" : "p-6";
+
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-50 to-purple-50">
+      <div
+        data-embed={isEmbed ? "true" : undefined}
+        className={`${shellMinHeight} flex items-center justify-center bg-gradient-to-br from-indigo-50 to-purple-50 py-12`}
+      >
         <Loader2 className="w-8 h-8 animate-spin text-indigo-600" />
       </div>
     );
@@ -321,7 +333,10 @@ export default function PublicBooking() {
 
   if (!studio || !studioParam) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100 p-6">
+      <div
+        data-embed={isEmbed ? "true" : undefined}
+        className={`${shellMinHeight} flex items-center justify-center bg-gradient-to-br from-gray-50 to-gray-100 ${shellPadding}`}
+      >
         <Card className="max-w-md w-full bg-white shadow-xl">
           <CardContent className="p-8 text-center">
             <AlertCircle className="w-12 h-12 text-red-400 mx-auto mb-4" />
@@ -336,7 +351,9 @@ export default function PublicBooking() {
   if (bookingResult) {
     const hasDeposit = Boolean(bookingResult.checkout_url);
     return (
-      <div className={`min-h-screen flex items-center justify-center p-6 ${
+      <div
+        data-embed={isEmbed ? "true" : undefined}
+        className={`${shellMinHeight} flex items-center justify-center ${shellPadding} ${
         hasDeposit
           ? "bg-gradient-to-br from-indigo-50 to-purple-50"
           : "bg-gradient-to-br from-green-50 to-emerald-50"
@@ -356,6 +373,8 @@ export default function PublicBooking() {
                 </p>
                 <a
                   href={bookingResult.checkout_url}
+                  target={isInIframe ? "_top" : undefined}
+                  rel={isInIframe ? "noopener noreferrer" : undefined}
                   className="inline-flex items-center gap-2 bg-indigo-600 text-white px-6 py-3 rounded-xl font-semibold hover:bg-indigo-700 transition-colors"
                 >
                   <CreditCard className="w-5 h-5" />
@@ -384,27 +403,34 @@ export default function PublicBooking() {
   const minDate = format(addDays(new Date(), 1), 'yyyy-MM-dd');
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-50 to-purple-50 p-4 sm:p-6">
-      <div className="max-w-2xl mx-auto space-y-6">
-        <div className="text-center">
-          <h1 className="text-3xl font-bold text-gray-900">{studio.name}</h1>
-          <p className="text-gray-600 mt-1">Book your appointment online</p>
-        </div>
+    <div
+      data-embed={isEmbed ? "true" : undefined}
+      className={`${shellMinHeight} bg-gradient-to-br from-indigo-50 to-purple-50 ${isEmbed ? "p-2 sm:p-4" : "p-4 sm:p-6"}`}
+    >
+      <div className={`max-w-2xl mx-auto ${isEmbed ? "space-y-4" : "space-y-6"}`}>
+        {!isEmbed && (
+          <>
+            <div className="text-center">
+              <h1 className="text-3xl font-bold text-gray-900">{studio.name}</h1>
+              <p className="text-gray-600 mt-1">Book your appointment online</p>
+            </div>
 
-        <div className="rounded-xl border border-indigo-200 bg-white/90 shadow-sm px-4 py-4 space-y-3 text-left text-sm text-gray-700">
-          <p>
-            Earlobes age 5+ with a custodial parent present / Most common piercings age 13–15 with a
-            custodial parent present or 16+ with picture ID / Extreme and genital piercings 18+ with
-            picture ID
-          </p>
-          <p className="font-semibold tracking-wide text-center text-gray-900">
-            ONLINE $10 DEPOSITS ARE NON-REFUNDABLE
-          </p>
-          <p>
-            Custodial parent must present valid government photo ID. Minor with parent must also
-            present ID to get pierced; a non-photo health card is fine.
-          </p>
-        </div>
+            <div className="rounded-xl border border-indigo-200 bg-white/90 shadow-sm px-4 py-4 space-y-3 text-left text-sm text-gray-700">
+              <p>
+                Earlobes age 5+ with a custodial parent present / Most common piercings age 13–15 with a
+                custodial parent present or 16+ with picture ID / Extreme and genital piercings 18+ with
+                picture ID
+              </p>
+              <p className="font-semibold tracking-wide text-center text-gray-900">
+                ONLINE $10 DEPOSITS ARE NON-REFUNDABLE
+              </p>
+              <p>
+                Custodial parent must present valid government photo ID. Minor with parent must also
+                present ID to get pierced; a non-photo health card is fine.
+              </p>
+            </div>
+          </>
+        )}
 
         <div className="flex items-center justify-center gap-2 text-sm">
           {[1, 2, 3, 4].map(s => (
@@ -587,20 +613,29 @@ export default function PublicBooking() {
               <CardTitle className="text-xl">Your Details</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="bg-indigo-50 rounded-lg p-4 space-y-1 text-sm">
-                <p><span className="font-medium">Service:</span> {selectedType?.name}</p>
-                <p><span className="font-medium">Piercer:</span> {selectedArtist === '__any__' ? 'Any Available Piercer' : piercers.find(a => a.id === selectedArtist)?.full_name}</p>
-                <p><span className="font-medium">Location:</span> {locations.find(l => l.id === selectedLocation)?.name}</p>
-                <p><span className="font-medium">Date:</span> {selectedDate} at {formatTime12h(selectedTime)}</p>
-                <p><span className="font-medium">Duration:</span> {formatDuration(selectedType?.default_duration_minutes)}</p>
-                {selectedType?.service_cost > 0 && (
-                  <p><span className="font-medium">Service Cost:</span> ${selectedType.service_cost}
-                    {selectedType.price_includes_tax ? <span className="text-gray-600"> (includes tax)</span> : null}
-                  </p>
+              <div className="bg-indigo-50 rounded-lg p-4 space-y-3 text-sm">
+                {selectedType?.image_url && (
+                  <AppointmentTypeImage
+                    imageUrl={selectedType.image_url}
+                    alt={selectedType.name}
+                    className="h-20 w-20 rounded-lg object-cover"
+                  />
                 )}
-                {selectedType?.default_deposit > 0 && (
-                  <p><span className="font-medium">Deposit Due Now:</span> ${selectedType.default_deposit}</p>
-                )}
+                <div className="space-y-1">
+                  <p><span className="font-medium">Service:</span> {selectedType?.name}</p>
+                  <p><span className="font-medium">Piercer:</span> {selectedArtist === '__any__' ? 'Any Available Piercer' : piercers.find(a => a.id === selectedArtist)?.full_name}</p>
+                  <p><span className="font-medium">Location:</span> {locations.find(l => l.id === selectedLocation)?.name}</p>
+                  <p><span className="font-medium">Date:</span> {selectedDate} at {formatTime12h(selectedTime)}</p>
+                  <p><span className="font-medium">Duration:</span> {formatDuration(selectedType?.default_duration_minutes)}</p>
+                  {selectedType?.service_cost > 0 && (
+                    <p><span className="font-medium">Service Cost:</span> ${selectedType.service_cost}
+                      {selectedType.price_includes_tax ? <span className="text-gray-600"> (includes tax)</span> : null}
+                    </p>
+                  )}
+                  {selectedType?.default_deposit > 0 && (
+                    <p><span className="font-medium">Deposit Due Now:</span> ${selectedType.default_deposit}</p>
+                  )}
+                </div>
               </div>
 
               <div className="space-y-3">
@@ -670,6 +705,13 @@ function ServiceTypeList({ types, selectedType, onSelect }) {
           }`}
         >
           <div className="flex items-start justify-between gap-3">
+            {type.image_url && (
+              <AppointmentTypeImage
+                imageUrl={type.image_url}
+                alt={type.name}
+                className="h-16 w-16 shrink-0 rounded-lg object-cover"
+              />
+            )}
             <div className="flex-1 min-w-0">
               <p className="font-semibold text-gray-900">{type.name}</p>
               {type.description && (

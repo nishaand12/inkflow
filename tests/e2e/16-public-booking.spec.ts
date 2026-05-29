@@ -63,6 +63,20 @@ test.describe('Public Booking Flow (migrate3 + migrate4)', () => {
     await expect(page.getByText('Select Service').first()).toBeVisible({ timeout: 8000 });
   });
 
+  test('HP-PUB-3b: /book?studio=VALID&embed=1 hides header and uses embed layout', async ({ page }) => {
+    if (!studioId) {
+      test.skip(true, 'TEST_STUDIO_ID not set in playwright.env — skipping live booking tests.');
+      return;
+    }
+
+    await page.goto(`/book?studio=${studioId}&embed=1`);
+    await page.waitForLoadState('networkidle');
+
+    await expect(page.locator('[data-embed="true"]')).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText(/book your appointment online/i)).not.toBeVisible({ timeout: 5000 });
+    await expect(page.getByText('Select Service').first()).toBeVisible({ timeout: 8000 });
+  });
+
   test('HP-PUB-4: Only is_public_bookable appointment types are shown in step 1', async ({ page }) => {
     if (!studioId) {
       test.skip(true, 'TEST_STUDIO_ID not set.');

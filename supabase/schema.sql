@@ -149,6 +149,7 @@ create table if not exists appointment_types (
   appointment_kind_category_id uuid references reporting_categories (id),
   name text not null,
   description text,
+  image_url text,
   default_duration_minutes integer not null,
   default_deposit numeric not null,
   service_cost numeric,
