@@ -184,13 +184,14 @@ serve(async (req) => {
       case "checkout.session.expired": {
         const session = event.data.object as Stripe.Checkout.Session;
         const appointmentId = session.metadata?.appointment_id;
+        const paymentType = session.metadata?.payment_type;
 
         await supabase
           .from("payments")
           .update({ status: "expired" })
           .eq("stripe_checkout_session_id", session.id);
 
-        if (appointmentId) {
+        if (appointmentId && paymentType === "deposit") {
           // Only reset to 'none' if there are no other paid payments for this appointment
           const { data: paidPayments } = await supabase
             .from("payments")
@@ -212,13 +213,14 @@ serve(async (req) => {
       case "checkout.session.async_payment_failed": {
         const session = event.data.object as Stripe.Checkout.Session;
         const appointmentId = session.metadata?.appointment_id;
+        const paymentType = session.metadata?.payment_type;
 
         await supabase
           .from("payments")
           .update({ status: "failed" })
           .eq("stripe_checkout_session_id", session.id);
 
-        if (appointmentId) {
+        if (appointmentId && paymentType === "deposit") {
           await supabase
             .from("appointments")
             .update({ deposit_status: "failed" })
