@@ -14,6 +14,24 @@ const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY");
 const APP_URL = Deno.env.get("APP_URL") || "https://inkflow.app";
 
 const MAILJET_API_URL = "https://api.mailjet.com/v3.1/send";
+const DEFAULT_CONFIRMATION_SUBJECT_TEMPLATE = "Appointment Confirmation - {{studio_name}}";
+const DEFAULT_CONFIRMATION_BODY_TEMPLATE = `Hi {{customer_name}},
+
+Your appointment is confirmed for {{appointment_date_time}} at {{location_name}} with {{artist_name}}.
+
+If a deposit is required, you can use this link: {{deposit_link}}
+
+If you have questions, contact {{studio_email}}.
+
+Looking forward to seeing you!`;
+const DEFAULT_CANCELLATION_SUBJECT_TEMPLATE = "Appointment Cancelled - {{studio_name}}";
+const DEFAULT_CANCELLATION_BODY_TEMPLATE = `Hi {{customer_name}},
+
+Your appointment scheduled for {{appointment_date_time}} at {{location_name}} with {{artist_name}} has been cancelled.
+
+If this was unexpected or you want to rebook, please contact {{studio_email}}.
+
+Thank you.`;
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -27,16 +45,33 @@ serve(async (req) => {
       return new Response("ok", { headers: corsHeaders });
     }
 
-    const { appointmentId, eventType } = await req.json();
+    const requestBody = await req.json().catch(() => ({}));
+    const appointmentId = requestBody?.appointmentId || requestBody?.appointment_id;
+    const eventTypeRaw = requestBody?.eventType || requestBody?.event_type || "created";
+    const eventType = String(eventTypeRaw).toLowerCase();
 
-    if (!appointmentId || !eventType) {
-      return jsonResponse({ error: "Missing appointmentId or eventType" }, 400);
+    if (!appointmentId) {
+      return jsonResponse({ error: "Missing appointmentId" }, 400);
     }
 
-    // Basic authorization: verify the request includes the anon key
+    if (!["created", "updated", "cancelled"].includes(eventType)) {
+      return jsonResponse({ skipped: true, reason: "unsupported_event_type" }, 200);
+    }
+
+    // Basic authorization: allow anon key (frontend calls) or service-role key (server-to-server calls)
     const apiKey = req.headers.get("apikey");
+    const authHeader = req.headers.get("authorization");
     const expectedAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
-    if (!apiKey || apiKey !== expectedAnonKey) {
+    const serviceKey = SUPABASE_SERVICE_ROLE_KEY;
+    const bearerToken = authHeader?.startsWith("Bearer ")
+      ? authHeader.slice("Bearer ".length)
+      : null;
+    const keyMatches =
+      Boolean(apiKey) &&
+      ((Boolean(expectedAnonKey) && apiKey === expectedAnonKey) ||
+        (Boolean(serviceKey) && apiKey === serviceKey));
+    const bearerMatches = Boolean(serviceKey && bearerToken && bearerToken === serviceKey);
+    if (!keyMatches && !bearerMatches) {
       return jsonResponse({ error: "Unauthorized" }, 401);
     }
 
@@ -68,7 +103,7 @@ serve(async (req) => {
       return jsonResponse({ error: "Appointment not found" }, 404);
     }
 
-    // Prevent duplicate creation emails (main abuse vector), but allow update emails
+    // Prevent duplicate confirmation emails for the same appointment.
     if (eventType === "created" && appointment.email_send_status === "sent") {
       return jsonResponse({ skipped: true, reason: "email_already_sent", message: "Confirmation email already sent for this appointment." }, 200);
     }
@@ -76,8 +111,8 @@ serve(async (req) => {
     const studio = appointment.studio;
     const customer = appointment.customer;
 
-    if (!studio || studio.subscription_tier !== "plus" || !studio.email_reminders_enabled) {
-      return jsonResponse({ skipped: true, reason: "tier_or_disabled" }, 200);
+    if (!studio || studio.email_confirmations_enabled === false) {
+      return jsonResponse({ skipped: true, reason: "confirmations_disabled" }, 200);
     }
 
     const email = resolveEmailAddress(appointment, customer);
@@ -106,7 +141,7 @@ serve(async (req) => {
     const locationText = appointment.location?.name || "Location";
     const studioEmail = studio.studio_email || MAILJET_SENDER_EMAIL;
 
-    // Generate deposit link for new appointments if studio has Stripe connected
+    // Generate deposit link for newly-created appointments if studio has Stripe connected.
     let depositUrl: string | null = null;
     if (
       eventType === "created" &&
@@ -124,19 +159,32 @@ serve(async (req) => {
       }
     }
 
-    const subject = getSubject(eventType, studio.name);
-    const emailContent = getEmailContent({
-      eventType,
-      customerName: appointment.client_name || customer?.name || "Customer",
-      dateTime: formattedDateTime,
-      location: locationText,
-      studioEmail,
-      depositAmount: appointment.deposit_amount,
-      depositUrl,
-    });
+    const customerName = appointment.client_name || customer?.name || "Customer";
+    const artistName = appointment.artist?.full_name || "Artist";
+    const depositAmount = Number(appointment.deposit_amount) || 0;
+    const templateVars = {
+      customer_name: customerName,
+      studio_name: studio.name || "Studio",
+      appointment_date_time: formattedDateTime,
+      location_name: locationText,
+      artist_name: artistName,
+      deposit_amount: depositAmount > 0 ? depositAmount.toFixed(2) : "",
+      deposit_link: depositUrl || "",
+      studio_email: studioEmail,
+    };
+    let subjectTemplate = studio.booking_confirmation_subject_template || DEFAULT_CONFIRMATION_SUBJECT_TEMPLATE;
+    let bodyTemplate = studio.booking_confirmation_body_template || DEFAULT_CONFIRMATION_BODY_TEMPLATE;
+    if (eventType === "cancelled") {
+      subjectTemplate = DEFAULT_CANCELLATION_SUBJECT_TEMPLATE;
+      bodyTemplate = DEFAULT_CANCELLATION_BODY_TEMPLATE;
+    }
+
+    const subject = renderTemplate(subjectTemplate, templateVars);
+    const textBody = renderTemplate(bodyTemplate, templateVars);
+    const htmlBody = textToHtml(textBody);
 
     const attachments = [];
-    if ((eventType === "created" || eventType === "updated") && customer?.send_calendar_invites) {
+    if (eventType !== "cancelled" && customer?.send_calendar_invites) {
       const calendarInvite = generateCalendarInvite({
         appointment,
         studio,
@@ -154,10 +202,10 @@ serve(async (req) => {
       Messages: [
         {
           From: { Email: MAILJET_SENDER_EMAIL, Name: MAILJET_SENDER_NAME },
-          To: [{ Email: email, Name: appointment.client_name || customer?.name || "Customer" }],
+          To: [{ Email: email, Name: customerName }],
           Subject: subject,
-          TextPart: emailContent.text,
-          HTMLPart: emailContent.html,
+          TextPart: textBody,
+          HTMLPart: htmlBody,
           Attachments: attachments.length > 0 ? attachments : undefined
         }
       ]
@@ -270,121 +318,6 @@ function getTimezoneAbbreviation(timezone: string): string {
   } catch {
     return timezone;
   }
-}
-
-function getSubject(eventType: string, studioName: string) {
-  if (eventType === "reminder") {
-    return `Appointment Reminder - ${studioName}`;
-  }
-  if (eventType === "updated") {
-    return `Appointment Update - ${studioName}`;
-  }
-  return `Appointment Confirmation - ${studioName}`;
-}
-
-function getEmailContent({
-  eventType,
-  customerName,
-  dateTime,
-  location,
-  studioEmail,
-  depositAmount,
-  depositUrl,
-}: {
-  eventType: string;
-  customerName: string;
-  dateTime: string;
-  location: string;
-  studioEmail: string;
-  depositAmount?: number;
-  depositUrl?: string | null;
-}) {
-  const escapedCustomerName = escapeHtml(customerName);
-  const escapedDateTime = escapeHtml(dateTime);
-  const escapedLocation = escapeHtml(location);
-  const escapedStudioEmail = escapeHtml(studioEmail);
-
-  const depositSection =
-    depositUrl && depositAmount && depositAmount > 0
-      ? `\n\nA deposit of $${depositAmount.toFixed(2)} is required to secure your appointment. Please complete your payment using the link below:\n\nPay deposit: ${depositUrl}\n\nFull payment URL: ${depositUrl}\n\nThis payment link expires in 24 hours. If it has expired, please contact ${studioEmail} for a new link.`
-      : "";
-
-  const escapedDepositUrl = depositUrl ? escapeHtml(depositUrl) : "";
-  const depositHtmlSection =
-    depositUrl && depositAmount && depositAmount > 0
-      ? `
-        <p>A deposit of $${depositAmount.toFixed(2)} is required to secure your appointment.</p>
-        <p><a href="${escapedDepositUrl}" style="display:inline-block;padding:12px 18px;background:#4f46e5;color:#ffffff;text-decoration:none;border-radius:6px;font-weight:600;">Pay deposit</a></p>
-        <p style="font-size:13px;color:#4b5563;">If the button does not work, copy and paste this full URL into your browser:</p>
-        <p style="font-size:13px;word-break:break-all;"><a href="${escapedDepositUrl}">${escapedDepositUrl}</a></p>
-        <p>This payment link expires in 24 hours. If it has expired, please contact ${escapedStudioEmail} for a new link.</p>
-      `
-      : "";
-
-  if (eventType === "reminder") {
-    return {
-      text: `Hi There,\n\nThis is an appointment reminder for ${customerName}.\n\n${dateTime}\n${location}\n\nLooking forward to seeing you there!\n\nIf you received this email in error, please contact ${studioEmail}.`,
-      html: wrapEmailHtml(`
-        <p>Hi There,</p>
-        <p>This is an appointment reminder for ${escapedCustomerName}.</p>
-        <p>${escapedDateTime}<br>${escapedLocation}</p>
-        <p>Looking forward to seeing you there!</p>
-        <p>If you received this email in error, please contact ${escapedStudioEmail}.</p>
-      `),
-    };
-  }
-
-  if (eventType === "updated") {
-    return {
-      text: `Hi There,\n\nYour appointment details have been updated for ${customerName}.\n\n${dateTime}\n${location}\n\nIf you received this email in error, please contact ${studioEmail}.`,
-      html: wrapEmailHtml(`
-        <p>Hi There,</p>
-        <p>Your appointment details have been updated for ${escapedCustomerName}.</p>
-        <p>${escapedDateTime}<br>${escapedLocation}</p>
-        <p>If you received this email in error, please contact ${escapedStudioEmail}.</p>
-      `),
-    };
-  }
-
-  return {
-    text: `Hi There,\n\nThis is a confirmation for ${customerName}.\n\n${dateTime}\n${location}${depositSection}\n\nLooking forward to seeing you there!\n\nIf you received this email in error, please contact ${studioEmail}.`,
-    html: wrapEmailHtml(`
-      <p>Hi There,</p>
-      <p>This is a confirmation for ${escapedCustomerName}.</p>
-      <p>${escapedDateTime}<br>${escapedLocation}</p>
-      ${depositHtmlSection}
-      <p>Looking forward to seeing you there!</p>
-      <p>If you received this email in error, please contact ${escapedStudioEmail}.</p>
-    `),
-  };
-}
-
-function wrapEmailHtml(body: string) {
-  return `<!doctype html>
-<html>
-  <body style="font-family:Arial,sans-serif;line-height:1.5;color:#111827;">
-    ${body}
-  </body>
-</html>`;
-}
-
-function escapeHtml(value: string) {
-  return value.replace(/[&<>"']/g, (char) => {
-    switch (char) {
-      case "&":
-        return "&amp;";
-      case "<":
-        return "&lt;";
-      case ">":
-        return "&gt;";
-      case '"':
-        return "&quot;";
-      case "'":
-        return "&#39;";
-      default:
-        return char;
-    }
-  });
 }
 
 async function sendWithRetry(payload: any) {
@@ -715,4 +648,22 @@ function jsonResponse(payload: Record<string, unknown>, status = 200) {
     status,
     headers: { "Content-Type": "application/json", ...corsHeaders }
   });
+}
+
+function renderTemplate(template: string, vars: Record<string, string>) {
+  return template.replace(/\{\{\s*([a-z_]+)\s*\}\}/gi, (_, key) => vars[key] || "");
+}
+
+function textToHtml(body: string) {
+  const escaped = body
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+  const withLinks = escaped.replace(
+    /(https?:\/\/[^\s<]+)/g,
+    '<a href="$1">$1</a>'
+  );
+  return `<!doctype html><html><body style="font-family:Arial,sans-serif;line-height:1.5;color:#111827;white-space:pre-wrap;">${withLinks}</body></html>`;
 }

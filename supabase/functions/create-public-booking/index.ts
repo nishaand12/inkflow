@@ -6,6 +6,7 @@ import { formatTime12h } from "../_shared/timeDisplay.ts";
 const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY")!;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY");
 const APP_URL = Deno.env.get("APP_URL") || "https://inkflow.app";
 
 const stripe = new Stripe(STRIPE_SECRET_KEY, { apiVersion: "2024-06-20" });
@@ -215,6 +216,8 @@ serve(async (req) => {
       }
     }
 
+    await triggerConfirmationEmail(appointment.id);
+
     return json({
       appointment_id: appointment.id,
       checkout_url: checkoutUrl,
@@ -230,4 +233,32 @@ function json(data: Record<string, unknown>, status = 200) {
     status,
     headers: { "Content-Type": "application/json", ...corsHeaders },
   });
+}
+
+async function triggerConfirmationEmail(appointmentId: string) {
+  try {
+    if (!appointmentId) return;
+    const endpoint = `${SUPABASE_URL}/functions/v1/send-appointment-email`;
+    const key = SUPABASE_ANON_KEY || SUPABASE_SERVICE_ROLE_KEY;
+    if (!key) return;
+
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: key,
+        authorization: `Bearer ${key}`,
+      },
+      body: JSON.stringify({
+        appointmentId,
+        eventType: "created",
+      }),
+    });
+    if (!response.ok) {
+      const details = await response.text().catch(() => "");
+      console.error("Confirmation trigger failed:", response.status, details);
+    }
+  } catch (emailErr) {
+    console.error("Failed to trigger booking confirmation email:", emailErr);
+  }
 }

@@ -752,10 +752,19 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
       onOpenChange(false);
 
       if (appointment) {
+        const prevStatus = appointment.status;
+        const nextStatus = variables?.data?.status ?? updatedAppointment?.status;
+
+        if (nextStatus === 'cancelled' && prevStatus !== 'cancelled') {
+          await sendAppointmentEmail(updatedAppointment, "cancelled");
+          return;
+        }
+
         const hasScheduleChange =
           appointment.appointment_date !== variables.data.appointment_date ||
           appointment.start_time !== variables.data.start_time ||
-          appointment.location_id !== variables.data.location_id;
+          appointment.location_id !== variables.data.location_id ||
+          appointment.artist_id !== variables.data.artist_id;
 
         if (hasScheduleChange) {
           await sendAppointmentEmail(updatedAppointment, "updated");
@@ -776,14 +785,27 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
         const isPaymentReferenceError =
           error?.code === '23503' &&
           (errorText.includes('payments_appointment_id_fkey') || errorText.includes('table "payments"'));
+        const isEmailEventsReferenceError =
+          error?.code === '23503' &&
+          (errorText.includes('email_events_appointment_id_fkey') || errorText.includes('table "email_events"'));
 
-        if (!isPaymentReferenceError) throw error;
+        if (!isPaymentReferenceError && !isEmailEventsReferenceError) throw error;
 
-        const { error: paymentError } = await supabase
-          .from('payments')
-          .update({ appointment_id: null })
-          .eq('appointment_id', id);
-        if (paymentError) throw paymentError;
+        if (isPaymentReferenceError) {
+          const { error: paymentError } = await supabase
+            .from('payments')
+            .update({ appointment_id: null })
+            .eq('appointment_id', id);
+          if (paymentError) throw paymentError;
+        }
+
+        if (isEmailEventsReferenceError) {
+          const { error: emailEventError } = await supabase
+            .from('email_events')
+            .update({ appointment_id: null })
+            .eq('appointment_id', id);
+          if (emailEventError) throw emailEventError;
+        }
 
         return base44.entities.Appointment.delete(id);
       }
@@ -877,8 +899,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
 
   const sendAppointmentEmail = async (appointmentRecord, eventType) => {
     try {
-      if (!studio || studio.subscription_tier !== "plus") return;
-      if (!studio.email_reminders_enabled) return;
+      if (!studio) return;
 
       const { data, error } = await supabase.functions.invoke("send-appointment-email", {
         body: {

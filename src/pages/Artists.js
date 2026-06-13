@@ -16,6 +16,7 @@ import {
   filterCategoriesByRole,
   getCategoryPathLabel,
 } from "@/utils/reportingCategories";
+import { isArtistDefaultSplitRule } from "@/utils/revenueSplits";
 import ArtistDialog from "../components/artists/ArtistDialog";
 import { sortByFullNameThenId } from "@/utils/listSort";
 import {
@@ -54,7 +55,9 @@ function SplitRuleDialog({ open, onOpenChange, artist, studioId }) {
 
   useEffect(() => {
     if (artist && splitRules.length >= 0) {
-      const existing = splitRules.find(r => r.artist_id === artist.id && r.is_active);
+      const existing = splitRules.find(
+        (r) => isArtistDefaultSplitRule(r) && r.artist_id === artist.id
+      );
       if (existing) {
         setSplitPercent(existing.split_percent);
         setEligibleCategoryIds(existing.eligible_category_ids || []);
@@ -66,10 +69,13 @@ function SplitRuleDialog({ open, onOpenChange, artist, studioId }) {
   }, [artist, splitRules]);
 
   const handleSave = async () => {
-    const existing = splitRules.find(r => r.artist_id === artist.id && r.is_active);
+    const existing = splitRules.find(
+      (r) => isArtistDefaultSplitRule(r) && r.artist_id === artist.id
+    );
     const ruleData = {
       studio_id: studioId,
       artist_id: artist.id,
+      appointment_type_id: null,
       split_percent: splitPercent,
       eligible_category_ids: eligibleCategoryIds,
       is_active: true
@@ -333,7 +339,9 @@ export default function Artists() {
                   {canEdit && (
                     <div className="flex justify-end mt-4 pt-4 border-t border-gray-100 gap-2">
                       {(() => {
-                        const rule = splitRules.find(r => r.artist_id === artist.id && r.is_active);
+                        const rule = splitRules.find(
+                          (r) => isArtistDefaultSplitRule(r) && r.artist_id === artist.id
+                        );
                         return (
                           <Button
                             variant="outline"

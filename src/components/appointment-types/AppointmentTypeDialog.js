@@ -32,6 +32,10 @@ import {
 } from "@/utils/reportingCategories";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import AppointmentTypeImage from "@/components/appointment-types/AppointmentTypeImage";
+import {
+  isAppointmentArtistSplitRule,
+  isAppointmentDefaultSplitRule,
+} from "@/utils/revenueSplits";
 
 const DURATION_PRESETS = [5, 10, 15, 20, 30, 45, 60, 90, 120, 150, 180, 240, 300, 360];
 
@@ -54,6 +58,9 @@ export default function AppointmentTypeDialog({ open, onOpenChange, appointmentT
   const queryClient = useQueryClient();
   const [formData, setFormData] = useState(DEFAULT_FORM);
   const [showDeleteAlert, setShowDeleteAlert] = useState(false);
+  const [appointmentDefaultSplit, setAppointmentDefaultSplit] = useState("");
+  const [artistOverrideSplits, setArtistOverrideSplits] = useState({});
+  const [saveError, setSaveError] = useState("");
 
   const { data: reportingCategories = [] } = useQuery({
     queryKey: ["reportingCategories", currentUser?.studio_id],
@@ -72,6 +79,33 @@ export default function AppointmentTypeDialog({ open, onOpenChange, appointmentT
   const reportingLeaves = useMemo(
     () => getLeafCategoryOptions(reportingCategories, CATEGORY_ROLE_REPORTING),
     [reportingCategories]
+  );
+
+  const { data: artists = [] } = useQuery({
+    queryKey: ["artists", currentUser?.studio_id],
+    queryFn: async () => {
+      if (!currentUser?.studio_id) return [];
+      return base44.entities.Artist.filter({ studio_id: currentUser.studio_id });
+    },
+    enabled: open && !!currentUser?.studio_id,
+  });
+
+  const { data: splitRules = [] } = useQuery({
+    queryKey: ["artistSplitRules", currentUser?.studio_id],
+    queryFn: async () => {
+      if (!currentUser?.studio_id) return [];
+      return base44.entities.ArtistSplitRule.filter({ studio_id: currentUser.studio_id });
+    },
+    enabled: open && !!currentUser?.studio_id,
+  });
+
+  const activeArtists = useMemo(
+    () =>
+      artists
+        .filter((a) => a.is_active)
+        .slice()
+        .sort((a, b) => (a.full_name || "").localeCompare(b.full_name || "")),
+    [artists]
   );
 
   useEffect(() => {
@@ -95,21 +129,36 @@ export default function AppointmentTypeDialog({ open, onOpenChange, appointmentT
     }
   }, [appointmentType, open]);
 
+  useEffect(() => {
+    if (!open || !appointmentType) {
+      setAppointmentDefaultSplit("");
+      setArtistOverrideSplits({});
+      return;
+    }
+
+    const appointmentRule = splitRules.find((rule) =>
+      isAppointmentDefaultSplitRule(rule, appointmentType.id)
+    );
+    setAppointmentDefaultSplit(
+      appointmentRule ? String(Number(appointmentRule.split_percent) || 0) : ""
+    );
+
+    const overrides = {};
+    splitRules
+      .filter((rule) => isAppointmentArtistSplitRule(rule, appointmentType.id))
+      .forEach((rule) => {
+        if (!rule.artist_id) return;
+        overrides[rule.artist_id] = String(Number(rule.split_percent) || 0);
+      });
+    setArtistOverrideSplits(overrides);
+  }, [appointmentType, open, splitRules]);
+
   const createMutation = useMutation({
     mutationFn: (data) => base44.entities.AppointmentType.create(data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["appointmentTypes"] });
-      onOpenChange(false);
-      resetForm();
-    },
   });
 
   const updateMutation = useMutation({
     mutationFn: ({ id, data }) => base44.entities.AppointmentType.update(id, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["appointmentTypes"] });
-      onOpenChange(false);
-    },
   });
 
   const deleteMutation = useMutation({
@@ -129,8 +178,82 @@ export default function AppointmentTypeDialog({ open, onOpenChange, appointmentT
     }));
   };
 
-  const handleSubmit = (e) => {
+  const parseSplitInput = (value) => {
+    if (value === "" || value == null) return null;
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return null;
+    return Math.min(100, Math.max(0, parsed));
+  };
+
+  const syncScopedSplitRules = async (appointmentTypeId) => {
+    const desiredDefault = parseSplitInput(appointmentDefaultSplit);
+    const desiredOverrides = Object.entries(artistOverrideSplits).reduce((acc, [artistId, raw]) => {
+      const parsed = parseSplitInput(raw);
+      if (parsed != null) acc[artistId] = parsed;
+      return acc;
+    }, {});
+
+    const matchingRules = splitRules.filter(
+      (rule) => rule.appointment_type_id === appointmentTypeId
+    );
+
+    const appointmentDefaultRule = matchingRules.find(
+      (rule) => rule.is_active && !rule.artist_id
+    );
+
+    if (desiredDefault == null) {
+      if (appointmentDefaultRule) {
+        await base44.entities.ArtistSplitRule.delete(appointmentDefaultRule.id);
+      }
+    } else if (appointmentDefaultRule) {
+      await base44.entities.ArtistSplitRule.update(appointmentDefaultRule.id, {
+        ...appointmentDefaultRule,
+        split_percent: desiredDefault,
+        is_active: true,
+      });
+    } else {
+      await base44.entities.ArtistSplitRule.create({
+        studio_id: currentUser?.studio_id,
+        appointment_type_id: appointmentTypeId,
+        artist_id: null,
+        split_percent: desiredDefault,
+        eligible_category_ids: [],
+        is_active: true,
+      });
+    }
+
+    const existingOverrides = matchingRules.filter(
+      (rule) => rule.is_active && rule.artist_id
+    );
+    for (const existing of existingOverrides) {
+      const desired = desiredOverrides[existing.artist_id];
+      if (desired == null) {
+        await base44.entities.ArtistSplitRule.delete(existing.id);
+      } else {
+        await base44.entities.ArtistSplitRule.update(existing.id, {
+          ...existing,
+          split_percent: desired,
+          is_active: true,
+        });
+      }
+      delete desiredOverrides[existing.artist_id];
+    }
+
+    for (const [artistId, splitPercent] of Object.entries(desiredOverrides)) {
+      await base44.entities.ArtistSplitRule.create({
+        studio_id: currentUser?.studio_id,
+        appointment_type_id: appointmentTypeId,
+        artist_id: artistId,
+        split_percent: splitPercent,
+        eligible_category_ids: [],
+        is_active: true,
+      });
+    }
+  };
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
+    setSaveError("");
     if (!formData.appointment_kind_category_id || appointmentKindLeaves.length === 0) {
       return;
     }
@@ -145,10 +268,26 @@ export default function AppointmentTypeDialog({ open, onOpenChange, appointmentT
       image_url: formData.image_url?.trim() || null,
     };
 
-    if (appointmentType) {
-      updateMutation.mutate({ id: appointmentType.id, data: submitData });
-    } else {
-      createMutation.mutate(submitData);
+    try {
+      let savedTypeId = appointmentType?.id;
+
+      if (appointmentType) {
+        await updateMutation.mutateAsync({ id: appointmentType.id, data: submitData });
+      } else {
+        const created = await createMutation.mutateAsync(submitData);
+        savedTypeId = created?.id;
+      }
+
+      if (savedTypeId) {
+        await syncScopedSplitRules(savedTypeId);
+      }
+
+      queryClient.invalidateQueries({ queryKey: ["appointmentTypes"] });
+      queryClient.invalidateQueries({ queryKey: ["artistSplitRules"] });
+      onOpenChange(false);
+      resetForm();
+    } catch (error) {
+      setSaveError(error?.message || "Could not save appointment type settings.");
     }
   };
 
@@ -410,6 +549,76 @@ export default function AppointmentTypeDialog({ open, onOpenChange, appointmentT
                   </SelectContent>
                 </Select>
               </div>
+            )}
+
+            <div className="space-y-3 rounded-lg border border-gray-200 p-4">
+              <div>
+                <Label htmlFor="appointment_default_split">Revenue split fallback for this appointment type</Label>
+                <p className="text-xs text-gray-500 mt-1">
+                  Applied when no appointment + artist override exists. Leave blank to fall back to artist default split.
+                </p>
+              </div>
+              <Input
+                id="appointment_default_split"
+                type="number"
+                min="0"
+                max="100"
+                step="1"
+                value={appointmentDefaultSplit}
+                onChange={(e) => setAppointmentDefaultSplit(e.target.value)}
+                placeholder="e.g., 60"
+                className="w-32"
+              />
+              {appointmentDefaultSplit !== "" && (
+                <p className="text-xs text-gray-500">
+                  Artist receives {Math.min(100, Math.max(0, Number(appointmentDefaultSplit) || 0))}%,
+                  shop receives {100 - Math.min(100, Math.max(0, Number(appointmentDefaultSplit) || 0))}%.
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-3 rounded-lg border border-gray-200 p-4">
+              <div>
+                <Label>Artist overrides for this appointment type</Label>
+                <p className="text-xs text-gray-500 mt-1">
+                  Optional. If blank, the appointment-type fallback (above) is used; if that is blank, artist default is used.
+                </p>
+              </div>
+              {activeArtists.length === 0 ? (
+                <p className="text-sm text-gray-500">No active artists found.</p>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {activeArtists.map((artist) => (
+                    <div key={artist.id} className="space-y-1">
+                      <Label htmlFor={`split-override-${artist.id}`} className="text-sm">
+                        {artist.full_name}
+                      </Label>
+                      <Input
+                        id={`split-override-${artist.id}`}
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="1"
+                        value={artistOverrideSplits[artist.id] ?? ""}
+                        onChange={(e) =>
+                          setArtistOverrideSplits((prev) => ({
+                            ...prev,
+                            [artist.id]: e.target.value,
+                          }))
+                        }
+                        placeholder="default"
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {saveError && (
+              <Alert className="border-red-200 bg-red-50 text-red-900">
+                <AlertCircle className="h-4 w-4 text-red-700" />
+                <AlertDescription className="text-red-900">{saveError}</AlertDescription>
+              </Alert>
             )}
 
             <div className="flex items-center justify-between p-4 rounded-lg border border-gray-200">

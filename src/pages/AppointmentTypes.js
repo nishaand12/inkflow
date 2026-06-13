@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Clock, DollarSign } from "lucide-react";
+import { Plus, Clock, DollarSign, Percent } from "lucide-react";
 import { normalizeUserRole } from "@/utils/roles";
 import { formatDuration } from "@/utils/index";
 import {
@@ -13,6 +13,10 @@ import {
   getAppointmentTypeDisplaySections,
   getCategoryPathLabel,
 } from "@/utils/reportingCategories";
+import {
+  isAppointmentArtistSplitRule,
+  isAppointmentDefaultSplitRule,
+} from "@/utils/revenueSplits";
 import AppointmentTypeDialog from "@/components/appointment-types/AppointmentTypeDialog";
 import AppointmentTypeImage from "@/components/appointment-types/AppointmentTypeImage";
 
@@ -55,6 +59,15 @@ export default function AppointmentTypes() {
     queryFn: async () => {
       if (!user?.studio_id) return [];
       return base44.entities.ReportingCategory.filter({ studio_id: user.studio_id });
+    },
+    enabled: !!user?.studio_id,
+  });
+
+  const { data: splitRules = [] } = useQuery({
+    queryKey: ["artistSplitRules", user?.studio_id],
+    queryFn: async () => {
+      if (!user?.studio_id) return [];
+      return base44.entities.ArtistSplitRule.filter({ studio_id: user.studio_id });
     },
     enabled: !!user?.studio_id,
   });
@@ -139,12 +152,20 @@ export default function AppointmentTypes() {
             </CardHeader>
             <CardContent>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {section.types.map((type) => (
-                  <div
-                    key={type.id}
-                    onClick={() => handleEdit(type)}
-                    className="p-4 rounded-xl border-2 border-gray-100 hover:border-indigo-200 hover:shadow-md transition-all duration-200 cursor-pointer"
-                  >
+                {section.types.map((type) => {
+                  const appointmentDefaultRule = splitRules.find((rule) =>
+                    isAppointmentDefaultSplitRule(rule, type.id)
+                  );
+                  const overrideCount = splitRules.filter((rule) =>
+                    isAppointmentArtistSplitRule(rule, type.id)
+                  ).length;
+
+                  return (
+                    <div
+                      key={type.id}
+                      onClick={() => handleEdit(type)}
+                      className="p-4 rounded-xl border-2 border-gray-100 hover:border-indigo-200 hover:shadow-md transition-all duration-200 cursor-pointer"
+                    >
                     <div className="flex justify-between items-start mb-3 gap-3">
                       <div className="flex items-start gap-3 min-w-0">
                         {type.image_url && (
@@ -192,9 +213,23 @@ export default function AppointmentTypes() {
                           </span>
                         </div>
                       )}
+                      <div className="flex items-center gap-1 text-gray-600">
+                        <Percent className="w-4 h-4" />
+                        <span>
+                          {appointmentDefaultRule
+                            ? `Default split ${Number(appointmentDefaultRule.split_percent) || 0}%`
+                            : "No type default split"}
+                        </span>
+                      </div>
+                      {overrideCount > 0 && (
+                        <Badge variant="secondary" className="bg-indigo-50 text-indigo-700">
+                          {overrideCount} artist override{overrideCount === 1 ? "" : "s"}
+                        </Badge>
+                      )}
                     </div>
-                  </div>
-                ))}
+                    </div>
+                  );
+                })}
               </div>
             </CardContent>
           </Card>

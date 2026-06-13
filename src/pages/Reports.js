@@ -12,6 +12,7 @@ import { format, startOfMonth, endOfMonth, parseISO } from "date-fns";
 import { normalizeUserRole } from "@/utils/roles";
 import { getArtistTypeLabel, isSupportStaffArtistType } from "@/utils/artistTypes";
 import { sumExplicitAvailableHoursInRange } from "@/utils/explicitAvailabilityHours";
+import { resolveRevenueSplitRule } from "@/utils/revenueSplits";
 import {
   CATEGORY_ROLE_REPORTING,
   filterCategoriesByRole,
@@ -258,8 +259,11 @@ export default function Reports() {
     for (const apt of completedAppointments) {
       const artist = artists.find(a => a.id === apt.artist_id);
       const name = artist?.full_name || 'Unknown';
-      const rule = splitRules.find(r => r.artist_id === apt.artist_id && r.is_active);
-      const pct = rule?.split_percent ?? 0;
+      const splitResolution = resolveRevenueSplitRule(splitRules, {
+        appointmentTypeId: apt.appointment_type_id,
+        artistId: apt.artist_id,
+      });
+      const pct = splitResolution.splitPercent;
 
       const aptCharges = charges.filter(c => c.appointment_id === apt.id);
       let service = 0;
@@ -279,12 +283,34 @@ export default function Reports() {
       const gross = service + product;
       const artistShare = service * (pct / 100);
 
-      if (!shares[name]) shares[name] = { artist: name, split_percent: pct, gross: 0, artist_share: 0, shop_share: 0 };
+      if (!shares[name]) {
+        shares[name] = {
+          artist: name,
+          split_percent: pct,
+          split_display: `${pct}%`,
+          split_percents: [pct],
+          gross: 0,
+          artist_share: 0,
+          shop_share: 0,
+        };
+      }
+      if (!shares[name].split_percents.includes(pct)) {
+        shares[name].split_percents.push(pct);
+      }
       shares[name].gross += gross;
       shares[name].artist_share += artistShare;
       shares[name].shop_share += (service - artistShare) + product;
     }
-    return Object.values(shares);
+    return Object.values(shares).map((row) => {
+      const sortedPercents = row.split_percents.slice().sort((a, b) => a - b);
+      const single = sortedPercents.length === 1;
+      return {
+        ...row,
+        split_percent: single ? sortedPercents[0] : null,
+        split_display: single ? `${sortedPercents[0]}%` : "Varies",
+        split_percents: sortedPercents.join(", "),
+      };
+    });
   })();
 
   const revenueByLocation = completedAppointments.reduce((acc, apt) => {
@@ -620,7 +646,7 @@ export default function Reports() {
                         {artistShares.map((r, i) => (
                           <tr key={i} className="hover:bg-gray-50">
                             <td className="px-4 py-3 text-sm text-gray-900 font-medium">{r.artist}</td>
-                            <td className="px-4 py-3 text-sm text-gray-600 text-right">{r.split_percent}%</td>
+                            <td className="px-4 py-3 text-sm text-gray-600 text-right">{r.split_display}</td>
                             <td className="px-4 py-3 text-sm text-gray-900 text-right">${r.gross.toFixed(2)}</td>
                             <td className="px-4 py-3 text-sm text-green-700 text-right font-bold">${r.artist_share.toFixed(2)}</td>
                             <td className="px-4 py-3 text-sm text-indigo-700 text-right font-bold">${r.shop_share.toFixed(2)}</td>

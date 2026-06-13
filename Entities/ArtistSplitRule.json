@@ -3,7 +3,8 @@
   "type": "object",
   "properties": {
     "studio_id": { "type": "string", "description": "Studio ID" },
-    "artist_id": { "type": "string", "description": "FK to artists" },
+    "artist_id": { "type": "string", "description": "Optional FK to artists. Null means this is an appointment-level default rule." },
+    "appointment_type_id": { "type": "string", "description": "Optional FK to appointment types. Null means this is an artist-level default rule." },
     "split_percent": { "type": "number", "default": 50, "description": "Artist percentage of eligible revenue" },
     "eligible_category_ids": {
       "type": "array",
@@ -13,7 +14,7 @@
     },
     "is_active": { "type": "boolean", "default": true }
   },
-  "required": ["studio_id", "artist_id", "split_percent"],
+  "required": ["studio_id", "split_percent"],
   "rls": {
     "read": { "data.studio_id": "{{user.data.studio_id}}" },
     "update": { "data.studio_id": "{{user.data.studio_id}}", "user_condition": { "data.user_role": ["Owner", "Admin"] } },

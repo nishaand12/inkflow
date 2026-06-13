@@ -13,6 +13,7 @@ import { format } from "date-fns";
 import { normalizeUserRole } from "@/utils/roles";
 import { createPageUrl } from "@/utils/index";
 import { getCollectionBucket } from "@/utils/collectionBuckets";
+import { resolveRevenueSplitRule } from "@/utils/revenueSplits";
 import {
   allocatePaidDepositToBuckets,
   getPaidDepositRowsForAppointment,
@@ -173,8 +174,11 @@ export default function Settlements() {
         });
 
         for (const apt of locAppointments) {
-          const rule = splitRules.find(r => r.artist_id === apt.artist_id && r.is_active);
-          const splitPercent = rule?.split_percent ?? 0;
+          const splitResolution = resolveRevenueSplitRule(splitRules, {
+            appointmentTypeId: apt.appointment_type_id,
+            artistId: apt.artist_id,
+          });
+          const splitPercent = splitResolution.splitPercent;
           const aptCharges = charges.filter(c => c.appointment_id === apt.id);
           const amounts = getAppointmentSettlementAmounts(apt, aptCharges);
           const artistShare = amounts.service * (splitPercent / 100);

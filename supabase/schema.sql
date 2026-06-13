@@ -12,8 +12,13 @@ create table if not exists studios (
   owner_id uuid,
   timezone text default 'UTC',
   subscription_tier text default 'basic',
+  email_confirmations_enabled boolean not null default true,
   email_reminders_enabled boolean default false,
   reminder_minutes_before integer default 1440,
+  booking_confirmation_subject_template text,
+  booking_confirmation_body_template text,
+  booking_reminder_subject_template text,
+  booking_reminder_body_template text,
   stripe_account_id text,
   stripe_onboarding_complete boolean default false,
   stripe_charges_enabled boolean default false,
@@ -227,7 +232,7 @@ create table if not exists email_events (
   id uuid primary key default gen_random_uuid(),
   studio_id uuid references studios (id),
   customer_id uuid references customers (id),
-  appointment_id uuid references appointments (id),
+  appointment_id uuid references appointments (id) on delete set null,
   email text not null,
   event_type text not null,
   delivery_status text default 'sent',
@@ -302,15 +307,27 @@ create table if not exists artist_split_rules (
   id uuid primary key default gen_random_uuid(),
   studio_id uuid references studios (id),
   artist_id uuid references artists (id),
+  appointment_type_id uuid references appointment_types (id) on delete cascade,
   split_percent numeric not null default 50,
   eligible_category_ids uuid[] default '{}',
   is_active boolean default true,
+  constraint artist_split_rules_scope_check check (artist_id is not null or appointment_type_id is not null),
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );
 
 create index if not exists artist_split_rules_studio_idx on artist_split_rules(studio_id);
 create index if not exists artist_split_rules_artist_idx on artist_split_rules(artist_id);
+create index if not exists artist_split_rules_appointment_type_idx on artist_split_rules(appointment_type_id);
+create unique index if not exists artist_split_rules_artist_default_unique_idx
+  on artist_split_rules(studio_id, artist_id)
+  where is_active = true and artist_id is not null and appointment_type_id is null;
+create unique index if not exists artist_split_rules_appointment_default_unique_idx
+  on artist_split_rules(studio_id, appointment_type_id)
+  where is_active = true and appointment_type_id is not null and artist_id is null;
+create unique index if not exists artist_split_rules_appointment_artist_unique_idx
+  on artist_split_rules(studio_id, appointment_type_id, artist_id)
+  where is_active = true and appointment_type_id is not null and artist_id is not null;
 
 create table if not exists daily_settlements (
   id uuid primary key default gen_random_uuid(),

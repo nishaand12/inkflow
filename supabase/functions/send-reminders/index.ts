@@ -12,6 +12,14 @@ const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const CRON_SECRET = Deno.env.get("CRON_SECRET");
 
 const MAILJET_API_URL = "https://api.mailjet.com/v3.1/send";
+const DEFAULT_REMINDER_SUBJECT_TEMPLATE = "Appointment Reminder - {{studio_name}}";
+const DEFAULT_REMINDER_BODY_TEMPLATE = `Hi {{customer_name}},
+
+This is a reminder for your appointment on {{appointment_date_time}} at {{location_name}} with {{artist_name}}.
+
+If you have questions, contact {{studio_email}}.
+
+See you soon!`;
 
 serve(async (req) => {
   try {
@@ -99,19 +107,38 @@ serve(async (req) => {
 
       const locationText = appointment.location?.name || "Location";
       const studioEmail = studio.studio_email || MAILJET_SENDER_EMAIL;
+      const customerName = appointment.client_name || appointment.customer?.name || "Customer";
+      const artistName = appointment.artist?.full_name || "Artist";
+      const depositAmount = Number(appointment.deposit_amount) || 0;
 
-      const subject = `Appointment Reminder - ${studio.name}`;
-      const body = `Hi There,\n\nThis is an appointment reminder for ${
-        appointment.client_name || appointment.customer?.name || "Customer"
-      }.\n\n${formattedDateTime}\n${locationText}\n\nLooking forward to seeing you there!\n\nIf you received this email in error, please contact ${studioEmail}.`;
+      const templateVars = {
+        customer_name: customerName,
+        studio_name: studio.name || "Studio",
+        appointment_date_time: formattedDateTime,
+        location_name: locationText,
+        artist_name: artistName,
+        deposit_amount: depositAmount > 0 ? depositAmount.toFixed(2) : "",
+        deposit_link: "",
+        studio_email: studioEmail,
+      };
+
+      const subject = renderTemplate(
+        studio.booking_reminder_subject_template || DEFAULT_REMINDER_SUBJECT_TEMPLATE,
+        templateVars
+      );
+      const body = renderTemplate(
+        studio.booking_reminder_body_template || DEFAULT_REMINDER_BODY_TEMPLATE,
+        templateVars
+      );
 
       const payload = {
         Messages: [
           {
             From: { Email: MAILJET_SENDER_EMAIL, Name: MAILJET_SENDER_NAME },
-            To: [{ Email: email, Name: appointment.client_name || appointment.customer?.name || "Customer" }],
+            To: [{ Email: email, Name: customerName }],
             Subject: subject,
-            TextPart: body
+            TextPart: body,
+            HTMLPart: textToHtml(body),
           }
         ]
       };
@@ -353,4 +380,18 @@ function jsonResponse(payload: Record<string, unknown>, status = 200) {
     status,
     headers: { "Content-Type": "application/json" }
   });
+}
+
+function renderTemplate(template: string, vars: Record<string, string>) {
+  return template.replace(/\{\{\s*([a-z_]+)\s*\}\}/gi, (_, key) => vars[key] || "");
+}
+
+function textToHtml(body: string) {
+  const escaped = body
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+  return `<!doctype html><html><body style="font-family:Arial,sans-serif;line-height:1.5;color:#111827;white-space:pre-wrap;">${escaped}</body></html>`;
 }

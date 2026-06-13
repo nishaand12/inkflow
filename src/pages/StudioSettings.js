@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Building2, Key, Copy, Check, Mail, Clock, BookOpen, MapPin, Wrench, ClipboardList, Palette, UserPlus, BarChart3, Bell, ChevronDown, ChevronUp, CreditCard, ExternalLink, AlertCircle, Loader2, Layers, CalendarDays } from "lucide-react";
@@ -13,6 +14,26 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { supabase } from "@/utils/supabase";
 import { normalizeUserRole } from "@/utils/roles";
 import { NORTH_AMERICAN_TIMEZONES } from "@/utils/timezones";
+
+const DEFAULT_CONFIRMATION_SUBJECT_TEMPLATE = "Appointment Confirmation - {{studio_name}}";
+const DEFAULT_CONFIRMATION_BODY_TEMPLATE = `Hi {{customer_name}},
+
+Your appointment is confirmed for {{appointment_date_time}} at {{location_name}} with {{artist_name}}.
+
+If a deposit is required, you can use this link: {{deposit_link}}
+
+If you have questions, contact {{studio_email}}.
+
+Looking forward to seeing you!`;
+
+const DEFAULT_REMINDER_SUBJECT_TEMPLATE = "Appointment Reminder - {{studio_name}}";
+const DEFAULT_REMINDER_BODY_TEMPLATE = `Hi {{customer_name}},
+
+This is a reminder for your appointment on {{appointment_date_time}} at {{location_name}} with {{artist_name}}.
+
+If you have questions, contact {{studio_email}}.
+
+See you soon!`;
 
 export default function StudioSettings() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -25,8 +46,13 @@ export default function StudioSettings() {
   const [emailSettings, setEmailSettings] = useState({
     studio_email: "",
     timezone: "UTC",
+    email_confirmations_enabled: true,
     email_reminders_enabled: false,
-    reminder_minutes_before: 1440
+    reminder_minutes_before: 1440,
+    booking_confirmation_subject_template: DEFAULT_CONFIRMATION_SUBJECT_TEMPLATE,
+    booking_confirmation_body_template: DEFAULT_CONFIRMATION_BODY_TEMPLATE,
+    booking_reminder_subject_template: DEFAULT_REMINDER_SUBJECT_TEMPLATE,
+    booking_reminder_body_template: DEFAULT_REMINDER_BODY_TEMPLATE,
   });
   const [emailUsage, setEmailUsage] = useState({
     thisMonth: 0,
@@ -73,8 +99,22 @@ export default function StudioSettings() {
           setEmailSettings({
             studio_email: loadedStudio.studio_email || "",
             timezone: loadedStudio.timezone || "UTC",
+            email_confirmations_enabled:
+              loadedStudio.email_confirmations_enabled !== false,
             email_reminders_enabled: !!loadedStudio.email_reminders_enabled,
-            reminder_minutes_before: loadedStudio.reminder_minutes_before || 1440
+            reminder_minutes_before: loadedStudio.reminder_minutes_before || 1440,
+            booking_confirmation_subject_template:
+              loadedStudio.booking_confirmation_subject_template ||
+              DEFAULT_CONFIRMATION_SUBJECT_TEMPLATE,
+            booking_confirmation_body_template:
+              loadedStudio.booking_confirmation_body_template ||
+              DEFAULT_CONFIRMATION_BODY_TEMPLATE,
+            booking_reminder_subject_template:
+              loadedStudio.booking_reminder_subject_template ||
+              DEFAULT_REMINDER_SUBJECT_TEMPLATE,
+            booking_reminder_body_template:
+              loadedStudio.booking_reminder_body_template ||
+              DEFAULT_REMINDER_BODY_TEMPLATE,
           });
           loadStripeStatus(loadedStudio.id);
           loadEmailUsage(loadedStudio.id);
@@ -181,14 +221,37 @@ export default function StudioSettings() {
     { label: "1 hour before", value: 60 }
   ];
 
+  const resetEmailTemplatesToDefaults = () => {
+    setEmailSettings((prev) => ({
+      ...prev,
+      booking_confirmation_subject_template: DEFAULT_CONFIRMATION_SUBJECT_TEMPLATE,
+      booking_confirmation_body_template: DEFAULT_CONFIRMATION_BODY_TEMPLATE,
+      booking_reminder_subject_template: DEFAULT_REMINDER_SUBJECT_TEMPLATE,
+      booking_reminder_body_template: DEFAULT_REMINDER_BODY_TEMPLATE,
+    }));
+  };
+
   const handleSaveEmailSettings = async () => {
     if (!studio) return;
     try {
       const updated = await base44.entities.Studio.update(studio.id, {
         studio_email: emailSettings.studio_email || null,
         timezone: emailSettings.timezone || "UTC",
+        email_confirmations_enabled: emailSettings.email_confirmations_enabled,
         email_reminders_enabled: emailSettings.email_reminders_enabled,
-        reminder_minutes_before: emailSettings.reminder_minutes_before
+        reminder_minutes_before: emailSettings.reminder_minutes_before,
+        booking_confirmation_subject_template:
+          emailSettings.booking_confirmation_subject_template?.trim() ||
+          DEFAULT_CONFIRMATION_SUBJECT_TEMPLATE,
+        booking_confirmation_body_template:
+          emailSettings.booking_confirmation_body_template?.trim() ||
+          DEFAULT_CONFIRMATION_BODY_TEMPLATE,
+        booking_reminder_subject_template:
+          emailSettings.booking_reminder_subject_template?.trim() ||
+          DEFAULT_REMINDER_SUBJECT_TEMPLATE,
+        booking_reminder_body_template:
+          emailSettings.booking_reminder_body_template?.trim() ||
+          DEFAULT_REMINDER_BODY_TEMPLATE,
       });
       setStudio(updated);
       setSaved(true);
@@ -349,8 +412,8 @@ export default function StudioSettings() {
                     <Mail className="w-6 h-6 text-indigo-600" />
                   </div>
                   <div>
-                    <CardTitle className="text-xl text-gray-900">Email Reminders</CardTitle>
-                    <p className="text-sm text-gray-600">Configure appointment reminder emails</p>
+                    <CardTitle className="text-xl text-gray-900">Email Notifications</CardTitle>
+                    <p className="text-sm text-gray-600">Configure confirmations, reminders, and email templates</p>
                   </div>
                   <Badge className="ml-auto bg-indigo-100 text-indigo-700">
                     {studio.subscription_tier ? studio.subscription_tier.toUpperCase() : "BASIC"}
@@ -377,113 +440,195 @@ export default function StudioSettings() {
                   </div>
                 </div>
 
-                {studio.subscription_tier !== "plus" ? (
-                  <div className="text-sm text-gray-600">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <Label className="text-sm font-semibold text-gray-700">Studio Email *</Label>
+                    <Input
+                      value={emailSettings.studio_email}
+                      onChange={(e) => setEmailSettings({ ...emailSettings, studio_email: e.target.value })}
+                      placeholder="studio@example.com"
+                      required
+                    />
+                    <p className="text-xs text-gray-500 mt-1">
+                      This email will be shown as the contact in appointment emails
+                    </p>
+                  </div>
+                  <div>
+                    <Label className="text-sm font-semibold text-gray-700">Timezone</Label>
+                    <Select
+                      value={emailSettings.timezone}
+                      onValueChange={(value) => setEmailSettings({ ...emailSettings, timezone: value })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select timezone" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {["United States", "Canada", "Mexico", "Caribbean", "Other"].map((region) => {
+                          const regionTimezones = NORTH_AMERICAN_TIMEZONES.filter(tz => tz.region === region);
+                          if (regionTimezones.length === 0) return null;
+                          return (
+                            <React.Fragment key={region}>
+                              <SelectItem value={`__header_${region}`} disabled className="font-semibold text-gray-500 text-xs uppercase tracking-wide">
+                                {region}
+                              </SelectItem>
+                              {regionTimezones.map((tz) => (
+                                <SelectItem key={tz.value} value={tz.value}>
+                                  {tz.label}
+                                </SelectItem>
+                              ))}
+                            </React.Fragment>
+                          );
+                        })}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between p-4 rounded-lg border border-gray-200">
+                  <div>
+                    <Label className="cursor-pointer">Enable Booking Confirmations</Label>
+                    <p className="text-sm text-gray-500">Send a confirmation email when an appointment is booked</p>
+                  </div>
+                  <Switch
+                    checked={emailSettings.email_confirmations_enabled}
+                    onCheckedChange={(checked) =>
+                      setEmailSettings({ ...emailSettings, email_confirmations_enabled: checked })
+                    }
+                  />
+                </div>
+
+                <div className="flex items-center justify-between p-4 rounded-lg border border-gray-200">
+                  <div>
+                    <Label className="cursor-pointer">Enable Email Reminders</Label>
+                    <p className="text-sm text-gray-500">
+                      Send automatic reminders to clients (Plus tier)
+                    </p>
+                  </div>
+                  <Switch
+                    checked={emailSettings.email_reminders_enabled}
+                    disabled={studio.subscription_tier !== "plus"}
+                    onCheckedChange={(checked) =>
+                      setEmailSettings({ ...emailSettings, email_reminders_enabled: checked })
+                    }
+                  />
+                </div>
+
+                {studio.subscription_tier !== "plus" && (
+                  <div className="text-sm text-gray-600 bg-amber-50 border border-amber-200 rounded-lg p-3">
                     Email reminders are available on the Plus tier. Contact support to upgrade this studio.
                   </div>
-                ) : (
-                  <>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                      <div>
-                        <Label className="text-sm font-semibold text-gray-700">Studio Email *</Label>
-                        <Input
-                          value={emailSettings.studio_email}
-                          onChange={(e) => setEmailSettings({ ...emailSettings, studio_email: e.target.value })}
-                          placeholder="studio@example.com"
-                          required
-                        />
-                        <p className="text-xs text-gray-500 mt-1">
-                          This email will be shown as the contact in appointment emails
-                        </p>
-                      </div>
-                      <div>
-                        <Label className="text-sm font-semibold text-gray-700">Timezone</Label>
-                        <Select
-                          value={emailSettings.timezone}
-                          onValueChange={(value) => setEmailSettings({ ...emailSettings, timezone: value })}
-                        >
-                          <SelectTrigger>
-                            <SelectValue placeholder="Select timezone" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {["United States", "Canada", "Mexico", "Caribbean", "Other"].map((region) => {
-                              const regionTimezones = NORTH_AMERICAN_TIMEZONES.filter(tz => tz.region === region);
-                              if (regionTimezones.length === 0) return null;
-                              return (
-                                <React.Fragment key={region}>
-                                  <SelectItem value={`__header_${region}`} disabled className="font-semibold text-gray-500 text-xs uppercase tracking-wide">
-                                    {region}
-                                  </SelectItem>
-                                  {regionTimezones.map((tz) => (
-                                    <SelectItem key={tz.value} value={tz.value}>
-                                      {tz.label}
-                                    </SelectItem>
-                                  ))}
-                                </React.Fragment>
-                              );
-                            })}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    </div>
+                )}
 
-                    <div className="flex items-center justify-between p-4 rounded-lg border border-gray-200">
-                      <div>
-                        <Label className="cursor-pointer">Enable Email Reminders</Label>
-                        <p className="text-sm text-gray-500">Send automatic reminders to clients</p>
-                      </div>
-                      <Switch
-                        checked={emailSettings.email_reminders_enabled}
-                        onCheckedChange={(checked) =>
-                          setEmailSettings({ ...emailSettings, email_reminders_enabled: checked })
-                        }
-                      />
+                <div className="space-y-2">
+                  <Label className="text-sm font-semibold text-gray-700">Reminder Timing</Label>
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 bg-indigo-50 rounded-lg flex items-center justify-center">
+                      <Clock className="w-5 h-5 text-indigo-600" />
                     </div>
+                    <Select
+                      value={String(emailSettings.reminder_minutes_before)}
+                      onValueChange={(value) =>
+                        setEmailSettings({ ...emailSettings, reminder_minutes_before: Number(value) })
+                      }
+                    >
+                      <SelectTrigger className="flex-1">
+                        <SelectValue placeholder="Select reminder timing" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {reminderOptions.map((option) => (
+                          <SelectItem key={option.value} value={String(option.value)}>
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <p className="text-sm text-gray-500">
+                    Only one reminder will be sent at the selected time.
+                  </p>
+                </div>
 
-                    <div className="space-y-2">
-                      <Label className="text-sm font-semibold text-gray-700">Reminder Timing</Label>
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-indigo-50 rounded-lg flex items-center justify-center">
-                          <Clock className="w-5 h-5 text-indigo-600" />
-                        </div>
-                        <Select
-                          value={String(emailSettings.reminder_minutes_before)}
-                          onValueChange={(value) =>
-                            setEmailSettings({ ...emailSettings, reminder_minutes_before: Number(value) })
-                          }
-                        >
-                          <SelectTrigger className="flex-1">
-                            <SelectValue placeholder="Select reminder timing" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {reminderOptions.map((option) => (
-                              <SelectItem key={option.value} value={String(option.value)}>
-                                {option.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <p className="text-sm text-gray-500">
-                        Only one reminder will be sent at the selected time.
+                <div className="rounded-lg border border-gray-200 p-4 space-y-4">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <h4 className="font-semibold text-gray-900">Email Templates</h4>
+                      <p className="text-xs text-gray-500 mt-1">
+                        Supported placeholders: {`{{customer_name}}`}, {`{{studio_name}}`}, {`{{appointment_date_time}}`}, {`{{location_name}}`}, {`{{artist_name}}`}, {`{{deposit_amount}}`}, {`{{deposit_link}}`}, {`{{studio_email}}`}.
                       </p>
                     </div>
-
-                    <Button 
-                      className={saved ? "bg-green-600 hover:bg-green-700" : "bg-indigo-600 hover:bg-indigo-700"} 
-                      onClick={handleSaveEmailSettings}
-                    >
-                      {saved ? (
-                        <>
-                          <Check className="w-4 h-4 mr-2" />
-                          Saved!
-                        </>
-                      ) : (
-                        "Save Email Settings"
-                      )}
+                    <Button type="button" variant="outline" onClick={resetEmailTemplatesToDefaults}>
+                      Reset Defaults
                     </Button>
-                  </>
-                )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-sm font-semibold text-gray-700">Booking Confirmation Subject</Label>
+                    <Input
+                      value={emailSettings.booking_confirmation_subject_template}
+                      onChange={(e) =>
+                        setEmailSettings({
+                          ...emailSettings,
+                          booking_confirmation_subject_template: e.target.value,
+                        })
+                      }
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-sm font-semibold text-gray-700">Booking Confirmation Body</Label>
+                    <Textarea
+                      rows={8}
+                      value={emailSettings.booking_confirmation_body_template}
+                      onChange={(e) =>
+                        setEmailSettings({
+                          ...emailSettings,
+                          booking_confirmation_body_template: e.target.value,
+                        })
+                      }
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-sm font-semibold text-gray-700">Booking Reminder Subject</Label>
+                    <Input
+                      value={emailSettings.booking_reminder_subject_template}
+                      onChange={(e) =>
+                        setEmailSettings({
+                          ...emailSettings,
+                          booking_reminder_subject_template: e.target.value,
+                        })
+                      }
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label className="text-sm font-semibold text-gray-700">Booking Reminder Body</Label>
+                    <Textarea
+                      rows={8}
+                      value={emailSettings.booking_reminder_body_template}
+                      onChange={(e) =>
+                        setEmailSettings({
+                          ...emailSettings,
+                          booking_reminder_body_template: e.target.value,
+                        })
+                      }
+                    />
+                  </div>
+                </div>
+
+                <Button
+                  className={saved ? "bg-green-600 hover:bg-green-700" : "bg-indigo-600 hover:bg-indigo-700"}
+                  onClick={handleSaveEmailSettings}
+                >
+                  {saved ? (
+                    <>
+                      <Check className="w-4 h-4 mr-2" />
+                      Saved!
+                    </>
+                  ) : (
+                    "Save Email Settings"
+                  )}
+                </Button>
               </CardContent>
             </Card>
 
