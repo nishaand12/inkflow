@@ -111,8 +111,16 @@ serve(async (req) => {
     const studio = appointment.studio;
     const customer = appointment.customer;
 
-    if (!studio || studio.email_confirmations_enabled === false) {
+    if (!studio || studio.subscription_tier !== "plus") {
+      return jsonResponse({ skipped: true, reason: "plus_tier_required" }, 200);
+    }
+
+    if (studio.email_confirmations_enabled === false) {
       return jsonResponse({ skipped: true, reason: "confirmations_disabled" }, 200);
+    }
+
+    if (eventType === "updated") {
+      await resetAppointmentNotificationSchedule(supabase, appointmentId);
     }
 
     const email = resolveEmailAddress(appointment, customer);
@@ -363,6 +371,26 @@ async function updateEmailStatus(
       reminder_minutes_before: reminderMinutes ?? null
     })
     .eq("id", appointmentId);
+}
+
+async function resetAppointmentNotificationSchedule(
+  supabase: ReturnType<typeof createClient>,
+  appointmentId: string
+) {
+  const { error } = await supabase
+    .from("appointments")
+    .update({
+      reminder_sent_at: null,
+      reminder_primary_sent_at: null,
+      reminder_secondary_sent_at: null,
+      followup_quick_sent_at: null,
+      followup_longterm_sent_at: null,
+    })
+    .eq("id", appointmentId);
+
+  if (error) {
+    console.error("Failed to reset notification schedule after update:", error);
+  }
 }
 
 async function recordEmailEvent(

@@ -57,6 +57,16 @@
         "default": 1440,
         "description": "Minutes before appointment to send reminder"
       },
+      "reminder_secondary_enabled": {
+        "type": "boolean",
+        "default": true,
+        "description": "Whether secondary reminder emails are enabled"
+      },
+      "reminder_secondary_minutes_before": {
+        "type": "number",
+        "default": 4320,
+        "description": "Minutes before appointment to send the secondary reminder"
+      },
       "booking_confirmation_subject_template": {
         "type": "string",
         "description": "Optional subject template for booking confirmation emails"
@@ -72,6 +82,50 @@
       "booking_reminder_body_template": {
         "type": "string",
         "description": "Optional plain-text body template for booking reminder emails"
+      },
+      "booking_reminder_secondary_subject_template": {
+        "type": "string",
+        "description": "Optional subject template for secondary reminder emails"
+      },
+      "booking_reminder_secondary_body_template": {
+        "type": "string",
+        "description": "Optional plain-text body template for secondary reminder emails"
+      },
+      "followup_quick_enabled": {
+        "type": "boolean",
+        "default": true,
+        "description": "Whether quick follow-up emails are enabled"
+      },
+      "followup_quick_minutes_after": {
+        "type": "number",
+        "default": 180,
+        "description": "Minutes after appointment to send quick follow-up"
+      },
+      "booking_followup_quick_subject_template": {
+        "type": "string",
+        "description": "Optional subject template for quick follow-up emails"
+      },
+      "booking_followup_quick_body_template": {
+        "type": "string",
+        "description": "Optional plain-text body template for quick follow-up emails"
+      },
+      "followup_longterm_enabled": {
+        "type": "boolean",
+        "default": true,
+        "description": "Whether long-term follow-up emails are enabled"
+      },
+      "followup_longterm_minutes_after": {
+        "type": "number",
+        "default": 30240,
+        "description": "Minutes after appointment to send long-term follow-up"
+      },
+      "booking_followup_longterm_subject_template": {
+        "type": "string",
+        "description": "Optional subject template for long-term follow-up emails"
+      },
+      "booking_followup_longterm_body_template": {
+        "type": "string",
+        "description": "Optional plain-text body template for long-term follow-up emails"
       },
       "owner_id": {
         "type": "string",

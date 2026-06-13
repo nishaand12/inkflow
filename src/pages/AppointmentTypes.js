@@ -217,7 +217,9 @@ export default function AppointmentTypes() {
                         <Percent className="w-4 h-4" />
                         <span>
                           {appointmentDefaultRule
-                            ? `Default split ${Number(appointmentDefaultRule.split_percent) || 0}%`
+                            ? appointmentDefaultRule.split_mode === "fixed_amount"
+                              ? `Default split $${Number(appointmentDefaultRule.split_value || 0).toFixed(2)}`
+                              : `Default split ${Number(appointmentDefaultRule.split_value ?? appointmentDefaultRule.split_percent) || 0}%`
                             : "No type default split"}
                         </span>
                       </div>

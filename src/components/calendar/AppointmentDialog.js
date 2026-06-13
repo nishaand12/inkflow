@@ -845,6 +845,10 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
       reminder_sent_week,
       reminder_sent_day,
       reminder_sent_at,
+      reminder_primary_sent_at,
+      reminder_secondary_sent_at,
+      followup_quick_sent_at,
+      followup_longterm_sent_at,
       created_at,
       updated_at,
       ...editableFormData

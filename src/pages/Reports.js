@@ -263,7 +263,6 @@ export default function Reports() {
         appointmentTypeId: apt.appointment_type_id,
         artistId: apt.artist_id,
       });
-      const pct = splitResolution.splitPercent;
 
       const aptCharges = charges.filter(c => c.appointment_id === apt.id);
       let service = 0;
@@ -281,34 +280,32 @@ export default function Reports() {
         service = charge > 0 ? charge : deposit;
       }
       const gross = service + product;
-      const artistShare = service * (pct / 100);
+      const artistShare = splitResolution.computeArtistShare(service);
 
       if (!shares[name]) {
         shares[name] = {
           artist: name,
-          split_percent: pct,
-          split_display: `${pct}%`,
-          split_percents: [pct],
+          split_display: splitResolution.displayLabel,
+          split_labels: [splitResolution.displayLabel],
           gross: 0,
           artist_share: 0,
           shop_share: 0,
         };
       }
-      if (!shares[name].split_percents.includes(pct)) {
-        shares[name].split_percents.push(pct);
+      if (!shares[name].split_labels.includes(splitResolution.displayLabel)) {
+        shares[name].split_labels.push(splitResolution.displayLabel);
       }
       shares[name].gross += gross;
       shares[name].artist_share += artistShare;
       shares[name].shop_share += (service - artistShare) + product;
     }
     return Object.values(shares).map((row) => {
-      const sortedPercents = row.split_percents.slice().sort((a, b) => a - b);
-      const single = sortedPercents.length === 1;
+      const sortedLabels = row.split_labels.slice().sort((a, b) => a.localeCompare(b));
+      const single = sortedLabels.length === 1;
       return {
         ...row,
-        split_percent: single ? sortedPercents[0] : null,
-        split_display: single ? `${sortedPercents[0]}%` : "Varies",
-        split_percents: sortedPercents.join(", "),
+        split_display: single ? sortedLabels[0] : "Varies",
+        split_labels: sortedLabels.join(", "),
       };
     });
   })();
@@ -636,7 +633,7 @@ export default function Reports() {
                       <thead className="bg-gray-50">
                         <tr>
                           <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Artist</th>
-                          <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Split %</th>
+                          <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Split Rule</th>
                           <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Gross</th>
                           <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Artist Share</th>
                           <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Shop Share</th>

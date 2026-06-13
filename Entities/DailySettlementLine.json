@@ -12,7 +12,9 @@
     "tip_amount": { "type": "number", "default": 0 },
     "artist_share": { "type": "number", "default": 0 },
     "shop_share": { "type": "number", "default": 0 },
-    "split_percent": { "type": "number", "default": 0 }
+    "split_percent": { "type": "number", "default": 0 },
+    "split_mode": { "type": "string", "default": "percent" },
+    "split_value": { "type": "number", "default": 0 }
   },
   "required": ["studio_id", "settlement_id", "artist_id", "appointment_id"],
   "rls": {

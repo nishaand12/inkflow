@@ -11,6 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Building2, Key, Copy, Check, Mail, Clock, BookOpen, MapPin, Wrench, ClipboardList, Palette, UserPlus, BarChart3, Bell, ChevronDown, ChevronUp, CreditCard, ExternalLink, AlertCircle, Loader2, Layers, CalendarDays } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { supabase } from "@/utils/supabase";
 import { normalizeUserRole } from "@/utils/roles";
 import { NORTH_AMERICAN_TIMEZONES } from "@/utils/timezones";
@@ -34,6 +35,33 @@ This is a reminder for your appointment on {{appointment_date_time}} at {{locati
 If you have questions, contact {{studio_email}}.
 
 See you soon!`;
+const DEFAULT_SECONDARY_REMINDER_SUBJECT_TEMPLATE = "Heads up: your appointment is coming up - {{studio_name}}";
+const DEFAULT_SECONDARY_REMINDER_BODY_TEMPLATE = `Hi {{customer_name}},
+
+Your appointment is coming up on {{appointment_date_time}} at {{location_name}} with {{artist_name}}.
+
+If you need to reschedule, contact {{studio_email}} as soon as possible.
+`;
+const DEFAULT_QUICK_FOLLOWUP_SUBJECT_TEMPLATE = "Aftercare instructions - {{studio_name}}";
+const DEFAULT_QUICK_FOLLOWUP_BODY_TEMPLATE = `Hi {{customer_name}},
+
+Thanks for visiting {{studio_name}} today.
+
+Here are your aftercare instructions:
+{{aftercare_instructions}}
+
+Questions? Contact {{studio_email}}.
+`;
+const DEFAULT_LONGTERM_FOLLOWUP_SUBJECT_TEMPLATE = "Long-term aftercare check-in - {{studio_name}}";
+const DEFAULT_LONGTERM_FOLLOWUP_BODY_TEMPLATE = `Hi {{customer_name}},
+
+This is your long-term aftercare check-in from {{studio_name}}.
+
+Please continue following your aftercare plan:
+{{aftercare_instructions}}
+
+Questions? Contact {{studio_email}}.
+`;
 
 export default function StudioSettings() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -49,10 +77,22 @@ export default function StudioSettings() {
     email_confirmations_enabled: true,
     email_reminders_enabled: false,
     reminder_minutes_before: 1440,
+    reminder_secondary_enabled: true,
+    reminder_secondary_minutes_before: 4320,
+    followup_quick_enabled: true,
+    followup_quick_minutes_after: 180,
+    followup_longterm_enabled: true,
+    followup_longterm_minutes_after: 30240,
     booking_confirmation_subject_template: DEFAULT_CONFIRMATION_SUBJECT_TEMPLATE,
     booking_confirmation_body_template: DEFAULT_CONFIRMATION_BODY_TEMPLATE,
     booking_reminder_subject_template: DEFAULT_REMINDER_SUBJECT_TEMPLATE,
     booking_reminder_body_template: DEFAULT_REMINDER_BODY_TEMPLATE,
+    booking_reminder_secondary_subject_template: DEFAULT_SECONDARY_REMINDER_SUBJECT_TEMPLATE,
+    booking_reminder_secondary_body_template: DEFAULT_SECONDARY_REMINDER_BODY_TEMPLATE,
+    booking_followup_quick_subject_template: DEFAULT_QUICK_FOLLOWUP_SUBJECT_TEMPLATE,
+    booking_followup_quick_body_template: DEFAULT_QUICK_FOLLOWUP_BODY_TEMPLATE,
+    booking_followup_longterm_subject_template: DEFAULT_LONGTERM_FOLLOWUP_SUBJECT_TEMPLATE,
+    booking_followup_longterm_body_template: DEFAULT_LONGTERM_FOLLOWUP_BODY_TEMPLATE,
   });
   const [emailUsage, setEmailUsage] = useState({
     thisMonth: 0,
@@ -103,6 +143,15 @@ export default function StudioSettings() {
               loadedStudio.email_confirmations_enabled !== false,
             email_reminders_enabled: !!loadedStudio.email_reminders_enabled,
             reminder_minutes_before: loadedStudio.reminder_minutes_before || 1440,
+            reminder_secondary_enabled:
+              loadedStudio.reminder_secondary_enabled !== false,
+            reminder_secondary_minutes_before:
+              loadedStudio.reminder_secondary_minutes_before || 4320,
+            followup_quick_enabled: loadedStudio.followup_quick_enabled !== false,
+            followup_quick_minutes_after: loadedStudio.followup_quick_minutes_after || 180,
+            followup_longterm_enabled: loadedStudio.followup_longterm_enabled !== false,
+            followup_longterm_minutes_after:
+              loadedStudio.followup_longterm_minutes_after || 30240,
             booking_confirmation_subject_template:
               loadedStudio.booking_confirmation_subject_template ||
               DEFAULT_CONFIRMATION_SUBJECT_TEMPLATE,
@@ -115,6 +164,24 @@ export default function StudioSettings() {
             booking_reminder_body_template:
               loadedStudio.booking_reminder_body_template ||
               DEFAULT_REMINDER_BODY_TEMPLATE,
+            booking_reminder_secondary_subject_template:
+              loadedStudio.booking_reminder_secondary_subject_template ||
+              DEFAULT_SECONDARY_REMINDER_SUBJECT_TEMPLATE,
+            booking_reminder_secondary_body_template:
+              loadedStudio.booking_reminder_secondary_body_template ||
+              DEFAULT_SECONDARY_REMINDER_BODY_TEMPLATE,
+            booking_followup_quick_subject_template:
+              loadedStudio.booking_followup_quick_subject_template ||
+              DEFAULT_QUICK_FOLLOWUP_SUBJECT_TEMPLATE,
+            booking_followup_quick_body_template:
+              loadedStudio.booking_followup_quick_body_template ||
+              DEFAULT_QUICK_FOLLOWUP_BODY_TEMPLATE,
+            booking_followup_longterm_subject_template:
+              loadedStudio.booking_followup_longterm_subject_template ||
+              DEFAULT_LONGTERM_FOLLOWUP_SUBJECT_TEMPLATE,
+            booking_followup_longterm_body_template:
+              loadedStudio.booking_followup_longterm_body_template ||
+              DEFAULT_LONGTERM_FOLLOWUP_BODY_TEMPLATE,
           });
           loadStripeStatus(loadedStudio.id);
           loadEmailUsage(loadedStudio.id);
@@ -213,12 +280,69 @@ export default function StudioSettings() {
     }
   };
 
-  const reminderOptions = [
-    { label: "1 week before", value: 10080 },
-    { label: "2 days before", value: 2880 },
-    { label: "1 day before", value: 1440 },
-    { label: "2 hours before", value: 120 },
-    { label: "1 hour before", value: 60 }
+  const formatMinutes = (minutes, relation = "before") => {
+    const val = Math.max(1, Number(minutes) || 0);
+    if (val % 10080 === 0) {
+      const weeks = val / 10080;
+      return `${weeks} week${weeks === 1 ? "" : "s"} ${relation}`;
+    }
+    if (val % 1440 === 0) {
+      const days = val / 1440;
+      return `${days} day${days === 1 ? "" : "s"} ${relation}`;
+    }
+    if (val % 60 === 0) {
+      const hours = val / 60;
+      return `${hours} hour${hours === 1 ? "" : "s"} ${relation}`;
+    }
+    return `${val} minute${val === 1 ? "" : "s"} ${relation}`;
+  };
+
+  const notificationItems = [
+    {
+      key: "confirmation",
+      title: "Email confirmation",
+      enabledField: "email_confirmations_enabled",
+      timingField: null,
+      timingLabel: "Sent immediately after booking/update",
+      subjectField: "booking_confirmation_subject_template",
+      bodyField: "booking_confirmation_body_template",
+    },
+    {
+      key: "primary_reminder",
+      title: "Single reminder",
+      enabledField: "email_reminders_enabled",
+      timingField: "reminder_minutes_before",
+      timingDirection: "before",
+      subjectField: "booking_reminder_subject_template",
+      bodyField: "booking_reminder_body_template",
+    },
+    {
+      key: "secondary_reminder",
+      title: "Additional reminder",
+      enabledField: "reminder_secondary_enabled",
+      timingField: "reminder_secondary_minutes_before",
+      timingDirection: "before",
+      subjectField: "booking_reminder_secondary_subject_template",
+      bodyField: "booking_reminder_secondary_body_template",
+    },
+    {
+      key: "quick_followup",
+      title: "Quick follow-up",
+      enabledField: "followup_quick_enabled",
+      timingField: "followup_quick_minutes_after",
+      timingDirection: "after",
+      subjectField: "booking_followup_quick_subject_template",
+      bodyField: "booking_followup_quick_body_template",
+    },
+    {
+      key: "longterm_followup",
+      title: "Long-term follow-up",
+      enabledField: "followup_longterm_enabled",
+      timingField: "followup_longterm_minutes_after",
+      timingDirection: "after",
+      subjectField: "booking_followup_longterm_subject_template",
+      bodyField: "booking_followup_longterm_body_template",
+    },
   ];
 
   const resetEmailTemplatesToDefaults = () => {
@@ -228,6 +352,12 @@ export default function StudioSettings() {
       booking_confirmation_body_template: DEFAULT_CONFIRMATION_BODY_TEMPLATE,
       booking_reminder_subject_template: DEFAULT_REMINDER_SUBJECT_TEMPLATE,
       booking_reminder_body_template: DEFAULT_REMINDER_BODY_TEMPLATE,
+      booking_reminder_secondary_subject_template: DEFAULT_SECONDARY_REMINDER_SUBJECT_TEMPLATE,
+      booking_reminder_secondary_body_template: DEFAULT_SECONDARY_REMINDER_BODY_TEMPLATE,
+      booking_followup_quick_subject_template: DEFAULT_QUICK_FOLLOWUP_SUBJECT_TEMPLATE,
+      booking_followup_quick_body_template: DEFAULT_QUICK_FOLLOWUP_BODY_TEMPLATE,
+      booking_followup_longterm_subject_template: DEFAULT_LONGTERM_FOLLOWUP_SUBJECT_TEMPLATE,
+      booking_followup_longterm_body_template: DEFAULT_LONGTERM_FOLLOWUP_BODY_TEMPLATE,
     }));
   };
 
@@ -240,6 +370,12 @@ export default function StudioSettings() {
         email_confirmations_enabled: emailSettings.email_confirmations_enabled,
         email_reminders_enabled: emailSettings.email_reminders_enabled,
         reminder_minutes_before: emailSettings.reminder_minutes_before,
+        reminder_secondary_enabled: emailSettings.reminder_secondary_enabled,
+        reminder_secondary_minutes_before: emailSettings.reminder_secondary_minutes_before,
+        followup_quick_enabled: emailSettings.followup_quick_enabled,
+        followup_quick_minutes_after: emailSettings.followup_quick_minutes_after,
+        followup_longterm_enabled: emailSettings.followup_longterm_enabled,
+        followup_longterm_minutes_after: emailSettings.followup_longterm_minutes_after,
         booking_confirmation_subject_template:
           emailSettings.booking_confirmation_subject_template?.trim() ||
           DEFAULT_CONFIRMATION_SUBJECT_TEMPLATE,
@@ -252,6 +388,24 @@ export default function StudioSettings() {
         booking_reminder_body_template:
           emailSettings.booking_reminder_body_template?.trim() ||
           DEFAULT_REMINDER_BODY_TEMPLATE,
+        booking_reminder_secondary_subject_template:
+          emailSettings.booking_reminder_secondary_subject_template?.trim() ||
+          DEFAULT_SECONDARY_REMINDER_SUBJECT_TEMPLATE,
+        booking_reminder_secondary_body_template:
+          emailSettings.booking_reminder_secondary_body_template?.trim() ||
+          DEFAULT_SECONDARY_REMINDER_BODY_TEMPLATE,
+        booking_followup_quick_subject_template:
+          emailSettings.booking_followup_quick_subject_template?.trim() ||
+          DEFAULT_QUICK_FOLLOWUP_SUBJECT_TEMPLATE,
+        booking_followup_quick_body_template:
+          emailSettings.booking_followup_quick_body_template?.trim() ||
+          DEFAULT_QUICK_FOLLOWUP_BODY_TEMPLATE,
+        booking_followup_longterm_subject_template:
+          emailSettings.booking_followup_longterm_subject_template?.trim() ||
+          DEFAULT_LONGTERM_FOLLOWUP_SUBJECT_TEMPLATE,
+        booking_followup_longterm_body_template:
+          emailSettings.booking_followup_longterm_body_template?.trim() ||
+          DEFAULT_LONGTERM_FOLLOWUP_BODY_TEMPLATE,
       });
       setStudio(updated);
       setSaved(true);
@@ -484,76 +638,18 @@ export default function StudioSettings() {
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between p-4 rounded-lg border border-gray-200">
-                  <div>
-                    <Label className="cursor-pointer">Enable Booking Confirmations</Label>
-                    <p className="text-sm text-gray-500">Send a confirmation email when an appointment is booked</p>
-                  </div>
-                  <Switch
-                    checked={emailSettings.email_confirmations_enabled}
-                    onCheckedChange={(checked) =>
-                      setEmailSettings({ ...emailSettings, email_confirmations_enabled: checked })
-                    }
-                  />
-                </div>
-
-                <div className="flex items-center justify-between p-4 rounded-lg border border-gray-200">
-                  <div>
-                    <Label className="cursor-pointer">Enable Email Reminders</Label>
-                    <p className="text-sm text-gray-500">
-                      Send automatic reminders to clients (Plus tier)
-                    </p>
-                  </div>
-                  <Switch
-                    checked={emailSettings.email_reminders_enabled}
-                    disabled={studio.subscription_tier !== "plus"}
-                    onCheckedChange={(checked) =>
-                      setEmailSettings({ ...emailSettings, email_reminders_enabled: checked })
-                    }
-                  />
-                </div>
-
                 {studio.subscription_tier !== "plus" && (
                   <div className="text-sm text-gray-600 bg-amber-50 border border-amber-200 rounded-lg p-3">
-                    Email reminders are available on the Plus tier. Contact support to upgrade this studio.
+                    Automated notifications are available on the Plus tier. Contact support to upgrade this studio.
                   </div>
                 )}
-
-                <div className="space-y-2">
-                  <Label className="text-sm font-semibold text-gray-700">Reminder Timing</Label>
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-indigo-50 rounded-lg flex items-center justify-center">
-                      <Clock className="w-5 h-5 text-indigo-600" />
-                    </div>
-                    <Select
-                      value={String(emailSettings.reminder_minutes_before)}
-                      onValueChange={(value) =>
-                        setEmailSettings({ ...emailSettings, reminder_minutes_before: Number(value) })
-                      }
-                    >
-                      <SelectTrigger className="flex-1">
-                        <SelectValue placeholder="Select reminder timing" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {reminderOptions.map((option) => (
-                          <SelectItem key={option.value} value={String(option.value)}>
-                            {option.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <p className="text-sm text-gray-500">
-                    Only one reminder will be sent at the selected time.
-                  </p>
-                </div>
 
                 <div className="rounded-lg border border-gray-200 p-4 space-y-4">
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <h4 className="font-semibold text-gray-900">Email Templates</h4>
+                      <h4 className="font-semibold text-gray-900">Notification Templates</h4>
                       <p className="text-xs text-gray-500 mt-1">
-                        Supported placeholders: {`{{customer_name}}`}, {`{{studio_name}}`}, {`{{appointment_date_time}}`}, {`{{location_name}}`}, {`{{artist_name}}`}, {`{{deposit_amount}}`}, {`{{deposit_link}}`}, {`{{studio_email}}`}.
+                        Supported placeholders: {`{{customer_name}}`}, {`{{studio_name}}`}, {`{{appointment_date_time}}`}, {`{{location_name}}`}, {`{{artist_name}}`}, {`{{deposit_amount}}`}, {`{{deposit_link}}`}, {`{{studio_email}}`}, {`{{aftercare_instructions}}`}.
                       </p>
                     </div>
                     <Button type="button" variant="outline" onClick={resetEmailTemplatesToDefaults}>
@@ -561,59 +657,98 @@ export default function StudioSettings() {
                     </Button>
                   </div>
 
-                  <div className="space-y-2">
-                    <Label className="text-sm font-semibold text-gray-700">Booking Confirmation Subject</Label>
-                    <Input
-                      value={emailSettings.booking_confirmation_subject_template}
-                      onChange={(e) =>
-                        setEmailSettings({
-                          ...emailSettings,
-                          booking_confirmation_subject_template: e.target.value,
-                        })
-                      }
-                    />
-                  </div>
+                  <Accordion type="single" collapsible className="w-full">
+                    {notificationItems.map((item) => {
+                      const enabled = Boolean(emailSettings[item.enabledField]);
+                      const timingText = item.timingField
+                        ? formatMinutes(
+                            emailSettings[item.timingField],
+                            item.timingDirection
+                          )
+                        : item.timingLabel;
 
-                  <div className="space-y-2">
-                    <Label className="text-sm font-semibold text-gray-700">Booking Confirmation Body</Label>
-                    <Textarea
-                      rows={8}
-                      value={emailSettings.booking_confirmation_body_template}
-                      onChange={(e) =>
-                        setEmailSettings({
-                          ...emailSettings,
-                          booking_confirmation_body_template: e.target.value,
-                        })
-                      }
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label className="text-sm font-semibold text-gray-700">Booking Reminder Subject</Label>
-                    <Input
-                      value={emailSettings.booking_reminder_subject_template}
-                      onChange={(e) =>
-                        setEmailSettings({
-                          ...emailSettings,
-                          booking_reminder_subject_template: e.target.value,
-                        })
-                      }
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label className="text-sm font-semibold text-gray-700">Booking Reminder Body</Label>
-                    <Textarea
-                      rows={8}
-                      value={emailSettings.booking_reminder_body_template}
-                      onChange={(e) =>
-                        setEmailSettings({
-                          ...emailSettings,
-                          booking_reminder_body_template: e.target.value,
-                        })
-                      }
-                    />
-                  </div>
+                      return (
+                        <AccordionItem key={item.key} value={item.key} className="border rounded-lg px-3">
+                          <div className="flex items-center gap-3">
+                            <AccordionTrigger className="hover:no-underline py-3">
+                              <div className="text-left">
+                                <p className="font-medium text-gray-900">{item.title}</p>
+                                <p className="text-xs text-gray-500">{timingText}</p>
+                              </div>
+                            </AccordionTrigger>
+                            <div className="ml-auto flex items-center gap-2 pl-2">
+                              <span className="text-xs text-gray-500">Enabled</span>
+                              <Switch
+                                checked={enabled}
+                                disabled={studio.subscription_tier !== "plus"}
+                                onCheckedChange={(checked) =>
+                                  setEmailSettings((prev) => ({
+                                    ...prev,
+                                    [item.enabledField]: checked,
+                                  }))
+                                }
+                                onClick={(e) => e.stopPropagation()}
+                              />
+                            </div>
+                          </div>
+                          <AccordionContent className="space-y-3 pb-4">
+                            {item.timingField && (
+                              <div className="space-y-2">
+                                <Label className="text-sm font-semibold text-gray-700">
+                                  Timing (minutes {item.timingDirection} appointment)
+                                </Label>
+                                <div className="flex items-center gap-3">
+                                  <div className="w-10 h-10 bg-indigo-50 rounded-lg flex items-center justify-center">
+                                    <Clock className="w-5 h-5 text-indigo-600" />
+                                  </div>
+                                  <Input
+                                    type="number"
+                                    min="1"
+                                    step="1"
+                                    value={emailSettings[item.timingField]}
+                                    disabled={studio.subscription_tier !== "plus"}
+                                    onChange={(e) =>
+                                      setEmailSettings((prev) => ({
+                                        ...prev,
+                                        [item.timingField]: Math.max(1, Number(e.target.value) || 1),
+                                      }))
+                                    }
+                                  />
+                                </div>
+                              </div>
+                            )}
+                            <div className="space-y-2">
+                              <Label className="text-sm font-semibold text-gray-700">Subject</Label>
+                              <Input
+                                value={emailSettings[item.subjectField]}
+                                disabled={studio.subscription_tier !== "plus"}
+                                onChange={(e) =>
+                                  setEmailSettings((prev) => ({
+                                    ...prev,
+                                    [item.subjectField]: e.target.value,
+                                  }))
+                                }
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label className="text-sm font-semibold text-gray-700">Body</Label>
+                              <Textarea
+                                rows={8}
+                                value={emailSettings[item.bodyField]}
+                                disabled={studio.subscription_tier !== "plus"}
+                                onChange={(e) =>
+                                  setEmailSettings((prev) => ({
+                                    ...prev,
+                                    [item.bodyField]: e.target.value,
+                                  }))
+                                }
+                              />
+                            </div>
+                          </AccordionContent>
+                        </AccordionItem>
+                      );
+                    })}
+                  </Accordion>
                 </div>
 
                 <Button

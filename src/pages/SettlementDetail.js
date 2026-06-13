@@ -641,7 +641,7 @@ export default function SettlementDetail() {
                         <TableRow>
                           <TableHead>Appointment</TableHead>
                           <TableHead>Artist</TableHead>
-                          <TableHead className="text-right">Split %</TableHead>
+                          <TableHead className="text-right">Split Rule</TableHead>
                           <TableHead className="text-right">Service</TableHead>
                           <TableHead className="text-right">Products</TableHead>
                           <TableHead className="text-right">Tips</TableHead>
@@ -665,7 +665,9 @@ export default function SettlementDetail() {
                               </TableCell>
                               <TableCell>{artistName}</TableCell>
                               <TableCell className="text-right tabular-nums">
-                                {Number(line.split_percent) || 0}%
+                                {line.split_mode === "fixed_amount"
+                                  ? `$${Number(line.split_value || 0).toFixed(2)}`
+                                  : `${Number(line.split_value ?? line.split_percent ?? 0)}%`}
                               </TableCell>
                               <TableCell className="text-right tabular-nums">
                                 {money(line.service_amount)}

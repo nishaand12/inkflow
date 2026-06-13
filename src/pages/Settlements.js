@@ -179,9 +179,11 @@ export default function Settlements() {
             artistId: apt.artist_id,
           });
           const splitPercent = splitResolution.splitPercent;
+          const splitMode = splitResolution.splitMode;
+          const splitValue = splitResolution.splitValue;
           const aptCharges = charges.filter(c => c.appointment_id === apt.id);
           const amounts = getAppointmentSettlementAmounts(apt, aptCharges);
-          const artistShare = amounts.service * (splitPercent / 100);
+          const artistShare = splitResolution.computeArtistShare(amounts.service);
 
           const line = await base44.entities.DailySettlementLine.create({
             studio_id: user.studio_id,
@@ -194,7 +196,9 @@ export default function Settlements() {
             tip_amount: amounts.tip,
             artist_share: artistShare,
             shop_share: (amounts.service - artistShare) + amounts.product,
-            split_percent: splitPercent
+            split_percent: splitPercent,
+            split_mode: splitMode,
+            split_value: splitValue,
           });
 
           if (apt.artist_id && artistShare > 0) {

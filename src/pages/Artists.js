@@ -5,6 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -33,7 +34,8 @@ import {
 
 function SplitRuleDialog({ open, onOpenChange, artist, studioId }) {
   const queryClient = useQueryClient();
-  const [splitPercent, setSplitPercent] = useState(50);
+  const [splitMode, setSplitMode] = useState("percent");
+  const [splitValue, setSplitValue] = useState(50);
   const [eligibleCategoryIds, setEligibleCategoryIds] = useState([]);
 
   const { data: reportingCategories = [] } = useQuery({
@@ -59,10 +61,13 @@ function SplitRuleDialog({ open, onOpenChange, artist, studioId }) {
         (r) => isArtistDefaultSplitRule(r) && r.artist_id === artist.id
       );
       if (existing) {
-        setSplitPercent(existing.split_percent);
+        const mode = existing.split_mode === "fixed_amount" ? "fixed_amount" : "percent";
+        setSplitMode(mode);
+        setSplitValue(Number(existing.split_value ?? existing.split_percent) || 0);
         setEligibleCategoryIds(existing.eligible_category_ids || []);
       } else {
-        setSplitPercent(50);
+        setSplitMode("percent");
+        setSplitValue(50);
         setEligibleCategoryIds([]);
       }
     }
@@ -76,7 +81,12 @@ function SplitRuleDialog({ open, onOpenChange, artist, studioId }) {
       studio_id: studioId,
       artist_id: artist.id,
       appointment_type_id: null,
-      split_percent: splitPercent,
+      split_mode: splitMode,
+      split_value: Math.max(0, Number(splitValue) || 0),
+      split_percent:
+        splitMode === "percent"
+          ? Math.min(100, Math.max(0, Number(splitValue) || 0))
+          : 0,
       eligible_category_ids: eligibleCategoryIds,
       is_active: true
     };
@@ -98,15 +108,32 @@ function SplitRuleDialog({ open, onOpenChange, artist, studioId }) {
         </DialogHeader>
         <div className="space-y-4">
           <div className="space-y-2">
-            <Label>Artist Split (%)</Label>
+            <Label>Split Mode</Label>
+            <Select value={splitMode} onValueChange={setSplitMode}>
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="percent">Percent of service</SelectItem>
+                <SelectItem value="fixed_amount">Fixed dollar amount</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-2">
+            <Label>{splitMode === "percent" ? "Artist Split (%)" : "Artist Share ($ per appointment)"}</Label>
             <Input
-              type="number" min="0" max="100" step="1"
-              value={splitPercent}
-              onChange={(e) => setSplitPercent(parseFloat(e.target.value) || 0)}
-              className="w-32"
+              type="number"
+              min="0"
+              max={splitMode === "percent" ? "100" : undefined}
+              step={splitMode === "percent" ? "1" : "0.01"}
+              value={splitValue}
+              onChange={(e) => setSplitValue(parseFloat(e.target.value) || 0)}
+              className="w-48"
             />
             <p className="text-xs text-gray-500">
-              Artist receives {splitPercent}%, shop receives {100 - splitPercent}%
+              {splitMode === "percent"
+                ? `Artist receives ${Math.min(100, Math.max(0, Number(splitValue) || 0))}% of service revenue.`
+                : "Artist receives this fixed amount from service revenue (capped at service amount)."}
             </p>
           </div>
           {reportingCategories.length > 0 && (
@@ -349,7 +376,11 @@ export default function Artists() {
                             onClick={(e) => { e.stopPropagation(); setSplitArtist(artist); setShowSplitDialog(true); }}
                           >
                             <Percent className="w-4 h-4 mr-1" />
-                            {rule ? `${rule.split_percent}%` : 'Set Split'}
+                            {rule
+                              ? rule.split_mode === "fixed_amount"
+                                ? `$${Number(rule.split_value ?? 0).toFixed(2)}`
+                                : `${Number(rule.split_value ?? rule.split_percent ?? 0)}%`
+                              : 'Set Split'}
                           </Button>
                         );
                       })()}

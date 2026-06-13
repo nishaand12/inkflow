@@ -129,6 +129,22 @@
         "type": "boolean",
         "default": false,
         "description": "Whether 1-day reminder was sent"
+      },
+      "reminder_primary_sent_at": {
+        "type": "string",
+        "description": "Timestamp when primary reminder email was sent"
+      },
+      "reminder_secondary_sent_at": {
+        "type": "string",
+        "description": "Timestamp when secondary reminder email was sent"
+      },
+      "followup_quick_sent_at": {
+        "type": "string",
+        "description": "Timestamp when quick follow-up email was sent"
+      },
+      "followup_longterm_sent_at": {
+        "type": "string",
+        "description": "Timestamp when long-term follow-up email was sent"
       }
     },
     "required": [

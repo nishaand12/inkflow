@@ -12,14 +12,62 @@ const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const CRON_SECRET = Deno.env.get("CRON_SECRET");
 
 const MAILJET_API_URL = "https://api.mailjet.com/v3.1/send";
-const DEFAULT_REMINDER_SUBJECT_TEMPLATE = "Appointment Reminder - {{studio_name}}";
-const DEFAULT_REMINDER_BODY_TEMPLATE = `Hi {{customer_name}},
+const DEFAULT_PRIMARY_REMINDER_SUBJECT_TEMPLATE = "Appointment Reminder - {{studio_name}}";
+const DEFAULT_PRIMARY_REMINDER_BODY_TEMPLATE = `Hi {{customer_name}},
 
 This is a reminder for your appointment on {{appointment_date_time}} at {{location_name}} with {{artist_name}}.
 
 If you have questions, contact {{studio_email}}.
 
 See you soon!`;
+const DEFAULT_SECONDARY_REMINDER_SUBJECT_TEMPLATE = "Heads up: your appointment is coming up - {{studio_name}}";
+const DEFAULT_SECONDARY_REMINDER_BODY_TEMPLATE = `Hi {{customer_name}},
+
+Your appointment is coming up on {{appointment_date_time}} at {{location_name}} with {{artist_name}}.
+
+If you need to reschedule, please contact {{studio_email}} as soon as possible.
+
+See you soon!`;
+const DEFAULT_FOLLOWUP_QUICK_SUBJECT_TEMPLATE = "Aftercare instructions - {{studio_name}}";
+const DEFAULT_FOLLOWUP_QUICK_BODY_TEMPLATE = `Hi {{customer_name}},
+
+Thanks for visiting {{studio_name}} today.
+
+Here are your aftercare instructions:
+{{aftercare_instructions}}
+
+If anything feels off, contact {{studio_email}}.
+`;
+const DEFAULT_FOLLOWUP_LONGTERM_SUBJECT_TEMPLATE = "Long-term aftercare check-in - {{studio_name}}";
+const DEFAULT_FOLLOWUP_LONGTERM_BODY_TEMPLATE = `Hi {{customer_name}},
+
+This is your long-term aftercare check-in from {{studio_name}}.
+
+Please continue following your aftercare plan:
+{{aftercare_instructions}}
+
+Questions? Reach us at {{studio_email}}.
+`;
+
+type NotificationKind =
+  | "reminder_primary"
+  | "reminder_secondary"
+  | "followup_quick"
+  | "followup_longterm";
+
+type NotificationSpec = {
+  kind: NotificationKind;
+  direction: "before" | "after";
+  minutes: number;
+  enabled: boolean;
+  sentAtField:
+    | "reminder_primary_sent_at"
+    | "reminder_secondary_sent_at"
+    | "followup_quick_sent_at"
+    | "followup_longterm_sent_at";
+  subjectTemplate: string;
+  bodyTemplate: string;
+};
 
 serve(async (req) => {
   try {
@@ -51,8 +99,7 @@ serve(async (req) => {
         customer:customers(*)
       `
       )
-      .eq("status", "scheduled")
-      .is("reminder_sent_at", null);
+      .in("status", ["scheduled", "confirmed", "deposit_paid", "completed"]);
 
     if (error) {
       return jsonResponse({ error: error.message }, 500);
@@ -61,110 +108,115 @@ serve(async (req) => {
     let sentCount = 0;
     for (const appointment of appointments || []) {
       const studio = appointment.studio;
-      if (!studio || studio.subscription_tier !== "plus" || !studio.email_reminders_enabled) {
+      if (!studio || studio.subscription_tier !== "plus") {
         continue;
       }
 
-      const reminderMinutes = studio.reminder_minutes_before || 1440;
       const timezone = studio.timezone || "UTC";
       const appointmentTime = getAppointmentTimeInUTC(
         appointment.appointment_date,
         appointment.start_time,
         timezone
       );
-      const reminderTime = new Date(appointmentTime.getTime() - reminderMinutes * 60 * 1000);
+      const specs = getNotificationSpecs(studio);
+      for (const spec of specs) {
+        if (!spec.enabled) continue;
+        if (appointment[spec.sentAtField]) continue;
 
-      if (now < reminderTime) {
-        continue;
+        const sendAt =
+          spec.direction === "before"
+            ? new Date(appointmentTime.getTime() - spec.minutes * 60 * 1000)
+            : new Date(appointmentTime.getTime() + spec.minutes * 60 * 1000);
+        if (now < sendAt) continue;
+
+        const isFollowup = spec.direction === "after";
+        if (isFollowup && appointment.status !== "completed") continue;
+
+        if (!isFollowup && now > appointmentTime) {
+          await markNotificationProcessed(supabase, appointment.id, spec.kind, spec.sentAtField);
+          continue;
+        }
+
+        const email = resolveEmailAddress(appointment, appointment.customer);
+        if (!email) {
+          await markNotificationProcessed(supabase, appointment.id, spec.kind, spec.sentAtField);
+          continue;
+        }
+
+        if (appointment.customer?.email_bounced || appointment.customer?.email_unsubscribed) {
+          await markNotificationProcessed(supabase, appointment.id, spec.kind, spec.sentAtField);
+          continue;
+        }
+
+        const formattedDateTime = formatAppointmentTime(
+          appointment.appointment_date,
+          appointment.start_time,
+          studio.timezone || "UTC"
+        );
+
+        const locationText = appointment.location?.name || "Location";
+        const studioEmail = studio.studio_email || MAILJET_SENDER_EMAIL;
+        const customerName = appointment.client_name || appointment.customer?.name || "Customer";
+        const artistName = appointment.artist?.full_name || "Artist";
+        const depositAmount = Number(appointment.deposit_amount) || 0;
+        const templateVars = {
+          customer_name: customerName,
+          studio_name: studio.name || "Studio",
+          appointment_date_time: formattedDateTime,
+          location_name: locationText,
+          artist_name: artistName,
+          deposit_amount: depositAmount > 0 ? depositAmount.toFixed(2) : "",
+          deposit_link: "",
+          studio_email: studioEmail,
+          aftercare_instructions:
+            appointment.notes?.trim() ||
+            "Keep the area clean and dry, avoid irritation, and follow your artist's guidance.",
+        };
+
+        const subject = renderTemplate(spec.subjectTemplate, templateVars);
+        const body = renderTemplate(spec.bodyTemplate, templateVars);
+        const payload = {
+          Messages: [
+            {
+              From: { Email: MAILJET_SENDER_EMAIL, Name: MAILJET_SENDER_NAME },
+              To: [{ Email: email, Name: customerName }],
+              Subject: subject,
+              TextPart: body,
+              HTMLPart: textToHtml(body),
+            },
+          ],
+        };
+
+        const sendResult = await sendWithRetry(payload);
+        if (!sendResult.ok) {
+          await markNotificationProcessed(supabase, appointment.id, spec.kind, spec.sentAtField);
+          continue;
+        }
+
+        await recordEmailEvent(supabase, {
+          studioId: studio.id,
+          customerId: appointment.customer_id || null,
+          appointmentId: appointment.id,
+          email,
+          eventType: "automatic_email_sent",
+          metadata: {
+            source: "send-reminders",
+            email_kind: spec.kind,
+            subject,
+            notification_direction: spec.direction,
+            notification_minutes: spec.minutes,
+          },
+        });
+
+        await markNotificationProcessed(
+          supabase,
+          appointment.id,
+          spec.kind,
+          spec.sentAtField,
+          spec.kind === "reminder_primary" ? spec.minutes : undefined
+        );
+        sentCount += 1;
       }
-
-      if (now > appointmentTime) {
-        await updateReminderStatus(supabase, appointment.id, "skipped", "appointment_passed", reminderMinutes);
-        continue;
-      }
-
-      const email = resolveEmailAddress(appointment, appointment.customer);
-      if (!email) {
-        await updateReminderStatus(supabase, appointment.id, "skipped", "no_email_address");
-        continue;
-      }
-
-      if (appointment.customer?.email_bounced) {
-        await updateReminderStatus(supabase, appointment.id, "skipped", "email_bounced");
-        continue;
-      }
-
-      if (appointment.customer?.email_unsubscribed) {
-        await updateReminderStatus(supabase, appointment.id, "skipped", "email_unsubscribed");
-        continue;
-      }
-
-      const formattedDateTime = formatAppointmentTime(
-        appointment.appointment_date,
-        appointment.start_time,
-        studio.timezone || "UTC"
-      );
-
-      const locationText = appointment.location?.name || "Location";
-      const studioEmail = studio.studio_email || MAILJET_SENDER_EMAIL;
-      const customerName = appointment.client_name || appointment.customer?.name || "Customer";
-      const artistName = appointment.artist?.full_name || "Artist";
-      const depositAmount = Number(appointment.deposit_amount) || 0;
-
-      const templateVars = {
-        customer_name: customerName,
-        studio_name: studio.name || "Studio",
-        appointment_date_time: formattedDateTime,
-        location_name: locationText,
-        artist_name: artistName,
-        deposit_amount: depositAmount > 0 ? depositAmount.toFixed(2) : "",
-        deposit_link: "",
-        studio_email: studioEmail,
-      };
-
-      const subject = renderTemplate(
-        studio.booking_reminder_subject_template || DEFAULT_REMINDER_SUBJECT_TEMPLATE,
-        templateVars
-      );
-      const body = renderTemplate(
-        studio.booking_reminder_body_template || DEFAULT_REMINDER_BODY_TEMPLATE,
-        templateVars
-      );
-
-      const payload = {
-        Messages: [
-          {
-            From: { Email: MAILJET_SENDER_EMAIL, Name: MAILJET_SENDER_NAME },
-            To: [{ Email: email, Name: customerName }],
-            Subject: subject,
-            TextPart: body,
-            HTMLPart: textToHtml(body),
-          }
-        ]
-      };
-
-      const sendResult = await sendWithRetry(payload);
-      if (!sendResult.ok) {
-        await updateReminderStatus(supabase, appointment.id, "failed", sendResult.error || "mailjet_error");
-        continue;
-      }
-
-      await recordEmailEvent(supabase, {
-        studioId: studio.id,
-        customerId: appointment.customer_id || null,
-        appointmentId: appointment.id,
-        email,
-        eventType: "automatic_email_sent",
-        metadata: {
-          source: "send-reminders",
-          email_kind: "reminder",
-          subject,
-          reminder_minutes_before: reminderMinutes,
-        },
-      });
-
-      await updateReminderStatus(supabase, appointment.id, "sent", null, reminderMinutes);
-      sentCount += 1;
     }
 
     return jsonResponse({ success: true, sent: sentCount });
@@ -323,22 +375,81 @@ async function sendWithRetry(payload: any) {
   return second;
 }
 
-async function updateReminderStatus(
+function getNotificationSpecs(studio: any): NotificationSpec[] {
+  const primaryMinutes = Math.max(1, Number(studio.reminder_minutes_before) || 1440);
+  const secondaryMinutes = Math.max(1, Number(studio.reminder_secondary_minutes_before) || 4320);
+  const quickMinutes = Math.max(1, Number(studio.followup_quick_minutes_after) || 180);
+  const longtermMinutes = Math.max(1, Number(studio.followup_longterm_minutes_after) || 30240);
+
+  return [
+    {
+      kind: "reminder_primary",
+      direction: "before",
+      minutes: primaryMinutes,
+      enabled: Boolean(studio.email_reminders_enabled),
+      sentAtField: "reminder_primary_sent_at",
+      subjectTemplate:
+        studio.booking_reminder_subject_template || DEFAULT_PRIMARY_REMINDER_SUBJECT_TEMPLATE,
+      bodyTemplate: studio.booking_reminder_body_template || DEFAULT_PRIMARY_REMINDER_BODY_TEMPLATE,
+    },
+    {
+      kind: "reminder_secondary",
+      direction: "before",
+      minutes: secondaryMinutes,
+      enabled: Boolean(studio.reminder_secondary_enabled),
+      sentAtField: "reminder_secondary_sent_at",
+      subjectTemplate:
+        studio.booking_reminder_secondary_subject_template ||
+        DEFAULT_SECONDARY_REMINDER_SUBJECT_TEMPLATE,
+      bodyTemplate:
+        studio.booking_reminder_secondary_body_template || DEFAULT_SECONDARY_REMINDER_BODY_TEMPLATE,
+    },
+    {
+      kind: "followup_quick",
+      direction: "after",
+      minutes: quickMinutes,
+      enabled: Boolean(studio.followup_quick_enabled),
+      sentAtField: "followup_quick_sent_at",
+      subjectTemplate:
+        studio.booking_followup_quick_subject_template || DEFAULT_FOLLOWUP_QUICK_SUBJECT_TEMPLATE,
+      bodyTemplate:
+        studio.booking_followup_quick_body_template || DEFAULT_FOLLOWUP_QUICK_BODY_TEMPLATE,
+    },
+    {
+      kind: "followup_longterm",
+      direction: "after",
+      minutes: longtermMinutes,
+      enabled: Boolean(studio.followup_longterm_enabled),
+      sentAtField: "followup_longterm_sent_at",
+      subjectTemplate:
+        studio.booking_followup_longterm_subject_template ||
+        DEFAULT_FOLLOWUP_LONGTERM_SUBJECT_TEMPLATE,
+      bodyTemplate:
+        studio.booking_followup_longterm_body_template || DEFAULT_FOLLOWUP_LONGTERM_BODY_TEMPLATE,
+    },
+  ];
+}
+
+async function markNotificationProcessed(
   supabase: ReturnType<typeof createClient>,
   appointmentId: string,
-  status: "sent" | "failed" | "skipped",
-  reason: string | null,
+  kind: NotificationKind,
+  sentField: NotificationSpec["sentAtField"],
   reminderMinutes?: number
 ) {
+  const nowIso = new Date().toISOString();
+  const updatePayload: Record<string, unknown> = {
+    [sentField]: nowIso,
+  };
+
+  if (kind === "reminder_primary") {
+    updatePayload.reminder_sent_at = nowIso;
+    updatePayload.reminder_minutes_before = reminderMinutes ?? null;
+  }
+
   await supabase
     .from("appointments")
-    .update({
-      email_send_status: status,
-      email_send_failed_reason: reason,
-      email_sent_at: status === "sent" ? new Date().toISOString() : null,
-      reminder_sent_at: new Date().toISOString(),
-      reminder_minutes_before: reminderMinutes ?? null
-    })
+    .update(updatePayload)
     .eq("id", appointmentId);
 }
 

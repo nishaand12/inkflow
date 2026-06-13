@@ -58,7 +58,8 @@ export default function AppointmentTypeDialog({ open, onOpenChange, appointmentT
   const queryClient = useQueryClient();
   const [formData, setFormData] = useState(DEFAULT_FORM);
   const [showDeleteAlert, setShowDeleteAlert] = useState(false);
-  const [appointmentDefaultSplit, setAppointmentDefaultSplit] = useState("");
+  const [appointmentDefaultSplitMode, setAppointmentDefaultSplitMode] = useState("percent");
+  const [appointmentDefaultSplitValue, setAppointmentDefaultSplitValue] = useState("");
   const [artistOverrideSplits, setArtistOverrideSplits] = useState({});
   const [saveError, setSaveError] = useState("");
 
@@ -131,7 +132,8 @@ export default function AppointmentTypeDialog({ open, onOpenChange, appointmentT
 
   useEffect(() => {
     if (!open || !appointmentType) {
-      setAppointmentDefaultSplit("");
+      setAppointmentDefaultSplitMode("percent");
+      setAppointmentDefaultSplitValue("");
       setArtistOverrideSplits({});
       return;
     }
@@ -139,8 +141,18 @@ export default function AppointmentTypeDialog({ open, onOpenChange, appointmentT
     const appointmentRule = splitRules.find((rule) =>
       isAppointmentDefaultSplitRule(rule, appointmentType.id)
     );
-    setAppointmentDefaultSplit(
-      appointmentRule ? String(Number(appointmentRule.split_percent) || 0) : ""
+    const defaultMode = appointmentRule?.split_mode === "fixed_amount" ? "fixed_amount" : "percent";
+    setAppointmentDefaultSplitMode(defaultMode);
+    setAppointmentDefaultSplitValue(
+      appointmentRule
+        ? String(
+            Number(
+              appointmentRule.split_value ??
+              appointmentRule.split_percent ??
+              0
+            ) || 0
+          )
+        : ""
     );
 
     const overrides = {};
@@ -148,7 +160,11 @@ export default function AppointmentTypeDialog({ open, onOpenChange, appointmentT
       .filter((rule) => isAppointmentArtistSplitRule(rule, appointmentType.id))
       .forEach((rule) => {
         if (!rule.artist_id) return;
-        overrides[rule.artist_id] = String(Number(rule.split_percent) || 0);
+        const mode = rule.split_mode === "fixed_amount" ? "fixed_amount" : "percent";
+        overrides[rule.artist_id] = {
+          mode,
+          value: String(Number(rule.split_value ?? rule.split_percent ?? 0) || 0),
+        };
       });
     setArtistOverrideSplits(overrides);
   }, [appointmentType, open, splitRules]);
@@ -178,18 +194,29 @@ export default function AppointmentTypeDialog({ open, onOpenChange, appointmentT
     }));
   };
 
-  const parseSplitInput = (value) => {
+  const parsePercentInput = (value) => {
     if (value === "" || value == null) return null;
     const parsed = Number(value);
     if (!Number.isFinite(parsed)) return null;
     return Math.min(100, Math.max(0, parsed));
   };
 
+  const parseFixedAmountInput = (value) => {
+    if (value === "" || value == null) return null;
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed)) return null;
+    return Math.max(0, parsed);
+  };
+
   const syncScopedSplitRules = async (appointmentTypeId) => {
-    const desiredDefault = parseSplitInput(appointmentDefaultSplit);
-    const desiredOverrides = Object.entries(artistOverrideSplits).reduce((acc, [artistId, raw]) => {
-      const parsed = parseSplitInput(raw);
-      if (parsed != null) acc[artistId] = parsed;
+    const defaultParser =
+      appointmentDefaultSplitMode === "fixed_amount" ? parseFixedAmountInput : parsePercentInput;
+    const desiredDefault = defaultParser(appointmentDefaultSplitValue);
+    const desiredOverrides = Object.entries(artistOverrideSplits).reduce((acc, [artistId, config]) => {
+      const mode = config?.mode === "fixed_amount" ? "fixed_amount" : "percent";
+      const parser = mode === "fixed_amount" ? parseFixedAmountInput : parsePercentInput;
+      const parsed = parser(config?.value);
+      if (parsed != null) acc[artistId] = { mode, value: parsed };
       return acc;
     }, {});
 
@@ -208,7 +235,9 @@ export default function AppointmentTypeDialog({ open, onOpenChange, appointmentT
     } else if (appointmentDefaultRule) {
       await base44.entities.ArtistSplitRule.update(appointmentDefaultRule.id, {
         ...appointmentDefaultRule,
-        split_percent: desiredDefault,
+        split_mode: appointmentDefaultSplitMode,
+        split_value: desiredDefault,
+        split_percent: appointmentDefaultSplitMode === "percent" ? desiredDefault : 0,
         is_active: true,
       });
     } else {
@@ -216,7 +245,9 @@ export default function AppointmentTypeDialog({ open, onOpenChange, appointmentT
         studio_id: currentUser?.studio_id,
         appointment_type_id: appointmentTypeId,
         artist_id: null,
-        split_percent: desiredDefault,
+        split_mode: appointmentDefaultSplitMode,
+        split_value: desiredDefault,
+        split_percent: appointmentDefaultSplitMode === "percent" ? desiredDefault : 0,
         eligible_category_ids: [],
         is_active: true,
       });
@@ -232,19 +263,23 @@ export default function AppointmentTypeDialog({ open, onOpenChange, appointmentT
       } else {
         await base44.entities.ArtistSplitRule.update(existing.id, {
           ...existing,
-          split_percent: desired,
+          split_mode: desired.mode,
+          split_value: desired.value,
+          split_percent: desired.mode === "percent" ? desired.value : 0,
           is_active: true,
         });
       }
       delete desiredOverrides[existing.artist_id];
     }
 
-    for (const [artistId, splitPercent] of Object.entries(desiredOverrides)) {
+    for (const [artistId, config] of Object.entries(desiredOverrides)) {
       await base44.entities.ArtistSplitRule.create({
         studio_id: currentUser?.studio_id,
         appointment_type_id: appointmentTypeId,
         artist_id: artistId,
-        split_percent: splitPercent,
+        split_mode: config.mode,
+        split_value: config.value,
+        split_percent: config.mode === "percent" ? config.value : 0,
         eligible_category_ids: [],
         is_active: true,
       });
@@ -558,21 +593,34 @@ export default function AppointmentTypeDialog({ open, onOpenChange, appointmentT
                   Applied when no appointment + artist override exists. Leave blank to fall back to artist default split.
                 </p>
               </div>
+              <Select
+                value={appointmentDefaultSplitMode}
+                onValueChange={(value) => setAppointmentDefaultSplitMode(value === "fixed_amount" ? "fixed_amount" : "percent")}
+              >
+                <SelectTrigger className="w-64">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="percent">% of service</SelectItem>
+                  <SelectItem value="fixed_amount">Fixed dollar amount</SelectItem>
+                </SelectContent>
+              </Select>
               <Input
                 id="appointment_default_split"
                 type="number"
                 min="0"
-                max="100"
-                step="1"
-                value={appointmentDefaultSplit}
-                onChange={(e) => setAppointmentDefaultSplit(e.target.value)}
-                placeholder="e.g., 60"
+                max={appointmentDefaultSplitMode === "percent" ? "100" : undefined}
+                step={appointmentDefaultSplitMode === "percent" ? "1" : "0.01"}
+                value={appointmentDefaultSplitValue}
+                onChange={(e) => setAppointmentDefaultSplitValue(e.target.value)}
+                placeholder={appointmentDefaultSplitMode === "percent" ? "e.g., 60" : "e.g., 120"}
                 className="w-32"
               />
-              {appointmentDefaultSplit !== "" && (
+              {appointmentDefaultSplitValue !== "" && (
                 <p className="text-xs text-gray-500">
-                  Artist receives {Math.min(100, Math.max(0, Number(appointmentDefaultSplit) || 0))}%,
-                  shop receives {100 - Math.min(100, Math.max(0, Number(appointmentDefaultSplit) || 0))}%.
+                  {appointmentDefaultSplitMode === "percent"
+                    ? `Artist receives ${Math.min(100, Math.max(0, Number(appointmentDefaultSplitValue) || 0))}% of service revenue.`
+                    : "Artist receives this fixed amount from service revenue (capped at the service amount)."}
                 </p>
               )}
             </div>
@@ -593,20 +641,47 @@ export default function AppointmentTypeDialog({ open, onOpenChange, appointmentT
                       <Label htmlFor={`split-override-${artist.id}`} className="text-sm">
                         {artist.full_name}
                       </Label>
+                      <Select
+                        value={artistOverrideSplits[artist.id]?.mode || "percent"}
+                        onValueChange={(value) =>
+                          setArtistOverrideSplits((prev) => ({
+                            ...prev,
+                            [artist.id]: {
+                              mode: value === "fixed_amount" ? "fixed_amount" : "percent",
+                              value: prev[artist.id]?.value ?? "",
+                            },
+                          }))
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="percent">% of service</SelectItem>
+                          <SelectItem value="fixed_amount">Fixed dollar amount</SelectItem>
+                        </SelectContent>
+                      </Select>
                       <Input
                         id={`split-override-${artist.id}`}
                         type="number"
                         min="0"
-                        max="100"
-                        step="1"
-                        value={artistOverrideSplits[artist.id] ?? ""}
+                        max={artistOverrideSplits[artist.id]?.mode === "fixed_amount" ? undefined : "100"}
+                        step={artistOverrideSplits[artist.id]?.mode === "fixed_amount" ? "0.01" : "1"}
+                        value={artistOverrideSplits[artist.id]?.value ?? ""}
                         onChange={(e) =>
                           setArtistOverrideSplits((prev) => ({
                             ...prev,
-                            [artist.id]: e.target.value,
+                            [artist.id]: {
+                              mode: prev[artist.id]?.mode || "percent",
+                              value: e.target.value,
+                            },
                           }))
                         }
-                        placeholder="default"
+                        placeholder={
+                          artistOverrideSplits[artist.id]?.mode === "fixed_amount"
+                            ? "default $"
+                            : "default %"
+                        }
                       />
                     </div>
                   ))}
