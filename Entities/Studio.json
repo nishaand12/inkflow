@@ -127,6 +127,10 @@
         "type": "string",
         "description": "Optional plain-text body template for long-term follow-up emails"
       },
+      "booking_page_disclaimer_template": {
+        "type": "string",
+        "description": "Customizable disclaimer/policy text shown on the public booking page"
+      },
       "owner_id": {
         "type": "string",
         "description": "Studio owner user ID"

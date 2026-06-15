@@ -21,6 +21,9 @@ Your appointment is confirmed for {{appointment_date_time}} at {{location_name}}
 
 If a deposit is required, you can use this link: {{deposit_link}}
 
+If you need to change your appointment: {{manage_appointment_link}}
+Changes are only allowed up to 24 hours before your appointment.
+
 If you have questions, contact {{studio_email}}.
 
 Looking forward to seeing you!`;
@@ -49,6 +52,7 @@ serve(async (req) => {
     const appointmentId = requestBody?.appointmentId || requestBody?.appointment_id;
     const eventTypeRaw = requestBody?.eventType || requestBody?.event_type || "created";
     const eventType = String(eventTypeRaw).toLowerCase();
+    const source = String(requestBody?.source || "").toLowerCase();
 
     if (!appointmentId) {
       return jsonResponse({ error: "Missing appointmentId" }, 400);
@@ -170,6 +174,39 @@ serve(async (req) => {
     const customerName = appointment.client_name || customer?.name || "Customer";
     const artistName = appointment.artist?.full_name || "Artist";
     const depositAmount = Number(appointment.deposit_amount) || 0;
+
+    // Manage link is public-booking only: reuse an existing token, or create one
+    // when this send is from the public booking flow. Staff confirmations never
+    // create tokens and only include a link if the appointment already has one.
+    let manageLink = "";
+    try {
+      const { data: tokenRow } = await supabase
+        .from("appointment_manage_tokens")
+        .select("token, expires_at, revoked_at")
+        .eq("appointment_id", appointmentId)
+        .is("revoked_at", null)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (tokenRow && new Date(tokenRow.expires_at) > new Date()) {
+        manageLink = `${APP_URL}/manage-appointment?token=${tokenRow.token}`;
+      } else if (source === "public_booking") {
+        const newToken = crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "");
+        const expiresAt = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString();
+        const { data: created } = await supabase
+          .from("appointment_manage_tokens")
+          .insert({ appointment_id: appointmentId, token: newToken, expires_at: expiresAt })
+          .select("token")
+          .single();
+        if (created) {
+          manageLink = `${APP_URL}/manage-appointment?token=${created.token}`;
+        }
+      }
+    } catch (tokenErr) {
+      console.error("Failed to resolve manage token:", tokenErr);
+    }
+
     const templateVars = {
       customer_name: customerName,
       studio_name: studio.name || "Studio",
@@ -178,6 +215,7 @@ serve(async (req) => {
       artist_name: artistName,
       deposit_amount: depositAmount > 0 ? depositAmount.toFixed(2) : "",
       deposit_link: depositUrl || "",
+      manage_appointment_link: manageLink,
       studio_email: studioEmail,
     };
     let subjectTemplate = studio.booking_confirmation_subject_template || DEFAULT_CONFIRMATION_SUBJECT_TEMPLATE;
@@ -185,6 +223,21 @@ serve(async (req) => {
     if (eventType === "cancelled") {
       subjectTemplate = DEFAULT_CANCELLATION_SUBJECT_TEMPLATE;
       bodyTemplate = DEFAULT_CANCELLATION_BODY_TEMPLATE;
+    }
+
+    // Guarantee manage-link + 24-hour policy copy for public-booking confirmation emails,
+    // even if the studio uses an older custom template without the new placeholder.
+    if (eventType === "created" && source === "public_booking" && manageLink) {
+      const hasManagePlaceholder = /\{\{\s*manage_appointment_link\s*\}\}/i.test(bodyTemplate);
+      const has24hPolicy = /24\s*hours?/i.test(bodyTemplate);
+      if (!hasManagePlaceholder || !has24hPolicy) {
+        const fallbackManageBlock = [
+          "",
+          `If you need to change your appointment: ${manageLink}`,
+          "Changes are only allowed up to 24 hours before your appointment.",
+        ].join("\n");
+        bodyTemplate = `${bodyTemplate.trim()}\n${fallbackManageBlock}`;
+      }
     }
 
     const subject = renderTemplate(subjectTemplate, templateVars);

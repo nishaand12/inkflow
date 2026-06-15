@@ -21,7 +21,9 @@ const tableMap = {
   ReportingCategory: "reporting_categories",
   Studio: "studios",
   WorkStation: "workstations",
-  User: "users"
+  User: "users",
+  AppointmentKindNotificationSetting: "appointment_kind_notification_settings",
+  AppointmentManageToken: "appointment_manage_tokens"
 };
 
 const normalizeOrderColumn = (column) => {
@@ -180,6 +182,8 @@ export const base44 = {
     ReportingCategory: createEntityClient("ReportingCategory"),
     Studio: createEntityClient("Studio"),
     WorkStation: createEntityClient("WorkStation"),
-    User: createEntityClient("User")
+    User: createEntityClient("User"),
+    AppointmentKindNotificationSetting: createEntityClient("AppointmentKindNotificationSetting"),
+    AppointmentManageToken: createEntityClient("AppointmentManageToken")
   }
 };

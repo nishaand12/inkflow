@@ -216,6 +216,15 @@ serve(async (req) => {
       }
     }
 
+    // Generate a manage token for customer self-service reschedule/cancel
+    const manageToken = crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "");
+    const tokenExpiresAt = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000); // 90 days
+    await supabase.from("appointment_manage_tokens").insert({
+      appointment_id: appointment.id,
+      token: manageToken,
+      expires_at: tokenExpiresAt.toISOString(),
+    });
+
     await triggerConfirmationEmail(appointment.id);
 
     return json({
@@ -252,6 +261,7 @@ async function triggerConfirmationEmail(appointmentId: string) {
       body: JSON.stringify({
         appointmentId,
         eventType: "created",
+        source: "public_booking",
       }),
     });
     if (!response.ok) {

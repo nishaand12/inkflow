@@ -20,7 +20,8 @@ import {
   BarChart3,
   Package,
   Tags,
-  Wallet
+  Wallet,
+  FileText
 } from "lucide-react";
 import {
   Sidebar,
@@ -211,6 +212,12 @@ export default function Layout({ children, currentPageName = null }) {
         title: "Artist Payouts",
         url: createPageUrl("ArtistPayouts"),
         icon: Wallet,
+        roles: ["Owner", "Admin"]
+      },
+      {
+        title: "Public Templates",
+        url: createPageUrl("PublicTemplates"),
+        icon: FileText,
         roles: ["Owner", "Admin"]
       },
       {

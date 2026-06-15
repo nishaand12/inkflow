@@ -33,8 +33,7 @@ const DEFAULT_FOLLOWUP_QUICK_BODY_TEMPLATE = `Hi {{customer_name}},
 
 Thanks for visiting {{studio_name}} today.
 
-Here are your aftercare instructions:
-{{aftercare_instructions}}
+If you need aftercare guidance, contact {{studio_email}}.
 
 If anything feels off, contact {{studio_email}}.
 `;
@@ -43,8 +42,7 @@ const DEFAULT_FOLLOWUP_LONGTERM_BODY_TEMPLATE = `Hi {{customer_name}},
 
 This is your long-term aftercare check-in from {{studio_name}}.
 
-Please continue following your aftercare plan:
-{{aftercare_instructions}}
+If you need aftercare guidance, contact {{studio_email}}.
 
 Questions? Reach us at {{studio_email}}.
 `;
@@ -96,13 +94,27 @@ serve(async (req) => {
         studio:studios(*),
         location:locations(*),
         artist:artists(*),
-        customer:customers(*)
+        customer:customers(*),
+        appointment_type:appointment_types(*)
       `
       )
       .in("status", ["scheduled", "confirmed", "deposit_paid", "completed"]);
 
     if (error) {
       return jsonResponse({ error: error.message }, 500);
+    }
+
+    // Batch-load kind notification overrides and booking hierarchy categories per studio
+    const studioIds = [...new Set((appointments || []).map((a: any) => a.studio?.id).filter(Boolean))];
+    const kindSettingsMap: Record<string, any[]> = {};
+    const kindCategoriesMap: Record<string, any[]> = {};
+    for (const sid of studioIds) {
+      const [{ data: ks }, { data: cats }] = await Promise.all([
+        supabase.from("appointment_kind_notification_settings").select("*").eq("studio_id", sid),
+        supabase.from("reporting_categories").select("*").eq("studio_id", sid).eq("category_role", "appointment_kind"),
+      ]);
+      kindSettingsMap[sid] = ks || [];
+      kindCategoriesMap[sid] = cats || [];
     }
 
     let sentCount = 0;
@@ -118,7 +130,16 @@ serve(async (req) => {
         appointment.start_time,
         timezone
       );
-      const specs = getNotificationSpecs(studio);
+
+      // Resolve the kind root for this appointment's type
+      const kindCategoryId = appointment.appointment_type?.appointment_kind_category_id || null;
+      const kindCats = kindCategoriesMap[studio.id] || [];
+      const kindRootId = getKindRootId(kindCats, kindCategoryId);
+      const kindOverrides = (kindSettingsMap[studio.id] || []).filter(
+        (row: any) => row.kind_root_category_id === kindRootId
+      );
+
+      const specs = resolveNotificationSpecs(studio, kindOverrides);
       for (const spec of specs) {
         if (!spec.enabled) continue;
         if (appointment[spec.sentAtField]) continue;
@@ -159,6 +180,7 @@ serve(async (req) => {
         const customerName = appointment.client_name || appointment.customer?.name || "Customer";
         const artistName = appointment.artist?.full_name || "Artist";
         const depositAmount = Number(appointment.deposit_amount) || 0;
+
         const templateVars = {
           customer_name: customerName,
           studio_name: studio.name || "Studio",
@@ -168,9 +190,6 @@ serve(async (req) => {
           deposit_amount: depositAmount > 0 ? depositAmount.toFixed(2) : "",
           deposit_link: "",
           studio_email: studioEmail,
-          aftercare_instructions:
-            appointment.notes?.trim() ||
-            "Keep the area clean and dry, avoid irritation, and follow your artist's guidance.",
         };
 
         const subject = renderTemplate(spec.subjectTemplate, templateVars);
@@ -205,6 +224,7 @@ serve(async (req) => {
             subject,
             notification_direction: spec.direction,
             notification_minutes: spec.minutes,
+            kind_root_category_id: kindRootId || null,
           },
         });
 
@@ -375,59 +395,85 @@ async function sendWithRetry(payload: any) {
   return second;
 }
 
-function getNotificationSpecs(studio: any): NotificationSpec[] {
-  const primaryMinutes = Math.max(1, Number(studio.reminder_minutes_before) || 1440);
-  const secondaryMinutes = Math.max(1, Number(studio.reminder_secondary_minutes_before) || 4320);
-  const quickMinutes = Math.max(1, Number(studio.followup_quick_minutes_after) || 180);
-  const longtermMinutes = Math.max(1, Number(studio.followup_longterm_minutes_after) || 30240);
+function getKindRootId(kindCategories: any[], categoryId: string | null): string | null {
+  if (!categoryId) return null;
+  const byId: Record<string, any> = {};
+  for (const c of kindCategories) byId[c.id] = c;
+  let cur = byId[categoryId];
+  const seen = new Set<string>();
+  while (cur && !seen.has(cur.id)) {
+    seen.add(cur.id);
+    if (!cur.parent_id || !byId[cur.parent_id]) return cur.id;
+    cur = byId[cur.parent_id];
+  }
+  return cur?.id || null;
+}
 
-  return [
+function resolveNotificationSpecs(studio: any, kindOverrides: any[]): NotificationSpec[] {
+  const overrideByKind: Record<string, any> = {};
+  for (const row of kindOverrides) {
+    overrideByKind[row.notification_kind] = row;
+  }
+
+  const specs: { kind: NotificationKind; direction: "before" | "after"; studioMinutes: number; studioEnabled: boolean; sentAtField: NotificationSpec["sentAtField"]; studioSubject: string; studioBody: string; defaultSubject: string; defaultBody: string }[] = [
     {
       kind: "reminder_primary",
       direction: "before",
-      minutes: primaryMinutes,
-      enabled: Boolean(studio.email_reminders_enabled),
+      studioMinutes: Number(studio.reminder_minutes_before) || 1440,
+      studioEnabled: Boolean(studio.email_reminders_enabled),
       sentAtField: "reminder_primary_sent_at",
-      subjectTemplate:
-        studio.booking_reminder_subject_template || DEFAULT_PRIMARY_REMINDER_SUBJECT_TEMPLATE,
-      bodyTemplate: studio.booking_reminder_body_template || DEFAULT_PRIMARY_REMINDER_BODY_TEMPLATE,
+      studioSubject: studio.booking_reminder_subject_template || "",
+      studioBody: studio.booking_reminder_body_template || "",
+      defaultSubject: DEFAULT_PRIMARY_REMINDER_SUBJECT_TEMPLATE,
+      defaultBody: DEFAULT_PRIMARY_REMINDER_BODY_TEMPLATE,
     },
     {
       kind: "reminder_secondary",
       direction: "before",
-      minutes: secondaryMinutes,
-      enabled: Boolean(studio.reminder_secondary_enabled),
+      studioMinutes: Number(studio.reminder_secondary_minutes_before) || 4320,
+      studioEnabled: Boolean(studio.reminder_secondary_enabled),
       sentAtField: "reminder_secondary_sent_at",
-      subjectTemplate:
-        studio.booking_reminder_secondary_subject_template ||
-        DEFAULT_SECONDARY_REMINDER_SUBJECT_TEMPLATE,
-      bodyTemplate:
-        studio.booking_reminder_secondary_body_template || DEFAULT_SECONDARY_REMINDER_BODY_TEMPLATE,
+      studioSubject: studio.booking_reminder_secondary_subject_template || "",
+      studioBody: studio.booking_reminder_secondary_body_template || "",
+      defaultSubject: DEFAULT_SECONDARY_REMINDER_SUBJECT_TEMPLATE,
+      defaultBody: DEFAULT_SECONDARY_REMINDER_BODY_TEMPLATE,
     },
     {
       kind: "followup_quick",
       direction: "after",
-      minutes: quickMinutes,
-      enabled: Boolean(studio.followup_quick_enabled),
+      studioMinutes: Number(studio.followup_quick_minutes_after) || 180,
+      studioEnabled: Boolean(studio.followup_quick_enabled),
       sentAtField: "followup_quick_sent_at",
-      subjectTemplate:
-        studio.booking_followup_quick_subject_template || DEFAULT_FOLLOWUP_QUICK_SUBJECT_TEMPLATE,
-      bodyTemplate:
-        studio.booking_followup_quick_body_template || DEFAULT_FOLLOWUP_QUICK_BODY_TEMPLATE,
+      studioSubject: studio.booking_followup_quick_subject_template || "",
+      studioBody: studio.booking_followup_quick_body_template || "",
+      defaultSubject: DEFAULT_FOLLOWUP_QUICK_SUBJECT_TEMPLATE,
+      defaultBody: DEFAULT_FOLLOWUP_QUICK_BODY_TEMPLATE,
     },
     {
       kind: "followup_longterm",
       direction: "after",
-      minutes: longtermMinutes,
-      enabled: Boolean(studio.followup_longterm_enabled),
+      studioMinutes: Number(studio.followup_longterm_minutes_after) || 30240,
+      studioEnabled: Boolean(studio.followup_longterm_enabled),
       sentAtField: "followup_longterm_sent_at",
-      subjectTemplate:
-        studio.booking_followup_longterm_subject_template ||
-        DEFAULT_FOLLOWUP_LONGTERM_SUBJECT_TEMPLATE,
-      bodyTemplate:
-        studio.booking_followup_longterm_body_template || DEFAULT_FOLLOWUP_LONGTERM_BODY_TEMPLATE,
+      studioSubject: studio.booking_followup_longterm_subject_template || "",
+      studioBody: studio.booking_followup_longterm_body_template || "",
+      defaultSubject: DEFAULT_FOLLOWUP_LONGTERM_SUBJECT_TEMPLATE,
+      defaultBody: DEFAULT_FOLLOWUP_LONGTERM_BODY_TEMPLATE,
     },
   ];
+
+  return specs.map((s) => {
+    const override = overrideByKind[s.kind];
+    return {
+      kind: s.kind,
+      direction: s.direction,
+      minutes: Math.max(1, override?.minutes ?? s.studioMinutes),
+      enabled: override?.enabled ?? s.studioEnabled,
+      sentAtField: s.sentAtField,
+      subjectTemplate: override?.subject_template?.trim() || s.studioSubject || s.defaultSubject,
+      bodyTemplate: override?.body_template?.trim() || s.studioBody || s.defaultBody,
+    };
+  });
 }
 
 async function markNotificationProcessed(

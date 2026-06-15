@@ -415,20 +415,19 @@ export default function PublicBooking() {
               <p className="text-gray-600 mt-1">Book your appointment online</p>
             </div>
 
-            <div className="rounded-xl border border-indigo-200 bg-white/90 shadow-sm px-4 py-4 space-y-3 text-left text-sm text-gray-700">
-              <p>
-                Earlobes age 5+ with a custodial parent present / Most common piercings age 13–15 with a
-                custodial parent present or 16+ with picture ID / Extreme and genital piercings 18+ with
-                picture ID
-              </p>
-              <p className="font-semibold tracking-wide text-center text-gray-900">
-                ONLINE $10 DEPOSITS ARE NON-REFUNDABLE
-              </p>
-              <p>
-                Custodial parent must present valid government photo ID. Minor with parent must also
-                present ID to get pierced; a non-photo health card is fine.
-              </p>
-            </div>
+            {(() => {
+              const disclaimerSource = studio.booking_page_disclaimer_template
+                || "Earlobes age 5+ with a custodial parent present / Most common piercings age 13\u201315 with a custodial parent present or 16+ with picture ID / Extreme and genital piercings 18+ with picture ID\n\nONLINE $10 DEPOSITS ARE NON-REFUNDABLE\n\nCustodial parent must present valid government photo ID. Minor with parent must also present ID to get pierced; a non-photo health card is fine.";
+              return (
+                <div className="rounded-xl border border-indigo-200 bg-white/90 shadow-sm px-4 py-4 space-y-3 text-left text-sm text-gray-700">
+                  {disclaimerSource.split("\n\n").map((paragraph, i) => (
+                    <p key={i} className={paragraph === paragraph.toUpperCase() && paragraph.length > 5 ? "font-semibold tracking-wide text-center text-gray-900" : ""}>
+                      {paragraph}
+                    </p>
+                  ))}
+                </div>
+              );
+            })()}
           </>
         )}
 

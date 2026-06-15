@@ -64,8 +64,8 @@
     "build": "craco build",
     "test": "craco test",
     "eject": "react-scripts eject",
-    "test:e2e:setup": "playwright test tests/e2e/00-phase1-setup.spec.ts --headed",
-    "test:e2e": "playwright test --grep-invert \"Phase 1\"",
+    "test:e2e:headed": "playwright test tests/e2e --headed",
+    "test:e2e": "playwright test tests/e2e",
     "test:e2e:report": "playwright show-report"
   },
   "eslintConfig": {

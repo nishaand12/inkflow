@@ -459,14 +459,16 @@ export default function SettlementDetail() {
                     <p className="text-xs text-gray-500 uppercase tracking-wide">Online collected</p>
                     <p className="text-lg font-semibold text-gray-900">{money(settlement.online_collected)}</p>
                   </div>
-                  <div className="rounded-lg border border-gray-100 p-4 bg-gray-50/80">
-                    <p className="text-xs text-gray-500 uppercase tracking-wide">Cash collected</p>
-                    <p className="text-lg font-semibold text-gray-900">{money(settlement.cash_collected)}</p>
+                  <div className="rounded-lg border border-gray-100 p-4 bg-amber-50/80 border-amber-100">
+                    <p className="text-xs text-gray-500 uppercase tracking-wide">Adjusted gross</p>
+                    <p className="text-lg font-semibold text-amber-900">{money(Math.max(0, (settlement.gross_total || 0) - (settlement.online_collected || 0)))}</p>
                   </div>
                 </div>
                 <p className="text-xs text-gray-500 mt-3">
+                  Adjusted gross = Sales gross minus Online collected (excludes Stripe deposits).
                   Terminal includes Amex, Visa, Mastercard, Debit, and Other. Cash includes Cash and
-                  E-Transfer. Online is Stripe only.
+                  E-Transfer. Online is Stripe only. Cash and terminal breakdowns are in the payment
+                  method table below.
                 </p>
                 {!totalsCheck.grossMatch && lines.length > 0 && (
                   <p className="text-xs text-amber-700 mt-4">

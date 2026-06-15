@@ -23,8 +23,10 @@ import MyAvailability from "./pages/MyAvailability";
 import OnboardingChoice from "./pages/OnboardingChoice";
 import PendingValidation from "./pages/PendingValidation";
 import StudioSettings from "./pages/StudioSettings";
+import PublicTemplates from "./pages/PublicTemplates";
 import UserManagement from "./pages/UserManagement";
 import PublicBooking from "./pages/PublicBooking";
+import ManageAppointment from "./pages/ManageAppointment";
 import DepositSuccess from "./pages/DepositSuccess";
 import DepositCancelled from "./pages/DepositCancelled";
 import PaymentSuccess from "./pages/PaymentSuccess";
@@ -91,6 +93,7 @@ export default function App() {
             element={session ? <Navigate to="/dashboard" replace /> : <Auth />}
           />
           <Route path="/book" element={<PublicBooking />} />
+          <Route path="/manage-appointment" element={<ManageAppointment />} />
           <Route path="/deposit-success" element={<DepositSuccess />} />
           <Route path="/deposit-cancelled" element={<DepositCancelled />} />
           <Route path="/payment-success" element={<PaymentSuccess />} />
@@ -115,6 +118,7 @@ export default function App() {
             <Route path="/onboarding-choice" element={<OnboardingChoice />} />
             <Route path="/pending-validation" element={<PendingValidation />} />
             <Route path="/studio-settings" element={<StudioSettings />} />
+            <Route path="/public-templates" element={<PublicTemplates />} />
             <Route path="/user-management" element={<UserManagement />} />
           </Route>
         </Routes>

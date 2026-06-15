@@ -22,3 +22,12 @@ verify_jwt = false
 
 [functions.create-public-booking]
 verify_jwt = false
+
+[functions.get-appointment-by-token]
+verify_jwt = false
+
+[functions.reschedule-public-appointment]
+verify_jwt = false
+
+[functions.cancel-public-appointment]
+verify_jwt = false

@@ -16,6 +16,7 @@ const PAGE_PATHS = {
   OnboardingChoice: "/onboarding-choice",
   PendingValidation: "/pending-validation",
   StudioSettings: "/studio-settings",
+  PublicTemplates: "/public-templates",
   UserManagement: "/user-management"
 };
 
