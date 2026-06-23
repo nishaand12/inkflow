@@ -86,12 +86,14 @@ serve(async (req) => {
         appointment_date: newDate,
         start_time: newStartTime,
         end_time: computedEndTime,
-        // Reset notification sent-at fields so reminders re-fire for the new time
         reminder_primary_sent_at: null,
         reminder_secondary_sent_at: null,
+        reminder_tertiary_sent_at: null,
         followup_quick_sent_at: null,
         followup_longterm_sent_at: null,
+        followup_midterm_sent_at: null,
         reminder_sent_at: null,
+        notification_anchor_at: new Date().toISOString(),
       })
       .eq("id", appointment.id);
 

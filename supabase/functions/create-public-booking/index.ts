@@ -144,6 +144,8 @@ serve(async (req) => {
         deposit_amount: depositAmount ?? aptType.default_deposit,
         total_estimate: svcCost,
         status: "scheduled",
+        booking_source: "public",
+        notification_anchor_at: new Date().toISOString(),
       })
       .select("*")
       .single();

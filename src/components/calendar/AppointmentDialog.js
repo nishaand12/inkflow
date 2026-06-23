@@ -764,7 +764,8 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
           appointment.appointment_date !== variables.data.appointment_date ||
           appointment.start_time !== variables.data.start_time ||
           appointment.location_id !== variables.data.location_id ||
-          appointment.artist_id !== variables.data.artist_id;
+          appointment.artist_id !== variables.data.artist_id ||
+          appointment.appointment_type_id !== variables.data.appointment_type_id;
 
         if (hasScheduleChange) {
           await sendAppointmentEmail(updatedAppointment, "updated");
@@ -847,8 +848,12 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
       reminder_sent_at,
       reminder_primary_sent_at,
       reminder_secondary_sent_at,
+      reminder_tertiary_sent_at,
       followup_quick_sent_at,
       followup_longterm_sent_at,
+      followup_midterm_sent_at,
+      notification_anchor_at,
+      booking_source,
       created_at,
       updated_at,
       ...editableFormData
@@ -877,6 +882,8 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     if (appointment) {
       updateMutation.mutate({ id: appointment.id, data: dataToSave });
     } else {
+      dataToSave.booking_source = "staff";
+      dataToSave.notification_anchor_at = new Date().toISOString();
       const depositNum = Number(formData.deposit_amount) || 0;
       const recordInPersonDeposit = depositPaidInPersonCreate && depositNum > 0;
       let inPersonDepositAmount = null;

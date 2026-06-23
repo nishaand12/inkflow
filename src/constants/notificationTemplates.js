@@ -39,6 +39,13 @@ If you need aftercare guidance, contact {{studio_email}}.
 Questions? Contact {{studio_email}}.
 `;
 
+export const DEFAULT_TERTIARY_REMINDER_SUBJECT_TEMPLATE = "Your appointment is today - {{studio_name}}";
+export const DEFAULT_TERTIARY_REMINDER_BODY_TEMPLATE = `Hi {{customer_name}},
+
+Just a reminder that your appointment is today at {{appointment_date_time}} at {{location_name}} with {{artist_name}}.
+
+See you soon!`;
+
 export const DEFAULT_LONGTERM_FOLLOWUP_SUBJECT_TEMPLATE = "Long-term aftercare check-in - {{studio_name}}";
 export const DEFAULT_LONGTERM_FOLLOWUP_BODY_TEMPLATE = `Hi {{customer_name}},
 
@@ -48,6 +55,15 @@ If you need aftercare guidance, contact {{studio_email}}.
 
 Questions? Contact {{studio_email}}.
 `;
+
+export const DEFAULT_MIDTERM_FOLLOWUP_SUBJECT_TEMPLATE = "Check-in from {{studio_name}}";
+export const DEFAULT_MIDTERM_FOLLOWUP_BODY_TEMPLATE = `Hi {{customer_name}},
+
+It's been a while since your visit to {{studio_name}}.
+
+If you need any follow-up care or want to book your next appointment, contact {{studio_email}}.
+
+We'd love to see you again!`;
 
 export const NOTIFICATION_ITEMS = [
   {
@@ -78,6 +94,15 @@ export const NOTIFICATION_ITEMS = [
     bodyField: "booking_reminder_secondary_body_template",
   },
   {
+    key: "tertiary_reminder",
+    title: "Day-of reminder",
+    enabledField: "reminder_tertiary_enabled",
+    timingField: "reminder_tertiary_minutes_before",
+    timingDirection: "before",
+    subjectField: "booking_reminder_tertiary_subject_template",
+    bodyField: "booking_reminder_tertiary_body_template",
+  },
+  {
     key: "quick_followup",
     title: "Quick follow-up",
     enabledField: "followup_quick_enabled",
@@ -95,11 +120,16 @@ export const NOTIFICATION_ITEMS = [
     subjectField: "booking_followup_longterm_subject_template",
     bodyField: "booking_followup_longterm_body_template",
   },
+  {
+    key: "midterm_followup",
+    title: "75-day follow-up",
+    enabledField: "followup_midterm_enabled",
+    timingField: "followup_midterm_minutes_after",
+    timingDirection: "after",
+    subjectField: "booking_followup_midterm_subject_template",
+    bodyField: "booking_followup_midterm_body_template",
+  },
 ];
-
-export const CRON_NOTIFICATION_ITEMS = NOTIFICATION_ITEMS.filter(
-  (item) => item.key !== "confirmation"
-);
 
 export const DEFAULT_TEMPLATES = {
   booking_confirmation_subject_template: DEFAULT_CONFIRMATION_SUBJECT_TEMPLATE,
@@ -108,10 +138,14 @@ export const DEFAULT_TEMPLATES = {
   booking_reminder_body_template: DEFAULT_REMINDER_BODY_TEMPLATE,
   booking_reminder_secondary_subject_template: DEFAULT_SECONDARY_REMINDER_SUBJECT_TEMPLATE,
   booking_reminder_secondary_body_template: DEFAULT_SECONDARY_REMINDER_BODY_TEMPLATE,
+  booking_reminder_tertiary_subject_template: DEFAULT_TERTIARY_REMINDER_SUBJECT_TEMPLATE,
+  booking_reminder_tertiary_body_template: DEFAULT_TERTIARY_REMINDER_BODY_TEMPLATE,
   booking_followup_quick_subject_template: DEFAULT_QUICK_FOLLOWUP_SUBJECT_TEMPLATE,
   booking_followup_quick_body_template: DEFAULT_QUICK_FOLLOWUP_BODY_TEMPLATE,
   booking_followup_longterm_subject_template: DEFAULT_LONGTERM_FOLLOWUP_SUBJECT_TEMPLATE,
   booking_followup_longterm_body_template: DEFAULT_LONGTERM_FOLLOWUP_BODY_TEMPLATE,
+  booking_followup_midterm_subject_template: DEFAULT_MIDTERM_FOLLOWUP_SUBJECT_TEMPLATE,
+  booking_followup_midterm_body_template: DEFAULT_MIDTERM_FOLLOWUP_BODY_TEMPLATE,
 };
 
 export const TEMPLATE_PLACEHOLDERS = [
@@ -152,10 +186,14 @@ export function buildEmailSettingsFromStudio(studio) {
     reminder_minutes_before: studio.reminder_minutes_before || 1440,
     reminder_secondary_enabled: studio.reminder_secondary_enabled !== false,
     reminder_secondary_minutes_before: studio.reminder_secondary_minutes_before || 4320,
+    reminder_tertiary_enabled: !!studio.reminder_tertiary_enabled,
+    reminder_tertiary_minutes_before: studio.reminder_tertiary_minutes_before || 120,
     followup_quick_enabled: studio.followup_quick_enabled !== false,
-    followup_quick_minutes_after: studio.followup_quick_minutes_after || 180,
+    followup_quick_minutes_after: studio.followup_quick_minutes_after || 120,
     followup_longterm_enabled: studio.followup_longterm_enabled !== false,
     followup_longterm_minutes_after: studio.followup_longterm_minutes_after || 30240,
+    followup_midterm_enabled: !!studio.followup_midterm_enabled,
+    followup_midterm_minutes_after: studio.followup_midterm_minutes_after || 108000,
     booking_confirmation_subject_template:
       studio.booking_confirmation_subject_template || DEFAULT_CONFIRMATION_SUBJECT_TEMPLATE,
     booking_confirmation_body_template:
@@ -168,6 +206,10 @@ export function buildEmailSettingsFromStudio(studio) {
       studio.booking_reminder_secondary_subject_template || DEFAULT_SECONDARY_REMINDER_SUBJECT_TEMPLATE,
     booking_reminder_secondary_body_template:
       studio.booking_reminder_secondary_body_template || DEFAULT_SECONDARY_REMINDER_BODY_TEMPLATE,
+    booking_reminder_tertiary_subject_template:
+      studio.booking_reminder_tertiary_subject_template || DEFAULT_TERTIARY_REMINDER_SUBJECT_TEMPLATE,
+    booking_reminder_tertiary_body_template:
+      studio.booking_reminder_tertiary_body_template || DEFAULT_TERTIARY_REMINDER_BODY_TEMPLATE,
     booking_followup_quick_subject_template:
       studio.booking_followup_quick_subject_template || DEFAULT_QUICK_FOLLOWUP_SUBJECT_TEMPLATE,
     booking_followup_quick_body_template:
@@ -176,6 +218,10 @@ export function buildEmailSettingsFromStudio(studio) {
       studio.booking_followup_longterm_subject_template || DEFAULT_LONGTERM_FOLLOWUP_SUBJECT_TEMPLATE,
     booking_followup_longterm_body_template:
       studio.booking_followup_longterm_body_template || DEFAULT_LONGTERM_FOLLOWUP_BODY_TEMPLATE,
+    booking_followup_midterm_subject_template:
+      studio.booking_followup_midterm_subject_template || DEFAULT_MIDTERM_FOLLOWUP_SUBJECT_TEMPLATE,
+    booking_followup_midterm_body_template:
+      studio.booking_followup_midterm_body_template || DEFAULT_MIDTERM_FOLLOWUP_BODY_TEMPLATE,
   };
 }
 
@@ -188,10 +234,14 @@ export function buildEmailSavePayload(emailSettings) {
     reminder_minutes_before: emailSettings.reminder_minutes_before,
     reminder_secondary_enabled: emailSettings.reminder_secondary_enabled,
     reminder_secondary_minutes_before: emailSettings.reminder_secondary_minutes_before,
+    reminder_tertiary_enabled: emailSettings.reminder_tertiary_enabled,
+    reminder_tertiary_minutes_before: emailSettings.reminder_tertiary_minutes_before,
     followup_quick_enabled: emailSettings.followup_quick_enabled,
     followup_quick_minutes_after: emailSettings.followup_quick_minutes_after,
     followup_longterm_enabled: emailSettings.followup_longterm_enabled,
     followup_longterm_minutes_after: emailSettings.followup_longterm_minutes_after,
+    followup_midterm_enabled: emailSettings.followup_midterm_enabled,
+    followup_midterm_minutes_after: emailSettings.followup_midterm_minutes_after,
     booking_confirmation_subject_template:
       emailSettings.booking_confirmation_subject_template?.trim() || DEFAULT_CONFIRMATION_SUBJECT_TEMPLATE,
     booking_confirmation_body_template:
@@ -204,6 +254,10 @@ export function buildEmailSavePayload(emailSettings) {
       emailSettings.booking_reminder_secondary_subject_template?.trim() || DEFAULT_SECONDARY_REMINDER_SUBJECT_TEMPLATE,
     booking_reminder_secondary_body_template:
       emailSettings.booking_reminder_secondary_body_template?.trim() || DEFAULT_SECONDARY_REMINDER_BODY_TEMPLATE,
+    booking_reminder_tertiary_subject_template:
+      emailSettings.booking_reminder_tertiary_subject_template?.trim() || DEFAULT_TERTIARY_REMINDER_SUBJECT_TEMPLATE,
+    booking_reminder_tertiary_body_template:
+      emailSettings.booking_reminder_tertiary_body_template?.trim() || DEFAULT_TERTIARY_REMINDER_BODY_TEMPLATE,
     booking_followup_quick_subject_template:
       emailSettings.booking_followup_quick_subject_template?.trim() || DEFAULT_QUICK_FOLLOWUP_SUBJECT_TEMPLATE,
     booking_followup_quick_body_template:
@@ -212,5 +266,9 @@ export function buildEmailSavePayload(emailSettings) {
       emailSettings.booking_followup_longterm_subject_template?.trim() || DEFAULT_LONGTERM_FOLLOWUP_SUBJECT_TEMPLATE,
     booking_followup_longterm_body_template:
       emailSettings.booking_followup_longterm_body_template?.trim() || DEFAULT_LONGTERM_FOLLOWUP_BODY_TEMPLATE,
+    booking_followup_midterm_subject_template:
+      emailSettings.booking_followup_midterm_subject_template?.trim() || DEFAULT_MIDTERM_FOLLOWUP_SUBJECT_TEMPLATE,
+    booking_followup_midterm_body_template:
+      emailSettings.booking_followup_midterm_body_template?.trim() || DEFAULT_MIDTERM_FOLLOWUP_BODY_TEMPLATE,
   };
 }

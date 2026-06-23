@@ -94,6 +94,12 @@ export default function Settlements() {
     enabled: !!user?.studio_id
   });
 
+  const { data: reportingCategories = [] } = useQuery({
+    queryKey: ['reportingCategories', user?.studio_id],
+    queryFn: () => base44.entities.ReportingCategory.filter({ studio_id: user.studio_id }),
+    enabled: !!user?.studio_id
+  });
+
   const getUserRole = () => {
     if (!user) return null;
     return normalizeUserRole(user.user_role || (user.role === 'admin' ? 'Admin' : 'Front_Desk'));
@@ -128,6 +134,8 @@ export default function Settlements() {
         let terminalCollected = 0;
         let cashCollected = 0;
         let onlineCollected = 0;
+        let giftCardSales = 0;
+        let giftCardReturns = 0;
 
         for (const apt of locAppointments) {
           const aptCharges = charges.filter(c => c.appointment_id === apt.id);
@@ -136,6 +144,14 @@ export default function Settlements() {
           taxTotal += apt.tax_amount || 0;
           discountTotal += apt.discount_amount || 0;
           tipTotal += amounts.tip;
+
+          for (const ch of aptCharges) {
+            const cat = reportingCategories.find(c => c.id === ch.reporting_category_id);
+            if (cat?.category_type === 'store_credit' || cat?.revenue_sign === 'negative') {
+              if (ch.line_total >= 0) giftCardSales += ch.line_total;
+              else giftCardReturns += Math.abs(ch.line_total);
+            }
+          }
 
           const paidDeposit = getPaidDepositAmount(apt, amounts.gross);
           const finalCollectedAmount = Math.max(0, amounts.gross - paidDeposit) + amounts.tip;
@@ -169,6 +185,8 @@ export default function Settlements() {
           pos_collected: terminalCollected,
           cash_collected: cashCollected,
           online_collected: onlineCollected,
+          gift_card_sales: giftCardSales,
+          gift_card_returns: giftCardReturns,
           locked_at: new Date().toISOString(),
           locked_by: user.id
         });

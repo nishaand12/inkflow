@@ -55,6 +55,10 @@ function lineAmountAfterDiscount(li) {
   return Math.max(0, li.quantity * li.unit_price - (li.discount_amount || 0));
 }
 
+function isNegativeRevenueLine(li) {
+  return li._revenue_sign === 'negative';
+}
+
 function resolveLineTaxRate(li) {
   let rate = li.tax_rate;
   if (rate == null || Number.isNaN(Number(rate))) {
@@ -185,6 +189,7 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
         const existingIdx = lineItems.findIndex(
           li => li.product_id === product.id && li.line_type === 'product'
         );
+        const revSign = reportingCategories.find(c => c.id === product.reporting_category_id)?.revenue_sign || 'positive';
 
         if (existingIdx >= 0) {
           const updated = [...lineItems];
@@ -196,18 +201,20 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
           };
           setLineItems(updated);
         } else {
+          const isVariablePrice = product.price == null || product.price === 0;
           setLineItems(prev => [...prev, {
             _key: 'prod-' + Date.now(),
             line_type: 'product',
             description: product.name,
             quantity: 1,
-            unit_price: product.price,
+            unit_price: isVariablePrice ? '' : product.price,
             discount_amount: 0,
             reporting_category_id: product.reporting_category_id || '',
             reporting_category_name: '',
             product_id: product.id,
-            tax_rate: getProductTaxRate(product),
+            tax_rate: revSign === 'negative' ? 0 : getProductTaxRate(product),
             tax_inclusive: productPriceIncludesTax(product),
+            _revenue_sign: revSign,
           }]);
         }
       } else {
@@ -215,7 +222,13 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
         setTimeout(() => setCheckoutMessage(null), 3000);
       }
     }
-  }, [barcodeBuffer, products, lineItems]);
+  }, [barcodeBuffer, products, lineItems, reportingCategories]);
+
+  const getRevenueSign = (categoryId) => {
+    if (!categoryId) return 'positive';
+    const cat = reportingCategories.find(c => c.id === categoryId);
+    return cat?.revenue_sign || 'positive';
+  };
 
   const addManualLine = () => {
     if (!manualLine.description || !manualLine.unit_price) return;
@@ -223,6 +236,7 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
     const unit = parseFloat(manualLine.unit_price) || 0;
     const gross = qty * unit;
     const disc = Math.max(0, parseFloat(manualLine.discount) || 0);
+    const revSign = getRevenueSign(manualLine.reporting_category_id);
     setLineItems(prev => [...prev, {
       _key: 'manual-' + Date.now(),
       line_type: 'adjustment',
@@ -233,8 +247,9 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
       reporting_category_id: manualLine.reporting_category_id || '',
       reporting_category_name: '',
       product_id: null,
-      tax_rate: 0,
+      tax_rate: revSign === 'negative' ? 0 : 0,
       tax_inclusive: false,
+      _revenue_sign: revSign,
     }]);
     setManualLine({ description: '', unit_price: '', quantity: 1, reporting_category_id: '', discount: '' });
     setShowManualAdd(false);
@@ -244,6 +259,7 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
     const existingIdx = lineItems.findIndex(
       li => li.product_id === product.id && li.line_type === 'product'
     );
+    const revSign = getRevenueSign(product.reporting_category_id);
     if (existingIdx >= 0) {
       const updated = [...lineItems];
       updated[existingIdx] = {
@@ -254,18 +270,20 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
       };
       setLineItems(updated);
     } else {
+      const isVariablePrice = product.price == null || product.price === 0;
       setLineItems(prev => [...prev, {
         _key: 'prod-' + Date.now(),
         line_type: 'product',
         description: product.name,
         quantity: 1,
-        unit_price: product.price,
+        unit_price: isVariablePrice ? '' : product.price,
         discount_amount: 0,
         reporting_category_id: product.reporting_category_id || '',
         reporting_category_name: '',
         product_id: product.id,
-        tax_rate: getProductTaxRate(product),
+        tax_rate: revSign === 'negative' ? 0 : getProductTaxRate(product),
         tax_inclusive: productPriceIncludesTax(product),
+        _revenue_sign: revSign,
       }]);
     }
   };
@@ -314,14 +332,19 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
       const stockErr = getStockValidationError();
       if (stockErr) throw new Error(stockErr);
 
-      if (lineSubtotal + computedTax + tipTotal <= 0) {
+      const hasOnlyNegativeLines = lineItems.every(li => isNegativeRevenueLine(li));
+      if (hasOnlyNegativeLines && lineItems.length > 0) {
+        throw new Error('Cannot check out with only negative-revenue items.');
+      }
+      if (lineSubtotal + computedTax + tipTotal <= 0 && !lineItems.some(li => isNegativeRevenueLine(li))) {
         throw new Error('Total must be greater than zero.');
       }
 
       const taxTotal = lineItems.reduce((sum, li) => sum + lineTaxAmount(li), 0);
 
       const chargePromises = lineItems.map(li => {
-        const lineTotal = (li.quantity * li.unit_price) - (li.discount_amount || 0);
+        const rawTotal = (li.quantity * li.unit_price) - (li.discount_amount || 0);
+        const lineTotal = isNegativeRevenueLine(li) ? -Math.abs(rawTotal) : rawTotal;
         return base44.entities.AppointmentCharge.create({
           studio_id: studio.id,
           appointment_id: appointment.id,
@@ -338,7 +361,9 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
       });
       await Promise.all(chargePromises);
 
-      const stockLines = aggregateProductCheckoutQuantities(lineItems);
+      const stockLines = aggregateProductCheckoutQuantities(
+        lineItems.filter(li => !isNegativeRevenueLine(li))
+      );
       if (stockLines.length > 0) {
         const { error: rpcErr } = await supabase.rpc('apply_product_checkout_stock', {
           p_lines: stockLines,
@@ -537,7 +562,7 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
                       className="text-left p-2 rounded hover:bg-indigo-50 transition-colors text-xs border border-gray-100"
                     >
                       <span className="font-medium">{p.name}</span>
-                      <span className="text-gray-500 ml-1">${p.price}</span>
+                      <span className="text-gray-500 ml-1">{p.price ? `$${p.price}` : '$—'}</span>
                     </button>
                   ))}
                 </div>
@@ -564,6 +589,9 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
                       <tr key={li._key}>
                         <td className="px-3 py-2">
                           <div className="font-medium text-gray-900 text-xs">{li.description}</div>
+                          {isNegativeRevenueLine(li) && (
+                            <span className="text-[10px] text-red-600 font-medium">Negative revenue</span>
+                          )}
                           {li.tax_inclusive && rate > 0 && (
                             <span className="text-[10px] text-amber-700">Price includes tax</span>
                           )}

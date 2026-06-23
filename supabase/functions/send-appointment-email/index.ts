@@ -97,7 +97,8 @@ serve(async (req) => {
         studio:studios(*),
         location:locations(*),
         artist:artists(*),
-        customer:customers(*)
+        customer:customers(*),
+        appointment_type:appointment_types(*)
       `
       )
       .eq("id", appointmentId)
@@ -121,6 +122,36 @@ serve(async (req) => {
 
     if (studio.email_confirmations_enabled === false) {
       return jsonResponse({ skipped: true, reason: "confirmations_disabled" }, 200);
+    }
+
+    // Resolve the notification profile (if any) for confirmation template + gating.
+    // Cancellation emails always send regardless of profile confirmation settings.
+    let confirmationProfile: any = null;
+    if (eventType !== "cancelled") {
+      try {
+        const kindCategoryId = appointment.appointment_type?.appointment_kind_category_id || null;
+        const [{ data: profiles }, { data: assignments }, { data: kindCats }] = await Promise.all([
+          supabase.from("studio_notification_profiles").select("*").eq("studio_id", studio.id),
+          supabase.from("appointment_kind_notification_assignments").select("*").eq("studio_id", studio.id),
+          supabase
+            .from("reporting_categories")
+            .select("*")
+            .eq("studio_id", studio.id)
+            .eq("category_role", "appointment_kind"),
+        ]);
+        confirmationProfile = resolveProfileForAppointment(
+          kindCats || [],
+          profiles || [],
+          assignments || [],
+          kindCategoryId
+        );
+      } catch (profErr) {
+        console.error("Failed to resolve notification profile:", profErr);
+      }
+
+      if (confirmationProfile && confirmationProfile.confirmation_enabled === false) {
+        return jsonResponse({ skipped: true, reason: "confirmation_disabled_by_profile" }, 200);
+      }
     }
 
     if (eventType === "updated") {
@@ -218,8 +249,14 @@ serve(async (req) => {
       manage_appointment_link: manageLink,
       studio_email: studioEmail,
     };
-    let subjectTemplate = studio.booking_confirmation_subject_template || DEFAULT_CONFIRMATION_SUBJECT_TEMPLATE;
-    let bodyTemplate = studio.booking_confirmation_body_template || DEFAULT_CONFIRMATION_BODY_TEMPLATE;
+    let subjectTemplate =
+      confirmationProfile?.confirmation_subject?.trim() ||
+      studio.booking_confirmation_subject_template ||
+      DEFAULT_CONFIRMATION_SUBJECT_TEMPLATE;
+    let bodyTemplate =
+      confirmationProfile?.confirmation_body?.trim() ||
+      studio.booking_confirmation_body_template ||
+      DEFAULT_CONFIRMATION_BODY_TEMPLATE;
     if (eventType === "cancelled") {
       subjectTemplate = DEFAULT_CANCELLATION_SUBJECT_TEMPLATE;
       bodyTemplate = DEFAULT_CANCELLATION_BODY_TEMPLATE;
@@ -308,6 +345,36 @@ function resolveEmailAddress(appointment: any, customer: any) {
     return customer.email.trim();
   }
   return null;
+}
+
+/** Walk from the appointment's leaf kind category up the parent chain to find an
+ *  assigned notification profile; fall back to the studio default profile. */
+function resolveProfileForAppointment(
+  kindCategories: any[],
+  profiles: any[],
+  assignments: any[],
+  kindCategoryId: string | null
+): any | null {
+  if (!profiles || profiles.length === 0) return null;
+
+  if (kindCategoryId && assignments && assignments.length > 0) {
+    const byId: Record<string, any> = {};
+    for (const c of kindCategories) byId[c.id] = c;
+    const seen = new Set<string>();
+    let curId: string | null = kindCategoryId;
+    while (curId && !seen.has(curId)) {
+      seen.add(curId);
+      const assignment = assignments.find((a: any) => a.kind_category_id === curId);
+      if (assignment) {
+        const profile = profiles.find((p: any) => p.id === assignment.profile_id);
+        if (profile) return profile;
+      }
+      const parent = byId[curId]?.parent_id;
+      curId = parent || null;
+    }
+  }
+
+  return profiles.find((p: any) => p.is_default) || null;
 }
 
 function formatAppointmentTime(date: string, time: string, timezone: string) {
@@ -436,8 +503,11 @@ async function resetAppointmentNotificationSchedule(
       reminder_sent_at: null,
       reminder_primary_sent_at: null,
       reminder_secondary_sent_at: null,
+      reminder_tertiary_sent_at: null,
       followup_quick_sent_at: null,
       followup_longterm_sent_at: null,
+      followup_midterm_sent_at: null,
+      notification_anchor_at: new Date().toISOString(),
     })
     .eq("id", appointmentId);
 

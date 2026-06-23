@@ -22,8 +22,10 @@ const tableMap = {
   Studio: "studios",
   WorkStation: "workstations",
   User: "users",
-  AppointmentKindNotificationSetting: "appointment_kind_notification_settings",
-  AppointmentManageToken: "appointment_manage_tokens"
+  AppointmentManageToken: "appointment_manage_tokens",
+  Supply: "supplies",
+  StudioNotificationProfile: "studio_notification_profiles",
+  AppointmentKindNotificationAssignment: "appointment_kind_notification_assignments"
 };
 
 const normalizeOrderColumn = (column) => {
@@ -183,7 +185,9 @@ export const base44 = {
     Studio: createEntityClient("Studio"),
     WorkStation: createEntityClient("WorkStation"),
     User: createEntityClient("User"),
-    AppointmentKindNotificationSetting: createEntityClient("AppointmentKindNotificationSetting"),
-    AppointmentManageToken: createEntityClient("AppointmentManageToken")
+    AppointmentManageToken: createEntityClient("AppointmentManageToken"),
+    Supply: createEntityClient("Supply"),
+    StudioNotificationProfile: createEntityClient("StudioNotificationProfile"),
+    AppointmentKindNotificationAssignment: createEntityClient("AppointmentKindNotificationAssignment")
   }
 };

@@ -25,6 +25,7 @@ import PendingValidation from "./pages/PendingValidation";
 import StudioSettings from "./pages/StudioSettings";
 import PublicTemplates from "./pages/PublicTemplates";
 import UserManagement from "./pages/UserManagement";
+import Supplies from "./pages/Supplies";
 import PublicBooking from "./pages/PublicBooking";
 import ManageAppointment from "./pages/ManageAppointment";
 import DepositSuccess from "./pages/DepositSuccess";
@@ -120,6 +121,7 @@ export default function App() {
             <Route path="/studio-settings" element={<StudioSettings />} />
             <Route path="/public-templates" element={<PublicTemplates />} />
             <Route path="/user-management" element={<UserManagement />} />
+            <Route path="/supplies" element={<Supplies />} />
           </Route>
         </Routes>
       </BrowserRouter>

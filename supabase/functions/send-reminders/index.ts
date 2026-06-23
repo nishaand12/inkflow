@@ -10,12 +10,15 @@ const MAILJET_SENDER_NAME = Deno.env.get("MAILJET_SENDER_NAME");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const CRON_SECRET = Deno.env.get("CRON_SECRET");
+const APP_URL = Deno.env.get("APP_URL") || "https://inkflow.app";
 
 const MAILJET_API_URL = "https://api.mailjet.com/v3.1/send";
 const DEFAULT_PRIMARY_REMINDER_SUBJECT_TEMPLATE = "Appointment Reminder - {{studio_name}}";
 const DEFAULT_PRIMARY_REMINDER_BODY_TEMPLATE = `Hi {{customer_name}},
 
 This is a reminder for your appointment on {{appointment_date_time}} at {{location_name}} with {{artist_name}}.
+
+If you need to change your appointment: {{manage_appointment_link}}
 
 If you have questions, contact {{studio_email}}.
 
@@ -25,7 +28,15 @@ const DEFAULT_SECONDARY_REMINDER_BODY_TEMPLATE = `Hi {{customer_name}},
 
 Your appointment is coming up on {{appointment_date_time}} at {{location_name}} with {{artist_name}}.
 
+If you need to reschedule: {{manage_appointment_link}}
+
 If you need to reschedule, please contact {{studio_email}} as soon as possible.
+
+See you soon!`;
+const DEFAULT_TERTIARY_REMINDER_SUBJECT_TEMPLATE = "Your appointment is today - {{studio_name}}";
+const DEFAULT_TERTIARY_REMINDER_BODY_TEMPLATE = `Hi {{customer_name}},
+
+Just a reminder that your appointment is today at {{appointment_date_time}} at {{location_name}} with {{artist_name}}.
 
 See you soon!`;
 const DEFAULT_FOLLOWUP_QUICK_SUBJECT_TEMPLATE = "Aftercare instructions - {{studio_name}}";
@@ -46,25 +57,33 @@ If you need aftercare guidance, contact {{studio_email}}.
 
 Questions? Reach us at {{studio_email}}.
 `;
+const DEFAULT_FOLLOWUP_MIDTERM_SUBJECT_TEMPLATE = "Check-in from {{studio_name}}";
+const DEFAULT_FOLLOWUP_MIDTERM_BODY_TEMPLATE = `Hi {{customer_name}},
+
+It's been a while since your visit to {{studio_name}}.
+
+If you need any follow-up care or want to book your next appointment, contact {{studio_email}}.
+
+We'd love to see you again!`;
 
 type NotificationKind =
   | "reminder_primary"
   | "reminder_secondary"
+  | "reminder_tertiary"
   | "followup_quick"
-  | "followup_longterm";
+  | "followup_longterm"
+  | "followup_midterm";
 
 type NotificationSpec = {
   kind: NotificationKind;
   direction: "before" | "after";
+  anchorField: "start" | "end";
   minutes: number;
   enabled: boolean;
-  sentAtField:
-    | "reminder_primary_sent_at"
-    | "reminder_secondary_sent_at"
-    | "followup_quick_sent_at"
-    | "followup_longterm_sent_at";
+  sentAtField: string;
   subjectTemplate: string;
   bodyTemplate: string;
+  includeManageLink: boolean;
 };
 
 serve(async (req) => {
@@ -73,7 +92,6 @@ serve(async (req) => {
       return jsonResponse({ error: "Supabase env vars are missing" }, 500);
     }
 
-    // Verify the request is authorized using the dedicated cron secret
     const authHeader = req.headers.get("authorization");
     if (!CRON_SECRET || authHeader !== `Bearer ${CRON_SECRET}`) {
       return jsonResponse({ error: "Unauthorized" }, 401);
@@ -104,16 +122,20 @@ serve(async (req) => {
       return jsonResponse({ error: error.message }, 500);
     }
 
-    // Batch-load kind notification overrides and booking hierarchy categories per studio
+    // Batch-load profiles, assignments, and booking hierarchy per studio
     const studioIds = [...new Set((appointments || []).map((a: any) => a.studio?.id).filter(Boolean))];
-    const kindSettingsMap: Record<string, any[]> = {};
+    const profilesMap: Record<string, any[]> = {};
+    const assignmentsMap: Record<string, any[]> = {};
     const kindCategoriesMap: Record<string, any[]> = {};
+
     for (const sid of studioIds) {
-      const [{ data: ks }, { data: cats }] = await Promise.all([
-        supabase.from("appointment_kind_notification_settings").select("*").eq("studio_id", sid),
+      const [{ data: profiles }, { data: assignments }, { data: cats }] = await Promise.all([
+        supabase.from("studio_notification_profiles").select("*").eq("studio_id", sid),
+        supabase.from("appointment_kind_notification_assignments").select("*").eq("studio_id", sid),
         supabase.from("reporting_categories").select("*").eq("studio_id", sid).eq("category_role", "appointment_kind"),
       ]);
-      kindSettingsMap[sid] = ks || [];
+      profilesMap[sid] = profiles || [];
+      assignmentsMap[sid] = assignments || [];
       kindCategoriesMap[sid] = cats || [];
     }
 
@@ -125,35 +147,57 @@ serve(async (req) => {
       }
 
       const timezone = studio.timezone || "UTC";
-      const appointmentTime = getAppointmentTimeInUTC(
+      const startTimeUTC = getAppointmentTimeInUTC(
         appointment.appointment_date,
         appointment.start_time,
         timezone
       );
+      const endTimeUTC = getAppointmentEndTimeInUTC(appointment, timezone);
 
-      // Resolve the kind root for this appointment's type
+      // Resolve the profile for this appointment
       const kindCategoryId = appointment.appointment_type?.appointment_kind_category_id || null;
       const kindCats = kindCategoriesMap[studio.id] || [];
-      const kindRootId = getKindRootId(kindCats, kindCategoryId);
-      const kindOverrides = (kindSettingsMap[studio.id] || []).filter(
-        (row: any) => row.kind_root_category_id === kindRootId
+      const studioProfiles = profilesMap[studio.id] || [];
+      const studioAssignments = assignmentsMap[studio.id] || [];
+
+      const profile = resolveProfileForAppointment(
+        kindCats, studioProfiles, studioAssignments, kindCategoryId
       );
 
-      const specs = resolveNotificationSpecs(studio, kindOverrides);
+      // No profile assigned/default → fall back to studio default templates.
+      const specs = profile
+        ? resolveSpecsFromProfile(profile)
+        : resolveStudioDefaultSpecs(studio);
+
+      // Resolve manage link once per appointment
+      const manageLink = await resolveManageLink(supabase, appointment);
+
+      const anchorAt = appointment.notification_anchor_at
+        ? new Date(appointment.notification_anchor_at)
+        : (appointment.created_at ? new Date(appointment.created_at) : new Date(0));
+
       for (const spec of specs) {
         if (!spec.enabled) continue;
         if (appointment[spec.sentAtField]) continue;
 
+        const anchorTime = spec.anchorField === "end" ? endTimeUTC : startTimeUTC;
         const sendAt =
           spec.direction === "before"
-            ? new Date(appointmentTime.getTime() - spec.minutes * 60 * 1000)
-            : new Date(appointmentTime.getTime() + spec.minutes * 60 * 1000);
+            ? new Date(anchorTime.getTime() - spec.minutes * 60 * 1000)
+            : new Date(anchorTime.getTime() + spec.minutes * 60 * 1000);
         if (now < sendAt) continue;
 
         const isFollowup = spec.direction === "after";
         if (isFollowup && appointment.status !== "completed") continue;
 
-        if (!isFollowup && now > appointmentTime) {
+        // Late-booking skip: if before-start reminder and appointment was booked
+        // after this slot's send time, skip it (would be redundant with confirmation)
+        if (!isFollowup && anchorAt > sendAt) {
+          await markNotificationProcessed(supabase, appointment.id, spec.kind, spec.sentAtField);
+          continue;
+        }
+
+        if (!isFollowup && now > startTimeUTC) {
           await markNotificationProcessed(supabase, appointment.id, spec.kind, spec.sentAtField);
           continue;
         }
@@ -181,7 +225,7 @@ serve(async (req) => {
         const artistName = appointment.artist?.full_name || "Artist";
         const depositAmount = Number(appointment.deposit_amount) || 0;
 
-        const templateVars = {
+        const templateVars: Record<string, string> = {
           customer_name: customerName,
           studio_name: studio.name || "Studio",
           appointment_date_time: formattedDateTime,
@@ -189,11 +233,21 @@ serve(async (req) => {
           artist_name: artistName,
           deposit_amount: depositAmount > 0 ? depositAmount.toFixed(2) : "",
           deposit_link: "",
+          manage_appointment_link: spec.includeManageLink ? manageLink : "",
           studio_email: studioEmail,
         };
 
+        let bodyTemplate = spec.bodyTemplate;
+        // Append manage link if template lacks the placeholder but link is available
+        if (spec.includeManageLink && manageLink) {
+          const hasPlaceholder = /\{\{\s*manage_appointment_link\s*\}\}/i.test(bodyTemplate);
+          if (!hasPlaceholder) {
+            bodyTemplate = `${bodyTemplate.trim()}\n\nIf you need to change your appointment: ${manageLink}`;
+          }
+        }
+
         const subject = renderTemplate(spec.subjectTemplate, templateVars);
-        const body = renderTemplate(spec.bodyTemplate, templateVars);
+        const body = renderTemplate(bodyTemplate, templateVars);
         const payload = {
           Messages: [
             {
@@ -224,7 +278,6 @@ serve(async (req) => {
             subject,
             notification_direction: spec.direction,
             notification_minutes: spec.minutes,
-            kind_root_category_id: kindRootId || null,
           },
         });
 
@@ -245,6 +298,230 @@ serve(async (req) => {
   }
 });
 
+// --- Profile resolution ---
+
+function resolveProfileForAppointment(
+  kindCategories: any[],
+  profiles: any[],
+  assignments: any[],
+  kindCategoryId: string | null
+): any | null {
+  if (profiles.length === 0) return null;
+
+  // Walk from leaf to root, finding the first assignment
+  if (kindCategoryId && assignments.length > 0) {
+    const byId: Record<string, any> = {};
+    for (const c of kindCategories) byId[c.id] = c;
+    const seen = new Set<string>();
+    let curId: string | null = kindCategoryId;
+    while (curId && !seen.has(curId)) {
+      seen.add(curId);
+      const assignment = assignments.find((a: any) => a.kind_category_id === curId);
+      if (assignment) {
+        const profile = profiles.find((p: any) => p.id === assignment.profile_id);
+        if (profile) return profile;
+      }
+      const parent = byId[curId]?.parent_id;
+      curId = parent || null;
+    }
+  }
+
+  // Fallback to default profile
+  return profiles.find((p: any) => p.is_default) || null;
+}
+
+function resolveSpecsFromProfile(profile: any): NotificationSpec[] {
+  return [
+    {
+      kind: "reminder_secondary",
+      direction: "before",
+      anchorField: "start",
+      minutes: profile.reminder_secondary_minutes || 4320,
+      enabled: Boolean(profile.reminder_secondary_enabled),
+      sentAtField: "reminder_secondary_sent_at",
+      subjectTemplate: profile.reminder_secondary_subject || DEFAULT_SECONDARY_REMINDER_SUBJECT_TEMPLATE,
+      bodyTemplate: profile.reminder_secondary_body || DEFAULT_SECONDARY_REMINDER_BODY_TEMPLATE,
+      includeManageLink: true,
+    },
+    {
+      kind: "reminder_primary",
+      direction: "before",
+      anchorField: "start",
+      minutes: profile.reminder_primary_minutes || 1440,
+      enabled: Boolean(profile.reminder_primary_enabled),
+      sentAtField: "reminder_primary_sent_at",
+      subjectTemplate: profile.reminder_primary_subject || DEFAULT_PRIMARY_REMINDER_SUBJECT_TEMPLATE,
+      bodyTemplate: profile.reminder_primary_body || DEFAULT_PRIMARY_REMINDER_BODY_TEMPLATE,
+      includeManageLink: true,
+    },
+    {
+      kind: "reminder_tertiary",
+      direction: "before",
+      anchorField: "start",
+      minutes: profile.reminder_tertiary_minutes || 120,
+      enabled: Boolean(profile.reminder_tertiary_enabled),
+      sentAtField: "reminder_tertiary_sent_at",
+      subjectTemplate: profile.reminder_tertiary_subject || DEFAULT_TERTIARY_REMINDER_SUBJECT_TEMPLATE,
+      bodyTemplate: profile.reminder_tertiary_body || DEFAULT_TERTIARY_REMINDER_BODY_TEMPLATE,
+      includeManageLink: false,
+    },
+    {
+      kind: "followup_quick",
+      direction: "after",
+      anchorField: "end",
+      minutes: profile.followup_quick_minutes || 120,
+      enabled: Boolean(profile.followup_quick_enabled),
+      sentAtField: "followup_quick_sent_at",
+      subjectTemplate: profile.followup_quick_subject || DEFAULT_FOLLOWUP_QUICK_SUBJECT_TEMPLATE,
+      bodyTemplate: profile.followup_quick_body || DEFAULT_FOLLOWUP_QUICK_BODY_TEMPLATE,
+      includeManageLink: true,
+    },
+    {
+      kind: "followup_longterm",
+      direction: "after",
+      anchorField: "end",
+      minutes: profile.followup_longterm_minutes || 30240,
+      enabled: Boolean(profile.followup_longterm_enabled),
+      sentAtField: "followup_longterm_sent_at",
+      subjectTemplate: profile.followup_longterm_subject || DEFAULT_FOLLOWUP_LONGTERM_SUBJECT_TEMPLATE,
+      bodyTemplate: profile.followup_longterm_body || DEFAULT_FOLLOWUP_LONGTERM_BODY_TEMPLATE,
+      includeManageLink: true,
+    },
+    {
+      kind: "followup_midterm",
+      direction: "after",
+      anchorField: "end",
+      minutes: profile.followup_midterm_minutes || 108000,
+      enabled: Boolean(profile.followup_midterm_enabled),
+      sentAtField: "followup_midterm_sent_at",
+      subjectTemplate: profile.followup_midterm_subject || DEFAULT_FOLLOWUP_MIDTERM_SUBJECT_TEMPLATE,
+      bodyTemplate: profile.followup_midterm_body || DEFAULT_FOLLOWUP_MIDTERM_BODY_TEMPLATE,
+      includeManageLink: true,
+    },
+  ];
+}
+
+// --- Studio default resolution (when no profile is assigned) ---
+
+function resolveStudioDefaultSpecs(studio: any): NotificationSpec[] {
+  const specs: { kind: NotificationKind; direction: "before" | "after"; anchorField: "start" | "end"; studioMinutes: number; studioEnabled: boolean; sentAtField: string; studioSubject: string; studioBody: string; defaultSubject: string; defaultBody: string; includeManageLink: boolean }[] = [
+    {
+      kind: "reminder_primary",
+      direction: "before",
+      anchorField: "start",
+      studioMinutes: Number(studio.reminder_minutes_before) || 1440,
+      studioEnabled: Boolean(studio.email_reminders_enabled),
+      sentAtField: "reminder_primary_sent_at",
+      studioSubject: studio.booking_reminder_subject_template || "",
+      studioBody: studio.booking_reminder_body_template || "",
+      defaultSubject: DEFAULT_PRIMARY_REMINDER_SUBJECT_TEMPLATE,
+      defaultBody: DEFAULT_PRIMARY_REMINDER_BODY_TEMPLATE,
+      includeManageLink: true,
+    },
+    {
+      kind: "reminder_secondary",
+      direction: "before",
+      anchorField: "start",
+      studioMinutes: Number(studio.reminder_secondary_minutes_before) || 4320,
+      studioEnabled: Boolean(studio.reminder_secondary_enabled),
+      sentAtField: "reminder_secondary_sent_at",
+      studioSubject: studio.booking_reminder_secondary_subject_template || "",
+      studioBody: studio.booking_reminder_secondary_body_template || "",
+      defaultSubject: DEFAULT_SECONDARY_REMINDER_SUBJECT_TEMPLATE,
+      defaultBody: DEFAULT_SECONDARY_REMINDER_BODY_TEMPLATE,
+      includeManageLink: true,
+    },
+    {
+      kind: "reminder_tertiary",
+      direction: "before",
+      anchorField: "start",
+      studioMinutes: Number(studio.reminder_tertiary_minutes_before) || 120,
+      studioEnabled: Boolean(studio.reminder_tertiary_enabled),
+      sentAtField: "reminder_tertiary_sent_at",
+      studioSubject: "",
+      studioBody: "",
+      defaultSubject: DEFAULT_TERTIARY_REMINDER_SUBJECT_TEMPLATE,
+      defaultBody: DEFAULT_TERTIARY_REMINDER_BODY_TEMPLATE,
+      includeManageLink: false,
+    },
+    {
+      kind: "followup_quick",
+      direction: "after",
+      anchorField: "end",
+      studioMinutes: Number(studio.followup_quick_minutes_after) || 120,
+      studioEnabled: Boolean(studio.followup_quick_enabled),
+      sentAtField: "followup_quick_sent_at",
+      studioSubject: studio.booking_followup_quick_subject_template || "",
+      studioBody: studio.booking_followup_quick_body_template || "",
+      defaultSubject: DEFAULT_FOLLOWUP_QUICK_SUBJECT_TEMPLATE,
+      defaultBody: DEFAULT_FOLLOWUP_QUICK_BODY_TEMPLATE,
+      includeManageLink: true,
+    },
+    {
+      kind: "followup_longterm",
+      direction: "after",
+      anchorField: "end",
+      studioMinutes: Number(studio.followup_longterm_minutes_after) || 30240,
+      studioEnabled: Boolean(studio.followup_longterm_enabled),
+      sentAtField: "followup_longterm_sent_at",
+      studioSubject: studio.booking_followup_longterm_subject_template || "",
+      studioBody: studio.booking_followup_longterm_body_template || "",
+      defaultSubject: DEFAULT_FOLLOWUP_LONGTERM_SUBJECT_TEMPLATE,
+      defaultBody: DEFAULT_FOLLOWUP_LONGTERM_BODY_TEMPLATE,
+      includeManageLink: true,
+    },
+    {
+      kind: "followup_midterm",
+      direction: "after",
+      anchorField: "end",
+      studioMinutes: Number(studio.followup_midterm_minutes_after) || 108000,
+      studioEnabled: Boolean(studio.followup_midterm_enabled),
+      sentAtField: "followup_midterm_sent_at",
+      studioSubject: "",
+      studioBody: "",
+      defaultSubject: DEFAULT_FOLLOWUP_MIDTERM_SUBJECT_TEMPLATE,
+      defaultBody: DEFAULT_FOLLOWUP_MIDTERM_BODY_TEMPLATE,
+      includeManageLink: true,
+    },
+  ];
+
+  return specs.map((s) => ({
+    kind: s.kind,
+    direction: s.direction,
+    anchorField: s.anchorField,
+    minutes: Math.max(1, s.studioMinutes),
+    enabled: s.studioEnabled,
+    sentAtField: s.sentAtField,
+    subjectTemplate: s.studioSubject || s.defaultSubject,
+    bodyTemplate: s.studioBody || s.defaultBody,
+    includeManageLink: s.includeManageLink,
+  }));
+}
+
+// --- Manage link resolution ---
+
+async function resolveManageLink(supabase: any, appointment: any): Promise<string> {
+  try {
+    const { data: tokenRow } = await supabase
+      .from("appointment_manage_tokens")
+      .select("token, expires_at, revoked_at")
+      .eq("appointment_id", appointment.id)
+      .is("revoked_at", null)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (tokenRow && new Date(tokenRow.expires_at) > new Date()) {
+      return `${APP_URL}/manage-appointment?token=${tokenRow.token}`;
+    }
+  } catch {
+    // silently ignore
+  }
+  return "";
+}
+
+// --- Helpers ---
+
 function resolveEmailAddress(appointment: any, customer: any) {
   if (appointment.client_email && appointment.client_email.trim()) {
     return appointment.client_email.trim();
@@ -255,15 +532,20 @@ function resolveEmailAddress(appointment: any, customer: any) {
   return null;
 }
 
+function getAppointmentEndTimeInUTC(appointment: any, timezone: string): Date {
+  if (appointment.end_time) {
+    return getAppointmentTimeInUTC(appointment.appointment_date, appointment.end_time, timezone);
+  }
+  const durationMinutes = appointment.appointment_type?.duration_minutes || 60;
+  const startUTC = getAppointmentTimeInUTC(appointment.appointment_date, appointment.start_time, timezone);
+  return new Date(startUTC.getTime() + durationMinutes * 60 * 1000);
+}
+
 function formatAppointmentTime(date: string, time: string, timezone: string) {
   try {
-    // Parse the date and time as a local time in the studio's timezone
-    // The appointment_date is stored as YYYY-MM-DD and start_time as HH:MM
-    // These represent the local time at the studio
     const [year, month, day] = date.split('-').map(Number);
     const [hour, minute] = time.split(':').map(Number);
-    
-    // Create a formatter for the target timezone
+
     const formatter = new Intl.DateTimeFormat('en-US', {
       timeZone: timezone,
       weekday: 'long',
@@ -275,21 +557,16 @@ function formatAppointmentTime(date: string, time: string, timezone: string) {
       hour12: true,
       timeZoneName: 'short'
     });
-    
-    // Create a date object - we need to handle timezone conversion carefully
-    // Since the stored date/time represents local time at the studio,
-    // we create a UTC date that when formatted in the target timezone shows the correct time
+
     const utcDate = new Date(Date.UTC(year, month - 1, day, hour, minute, 0));
-    
-    // Get the timezone offset for the target timezone at this date
+
     const targetFormatter = new Intl.DateTimeFormat('en-US', {
       timeZone: timezone,
       timeZoneName: 'shortOffset'
     });
     const parts = targetFormatter.formatToParts(utcDate);
     const offsetPart = parts.find(p => p.type === 'timeZoneName');
-    
-    // Parse offset like "GMT-5" or "GMT+5:30"
+
     let offsetMinutes = 0;
     if (offsetPart?.value) {
       const match = offsetPart.value.match(/GMT([+-])(\d+)(?::(\d+))?/);
@@ -300,13 +577,10 @@ function formatAppointmentTime(date: string, time: string, timezone: string) {
         offsetMinutes = sign * (hours * 60 + mins);
       }
     }
-    
-    // Adjust the UTC date by the offset so it displays correctly
+
     const adjustedDate = new Date(utcDate.getTime() - offsetMinutes * 60 * 1000);
-    
     return formatter.format(adjustedDate);
   } catch (e) {
-    // Fallback if timezone formatting fails
     const tzAbbrev = getTimezoneAbbreviation(timezone);
     return `${date} at ${formatTime12h(time)} (${tzAbbrev})`;
   }
@@ -326,27 +600,20 @@ function getTimezoneAbbreviation(timezone: string): string {
   }
 }
 
-/**
- * Convert a local appointment time (in studio's timezone) to a UTC Date object
- * for proper comparison with the current time
- */
 function getAppointmentTimeInUTC(date: string, time: string, timezone: string): Date {
   try {
     const [year, month, day] = date.split('-').map(Number);
     const [hour, minute] = time.split(':').map(Number);
-    
-    // Create a UTC date first
+
     const utcDate = new Date(Date.UTC(year, month - 1, day, hour, minute, 0));
-    
-    // Get the timezone offset for the target timezone at this date
+
     const targetFormatter = new Intl.DateTimeFormat('en-US', {
       timeZone: timezone,
       timeZoneName: 'shortOffset'
     });
     const parts = targetFormatter.formatToParts(utcDate);
     const offsetPart = parts.find(p => p.type === 'timeZoneName');
-    
-    // Parse offset like "GMT-5" or "GMT+5:30"
+
     let offsetMinutes = 0;
     if (offsetPart?.value) {
       const match = offsetPart.value.match(/GMT([+-])(\d+)(?::(\d+))?/);
@@ -357,130 +624,18 @@ function getAppointmentTimeInUTC(date: string, time: string, timezone: string): 
         offsetMinutes = sign * (hours * 60 + mins);
       }
     }
-    
-    // The appointment time is local to the studio's timezone
-    // To get the UTC equivalent, we subtract the offset
-    // (if timezone is GMT-5, we add 5 hours to get UTC)
+
     return new Date(utcDate.getTime() - offsetMinutes * 60 * 1000);
   } catch {
-    // Fallback: treat as UTC
     return new Date(`${date}T${time}:00Z`);
   }
-}
-
-async function sendWithRetry(payload: any) {
-  const auth = btoa(`${MAILJET_API_KEY}:${MAILJET_SECRET_KEY}`);
-  const headers = {
-    "Content-Type": "application/json",
-    Authorization: `Basic ${auth}`
-  };
-
-  const attempt = async () => {
-    const response = await fetch(MAILJET_API_URL, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(payload)
-    });
-    if (response.ok) return { ok: true };
-    const errorText = await response.text();
-    return { ok: false, error: errorText || response.statusText };
-  };
-
-  const first = await attempt();
-  if (first.ok) return first;
-
-  const second = await attempt();
-  if (second.ok) return second;
-
-  return second;
-}
-
-function getKindRootId(kindCategories: any[], categoryId: string | null): string | null {
-  if (!categoryId) return null;
-  const byId: Record<string, any> = {};
-  for (const c of kindCategories) byId[c.id] = c;
-  let cur = byId[categoryId];
-  const seen = new Set<string>();
-  while (cur && !seen.has(cur.id)) {
-    seen.add(cur.id);
-    if (!cur.parent_id || !byId[cur.parent_id]) return cur.id;
-    cur = byId[cur.parent_id];
-  }
-  return cur?.id || null;
-}
-
-function resolveNotificationSpecs(studio: any, kindOverrides: any[]): NotificationSpec[] {
-  const overrideByKind: Record<string, any> = {};
-  for (const row of kindOverrides) {
-    overrideByKind[row.notification_kind] = row;
-  }
-
-  const specs: { kind: NotificationKind; direction: "before" | "after"; studioMinutes: number; studioEnabled: boolean; sentAtField: NotificationSpec["sentAtField"]; studioSubject: string; studioBody: string; defaultSubject: string; defaultBody: string }[] = [
-    {
-      kind: "reminder_primary",
-      direction: "before",
-      studioMinutes: Number(studio.reminder_minutes_before) || 1440,
-      studioEnabled: Boolean(studio.email_reminders_enabled),
-      sentAtField: "reminder_primary_sent_at",
-      studioSubject: studio.booking_reminder_subject_template || "",
-      studioBody: studio.booking_reminder_body_template || "",
-      defaultSubject: DEFAULT_PRIMARY_REMINDER_SUBJECT_TEMPLATE,
-      defaultBody: DEFAULT_PRIMARY_REMINDER_BODY_TEMPLATE,
-    },
-    {
-      kind: "reminder_secondary",
-      direction: "before",
-      studioMinutes: Number(studio.reminder_secondary_minutes_before) || 4320,
-      studioEnabled: Boolean(studio.reminder_secondary_enabled),
-      sentAtField: "reminder_secondary_sent_at",
-      studioSubject: studio.booking_reminder_secondary_subject_template || "",
-      studioBody: studio.booking_reminder_secondary_body_template || "",
-      defaultSubject: DEFAULT_SECONDARY_REMINDER_SUBJECT_TEMPLATE,
-      defaultBody: DEFAULT_SECONDARY_REMINDER_BODY_TEMPLATE,
-    },
-    {
-      kind: "followup_quick",
-      direction: "after",
-      studioMinutes: Number(studio.followup_quick_minutes_after) || 180,
-      studioEnabled: Boolean(studio.followup_quick_enabled),
-      sentAtField: "followup_quick_sent_at",
-      studioSubject: studio.booking_followup_quick_subject_template || "",
-      studioBody: studio.booking_followup_quick_body_template || "",
-      defaultSubject: DEFAULT_FOLLOWUP_QUICK_SUBJECT_TEMPLATE,
-      defaultBody: DEFAULT_FOLLOWUP_QUICK_BODY_TEMPLATE,
-    },
-    {
-      kind: "followup_longterm",
-      direction: "after",
-      studioMinutes: Number(studio.followup_longterm_minutes_after) || 30240,
-      studioEnabled: Boolean(studio.followup_longterm_enabled),
-      sentAtField: "followup_longterm_sent_at",
-      studioSubject: studio.booking_followup_longterm_subject_template || "",
-      studioBody: studio.booking_followup_longterm_body_template || "",
-      defaultSubject: DEFAULT_FOLLOWUP_LONGTERM_SUBJECT_TEMPLATE,
-      defaultBody: DEFAULT_FOLLOWUP_LONGTERM_BODY_TEMPLATE,
-    },
-  ];
-
-  return specs.map((s) => {
-    const override = overrideByKind[s.kind];
-    return {
-      kind: s.kind,
-      direction: s.direction,
-      minutes: Math.max(1, override?.minutes ?? s.studioMinutes),
-      enabled: override?.enabled ?? s.studioEnabled,
-      sentAtField: s.sentAtField,
-      subjectTemplate: override?.subject_template?.trim() || s.studioSubject || s.defaultSubject,
-      bodyTemplate: override?.body_template?.trim() || s.studioBody || s.defaultBody,
-    };
-  });
 }
 
 async function markNotificationProcessed(
   supabase: ReturnType<typeof createClient>,
   appointmentId: string,
   kind: NotificationKind,
-  sentField: NotificationSpec["sentAtField"],
+  sentField: string,
   reminderMinutes?: number
 ) {
   const nowIso = new Date().toISOString();
@@ -530,6 +685,33 @@ async function recordEmailEvent(
   if (error) {
     console.error("Failed to record email event:", error);
   }
+}
+
+async function sendWithRetry(payload: any) {
+  const auth = btoa(`${MAILJET_API_KEY}:${MAILJET_SECRET_KEY}`);
+  const headers = {
+    "Content-Type": "application/json",
+    Authorization: `Basic ${auth}`
+  };
+
+  const attempt = async () => {
+    const response = await fetch(MAILJET_API_URL, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload)
+    });
+    if (response.ok) return { ok: true };
+    const errorText = await response.text();
+    return { ok: false, error: errorText || response.statusText };
+  };
+
+  const first = await attempt();
+  if (first.ok) return first;
+
+  const second = await attempt();
+  if (second.ok) return second;
+
+  return second;
 }
 
 function jsonResponse(payload: Record<string, unknown>, status = 200) {

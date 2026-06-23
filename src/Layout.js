@@ -21,7 +21,8 @@ import {
   Package,
   Tags,
   Wallet,
-  FileText
+  FileText,
+  ClipboardCheck
 } from "lucide-react";
 import {
   Sidebar,
@@ -189,6 +190,12 @@ export default function Layout({ children, currentPageName = null }) {
         url: createPageUrl("Products"),
         icon: Package,
         roles: ["Owner", "Admin"]
+      },
+      {
+        title: "Supplies",
+        url: createPageUrl("Supplies"),
+        icon: ClipboardCheck,
+        roles: ["Owner", "Admin", "Front_Desk", "Artist"]
       },
       {
         title: "Categories",

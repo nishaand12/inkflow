@@ -195,7 +195,7 @@ export default function Reports() {
 
       for (const ch of aptCharges) {
         const cat = reportingCategories.find(c => c.id === ch.reporting_category_id);
-        if (cat?.category_type === 'store_credit') {
+        if (cat?.category_type === 'store_credit' || cat?.revenue_sign === 'negative') {
           if (ch.line_total >= 0) dayMap[d].gift_card_sales += ch.line_total;
           else dayMap[d].gift_card_returns += Math.abs(ch.line_total);
         }
@@ -489,6 +489,7 @@ export default function Reports() {
                           <th className="px-3 py-3 text-right text-sm font-semibold text-gray-900">Cash</th>
                           <th className="px-3 py-3 text-right text-sm font-semibold text-gray-900">Online</th>
                           <th className="px-3 py-3 text-right text-sm font-semibold text-gray-900">GC Sales</th>
+                          <th className="px-3 py-3 text-right text-sm font-semibold text-gray-900">GC Returns</th>
                           <th className="px-3 py-3 text-right text-sm font-semibold text-gray-900">Returns</th>
                         </tr>
                       </thead>
@@ -505,6 +506,7 @@ export default function Reports() {
                             <td className="px-3 py-3 text-sm text-gray-900 text-right">${d.cash_collected.toFixed(2)}</td>
                             <td className="px-3 py-3 text-sm text-gray-900 text-right">${d.online_collected.toFixed(2)}</td>
                             <td className="px-3 py-3 text-sm text-gray-900 text-right">${d.gift_card_sales.toFixed(2)}</td>
+                            <td className="px-3 py-3 text-sm text-red-600 text-right">${d.gift_card_returns.toFixed(2)}</td>
                             <td className="px-3 py-3 text-sm text-amber-800 text-right">${(d.returns || 0).toFixed(2)}</td>
                           </tr>
                         ))}

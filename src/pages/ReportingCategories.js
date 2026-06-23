@@ -55,6 +55,11 @@ const categoryTypeBadgeStyles = {
   store_credit: "bg-emerald-100 text-emerald-800 border-emerald-200",
 };
 
+const revenueSignLabels = {
+  positive: "Normal (positive)",
+  negative: "Negative revenue",
+};
+
 function collectDescendantIds(categories, rootId) {
   const byParent = new Map();
   for (const c of categories) {
@@ -164,6 +169,7 @@ export default function ReportingCategories() {
     category_role: r,
     parent_id: "",
     clinical_profile: "",
+    revenue_sign: "positive",
     display_order: 0,
     is_active: true,
   });
@@ -190,6 +196,7 @@ export default function ReportingCategories() {
       category_role: cr,
       parent_id: category.parent_id || "",
       clinical_profile: category.clinical_profile || "",
+      revenue_sign: category.revenue_sign || "positive",
       display_order: category.display_order ?? 0,
       is_active: category.is_active !== false,
     });
@@ -212,6 +219,10 @@ export default function ReportingCategories() {
       display_order: formData.display_order,
       is_active: formData.is_active,
       parent_id: formData.parent_id || null,
+      revenue_sign:
+        formData.category_role === CATEGORY_ROLE_REPORTING
+          ? formData.revenue_sign || "positive"
+          : "positive",
       clinical_profile:
         formData.category_role === CATEGORY_ROLE_APPOINTMENT_KIND && formData.clinical_profile
           ? formData.clinical_profile
@@ -399,6 +410,31 @@ export default function ReportingCategories() {
                     <SelectItem value="store_credit">Store Credit</SelectItem>
                   </SelectContent>
                 </Select>
+              </div>
+            )}
+            {formData.category_role === CATEGORY_ROLE_REPORTING && (
+              <div className="space-y-2">
+                <Label htmlFor="revenue_sign">Revenue sign</Label>
+                <Select
+                  value={formData.revenue_sign || "positive"}
+                  onValueChange={(value) =>
+                    setFormData({ ...formData, revenue_sign: value })
+                  }
+                >
+                  <SelectTrigger id="revenue_sign">
+                    <SelectValue placeholder="Select sign" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="positive">{revenueSignLabels.positive}</SelectItem>
+                    <SelectItem value="negative">{revenueSignLabels.negative}</SelectItem>
+                  </SelectContent>
+                </Select>
+                {formData.revenue_sign === "negative" && (
+                  <p className="text-xs text-amber-700">
+                    Staff will enter positive amounts. The system automatically stores
+                    line totals as negative revenue (e.g. gift card returns, discount coupons).
+                  </p>
+                )}
               </div>
             )}
             {formData.category_role === CATEGORY_ROLE_APPOINTMENT_KIND && (

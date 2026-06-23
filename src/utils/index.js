@@ -17,7 +17,8 @@ const PAGE_PATHS = {
   PendingValidation: "/pending-validation",
   StudioSettings: "/studio-settings",
   PublicTemplates: "/public-templates",
-  UserManagement: "/user-management"
+  UserManagement: "/user-management",
+  Supplies: "/supplies"
 };
 
 export const createPageUrl = (pageName) => {

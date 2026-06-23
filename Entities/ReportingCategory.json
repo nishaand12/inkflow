@@ -22,6 +22,12 @@
       "enum": ["tattoo", "piercing"],
       "description": "Optional: for appointment_kind nodes, drives clinical/health fields on appointments"
     },
+    "revenue_sign": {
+      "type": "string",
+      "enum": ["positive", "negative"],
+      "default": "positive",
+      "description": "positive: normal revenue. negative: entered as positive but stored as negative line_total (e.g. gift card returns, discount coupons)"
+    },
     "display_order": { "type": "number", "default": 0, "description": "Sort order among siblings" },
     "is_active": { "type": "boolean", "default": true, "description": "Whether this category is active" }
   },

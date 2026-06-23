@@ -10,13 +10,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { Mail, Clock, BarChart3, Check, Loader2, FileText, Layers } from "lucide-react";
+import { Mail, Clock, BarChart3, Check, Loader2, FileText, Bell, Plus, Trash2, Save } from "lucide-react";
 import { supabase } from "@/utils/supabase";
 import { normalizeUserRole } from "@/utils/roles";
 import { NORTH_AMERICAN_TIMEZONES } from "@/utils/timezones";
 import {
   NOTIFICATION_ITEMS,
-  CRON_NOTIFICATION_ITEMS,
   DEFAULT_TEMPLATES,
   TEMPLATE_PLACEHOLDERS,
   formatMinutes,
@@ -34,13 +33,14 @@ ONLINE DEPOSITS ARE NON-REFUNDABLE
 
 Custodial parent must present valid government photo ID. Minor with parent must also present ID to get pierced; a non-photo health card is fine.`;
 
-const CATEGORY_PLACEHOLDERS = [
-  "{{customer_name}}",
-  "{{studio_name}}",
-  "{{appointment_date_time}}",
-  "{{location_name}}",
-  "{{artist_name}}",
-  "{{studio_email}}",
+const PROFILE_SLOTS = [
+  { label: "Confirmation", field: "confirmation", noMinutes: true },
+  { label: "3-day reminder", field: "reminder_secondary", direction: "before" },
+  { label: "1-day reminder", field: "reminder_primary", direction: "before" },
+  { label: "Day-of reminder", field: "reminder_tertiary", direction: "before" },
+  { label: "Quick follow-up", field: "followup_quick", direction: "after" },
+  { label: "Long-term follow-up", field: "followup_longterm", direction: "after" },
+  { label: "75-day follow-up", field: "followup_midterm", direction: "after" },
 ];
 
 export default function PublicTemplates() {
@@ -48,13 +48,12 @@ export default function PublicTemplates() {
   const [studio, setStudio] = useState(null);
   const [saved, setSaved] = useState(false);
   const [disclaimerSaved, setDisclaimerSaved] = useState(false);
-  const [categorySaved, setCategorySaved] = useState(false);
   const [emailSettings, setEmailSettings] = useState(null);
   const [disclaimerText, setDisclaimerText] = useState("");
   const [emailUsage, setEmailUsage] = useState({ thisMonth: 0, loading: false });
-  const [kindRoots, setKindRoots] = useState([]);
-  const [kindSettings, setKindSettings] = useState({});
-  
+  const [profiles, setProfiles] = useState([]);
+  const [assignments, setAssignments] = useState([]);
+  const [allKindCategories, setAllKindCategories] = useState([]);
 
   useEffect(() => {
     loadUserAndStudio();
@@ -78,12 +77,10 @@ export default function PublicTemplates() {
           setDisclaimerText(loadedStudio.booking_page_disclaimer_template || "");
           loadEmailUsage(loadedStudio.id);
 
-          const roots = filterCategoriesByRole(categories, CATEGORY_ROLE_APPOINTMENT_KIND)
-            .filter((c) => !c.parent_id)
-            .sort((a, b) => (a.display_order ?? 0) - (b.display_order ?? 0) || (a.name || "").localeCompare(b.name || ""));
-          setKindRoots(roots);
+          const kindCats = filterCategoriesByRole(categories, CATEGORY_ROLE_APPOINTMENT_KIND);
+          setAllKindCategories(kindCats);
 
-          loadKindNotificationSettings(loadedStudio.id);
+          loadProfiles(currentUser.studio_id);
         }
       }
     } catch (error) {
@@ -91,27 +88,82 @@ export default function PublicTemplates() {
     }
   };
 
-  const loadKindNotificationSettings = async (studioId) => {
+  const loadProfiles = async (studioId) => {
     try {
-      const { data, error } = await supabase
-        .from("appointment_kind_notification_settings")
-        .select("*")
-        .eq("studio_id", studioId);
-      if (error) throw error;
-      const map = {};
-      for (const row of data || []) {
-        const key = `${row.kind_root_category_id}__${row.notification_kind}`;
-        map[key] = {
-          id: row.id,
-          enabled: row.enabled,
-          minutes: row.minutes,
-          subject_template: row.subject_template || "",
-          body_template: row.body_template || "",
-        };
-      }
-      setKindSettings(map);
+      const [profs, assigns] = await Promise.all([
+        base44.entities.StudioNotificationProfile.filter({ studio_id: studioId }),
+        base44.entities.AppointmentKindNotificationAssignment.filter({ studio_id: studioId }),
+      ]);
+      setProfiles((profs || []).sort((a, b) => (a.display_order ?? 0) - (b.display_order ?? 0)));
+      setAssignments(assigns || []);
     } catch (err) {
-      console.error("Error loading kind notification settings:", err);
+      console.error("Error loading profiles:", err);
+    }
+  };
+
+  const handleCreateProfile = async () => {
+    if (!user?.studio_id) return;
+    if (profiles.length >= 5) {
+      alert("Maximum 5 profiles allowed.");
+      return;
+    }
+    try {
+      const newProfile = await base44.entities.StudioNotificationProfile.create({
+        studio_id: user.studio_id,
+        name: `Profile ${profiles.length + 1}`,
+        is_default: profiles.length === 0,
+        display_order: profiles.length,
+      });
+      setProfiles((prev) => [...prev, newProfile]);
+    } catch (err) {
+      console.error("Error creating profile:", err);
+    }
+  };
+
+  const handleUpdateProfile = async (profileId, updates) => {
+    try {
+      const updated = await base44.entities.StudioNotificationProfile.update(profileId, updates);
+      setProfiles((prev) => prev.map((p) => (p.id === profileId ? updated : p)));
+    } catch (err) {
+      console.error("Error updating profile:", err);
+    }
+  };
+
+  const handleDeleteProfile = async (profileId) => {
+    if (!window.confirm("Delete this notification profile? Assignments using it will be removed.")) return;
+    try {
+      await base44.entities.StudioNotificationProfile.delete(profileId);
+      setProfiles((prev) => prev.filter((p) => p.id !== profileId));
+      setAssignments((prev) => prev.filter((a) => a.profile_id !== profileId));
+    } catch (err) {
+      console.error("Error deleting profile:", err);
+    }
+  };
+
+  const handleAssignmentChange = async (kindCategoryId, profileId) => {
+    if (!user?.studio_id) return;
+    const existing = assignments.find((a) => a.kind_category_id === kindCategoryId);
+    try {
+      if (profileId === "__default__") {
+        if (existing) {
+          await base44.entities.AppointmentKindNotificationAssignment.delete(existing.id);
+          setAssignments((prev) => prev.filter((a) => a.id !== existing.id));
+        }
+      } else if (existing) {
+        const updated = await base44.entities.AppointmentKindNotificationAssignment.update(existing.id, {
+          profile_id: profileId,
+        });
+        setAssignments((prev) => prev.map((a) => (a.id === existing.id ? updated : a)));
+      } else {
+        const created = await base44.entities.AppointmentKindNotificationAssignment.create({
+          studio_id: user.studio_id,
+          kind_category_id: kindCategoryId,
+          profile_id: profileId,
+        });
+        setAssignments((prev) => [...prev, created]);
+      }
+    } catch (err) {
+      console.error("Error updating assignment:", err);
     }
   };
 
@@ -176,71 +228,6 @@ export default function PublicTemplates() {
     }
   };
 
-  const updateKindSetting = (rootId, notificationKind, field, value) => {
-    const key = `${rootId}__${notificationKind}`;
-    setKindSettings((prev) => ({
-      ...prev,
-      [key]: { ...(prev[key] || {}), [field]: value },
-    }));
-  };
-
-  const handleSaveKindSettings = async () => {
-    if (!studio) return;
-    try {
-      for (const root of kindRoots) {
-        for (const item of CRON_NOTIFICATION_ITEMS) {
-          const notifKind = item.key === "primary_reminder" ? "reminder_primary"
-            : item.key === "secondary_reminder" ? "reminder_secondary"
-            : item.key === "quick_followup" ? "followup_quick"
-            : "followup_longterm";
-          const key = `${root.id}__${notifKind}`;
-          const setting = kindSettings[key];
-          if (!setting) continue;
-
-          const hasOverride = setting.enabled != null ||
-            (setting.minutes != null && setting.minutes !== "") ||
-            setting.subject_template?.trim() ||
-            setting.body_template?.trim();
-
-          if (!hasOverride && !setting.id) continue;
-
-          const payload = {
-            studio_id: studio.id,
-            kind_root_category_id: root.id,
-            notification_kind: notifKind,
-            enabled: setting.enabled ?? null,
-            minutes: setting.minutes != null && setting.minutes !== "" ? Number(setting.minutes) : null,
-            subject_template: setting.subject_template?.trim() || null,
-            body_template: setting.body_template?.trim() || null,
-          };
-
-          if (setting.id) {
-            await supabase
-              .from("appointment_kind_notification_settings")
-              .update(payload)
-              .eq("id", setting.id);
-          } else {
-            const { data } = await supabase
-              .from("appointment_kind_notification_settings")
-              .insert(payload)
-              .select("id")
-              .single();
-            if (data) {
-              setKindSettings((prev) => ({
-                ...prev,
-                [key]: { ...prev[key], id: data.id },
-              }));
-            }
-          }
-        }
-      }
-      setCategorySaved(true);
-      setTimeout(() => setCategorySaved(false), 2000);
-    } catch (error) {
-      console.error("Error saving kind settings:", error);
-    }
-  };
-
   if (!isOwnerOrAdmin) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-6">
@@ -277,9 +264,9 @@ export default function PublicTemplates() {
                 <Mail className="w-4 h-4" />
                 Default Emails
               </TabsTrigger>
-              <TabsTrigger value="category" className="flex items-center gap-2">
-                <Layers className="w-4 h-4" />
-                Category Notifications
+              <TabsTrigger value="profiles" className="flex items-center gap-2">
+                <Bell className="w-4 h-4" />
+                Profiles
               </TabsTrigger>
             </TabsList>
 
@@ -534,173 +521,276 @@ export default function PublicTemplates() {
               </Card>
             </TabsContent>
 
-            {/* ── Category Notifications tab ─────────────────────────── */}
-            <TabsContent value="category" className="mt-6">
+            {/* ── Notification Profiles tab ─────────────────────────── */}
+            <TabsContent value="profiles" className="mt-6">
               <Card className="bg-white border-none shadow-lg">
                 <CardHeader className="border-b border-gray-100">
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 bg-indigo-100 rounded-xl flex items-center justify-center">
-                      <Layers className="w-6 h-6 text-indigo-600" />
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 bg-indigo-100 rounded-xl flex items-center justify-center">
+                        <Bell className="w-6 h-6 text-indigo-600" />
+                      </div>
+                      <div>
+                        <CardTitle className="text-xl text-gray-900">Notification Profiles</CardTitle>
+                        <p className="text-sm text-gray-600">
+                          Create reusable notification configurations and assign them to appointment types
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <CardTitle className="text-xl text-gray-900">Category Notifications</CardTitle>
-                      <p className="text-sm text-gray-600">
-                        Override reminder and follow-up templates per top-level booking category
-                      </p>
-                    </div>
-                    <Badge className="ml-auto bg-indigo-100 text-indigo-700">
-                      {studio.subscription_tier ? studio.subscription_tier.toUpperCase() : "BASIC"}
-                    </Badge>
+                    {profiles.length < 5 && (
+                      <Button onClick={handleCreateProfile} className="bg-indigo-600 hover:bg-indigo-700">
+                        <Plus className="w-4 h-4 mr-2" />
+                        New Profile
+                      </Button>
+                    )}
                   </div>
                 </CardHeader>
                 <CardContent className="p-6 space-y-6">
-                  {!isPlus && (
-                    <div className="text-sm text-gray-600 bg-amber-50 border border-amber-200 rounded-lg p-3">
-                      Per-category notification overrides are available on the Plus tier.
+                  {profiles.length === 0 && (
+                    <div className="text-center py-8 text-gray-500">
+                      <Bell className="w-10 h-10 mx-auto mb-2 text-gray-300" />
+                      <p>No notification profiles yet. Create one to customize notifications per appointment type.</p>
+                      <p className="text-xs mt-1">The Default Emails tab is used as the fallback when no profile is assigned.</p>
                     </div>
                   )}
 
-                  <div className="rounded-lg border border-gray-200 p-4 space-y-2 bg-gray-50/60">
-                    <p className="text-sm font-semibold text-gray-900">Supported placeholders</p>
-                    <p className="text-xs text-gray-600 break-words">
-                      {CATEGORY_PLACEHOLDERS.join(", ")}
-                    </p>
-                  </div>
+                  {profiles.map((profile) => (
+                    <div key={profile.id} className="border rounded-xl p-4 space-y-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-3 flex-1">
+                          <Input
+                            value={profile.name}
+                            onChange={(e) =>
+                              setProfiles((prev) =>
+                                prev.map((p) => (p.id === profile.id ? { ...p, name: e.target.value } : p))
+                              )
+                            }
+                            className="font-semibold text-lg max-w-xs"
+                          />
+                          {profile.is_default && (
+                            <Badge className="bg-indigo-100 text-indigo-800">Default</Badge>
+                          )}
+                          {!profile.is_default && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                const updatedProfiles = profiles.map((p) => ({
+                                  ...p,
+                                  is_default: p.id === profile.id,
+                                }));
+                                setProfiles(updatedProfiles);
+                                updatedProfiles.forEach((p) =>
+                                  handleUpdateProfile(p.id, { is_default: p.id === profile.id })
+                                );
+                              }}
+                              className="text-xs text-gray-500"
+                            >
+                              Set as default
+                            </Button>
+                          )}
+                        </div>
+                        <div className="flex gap-2">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() =>
+                              handleUpdateProfile(profile.id, { name: profile.name })
+                            }
+                          >
+                            <Save className="w-4 h-4" />
+                          </Button>
+                          {!profile.is_default && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDeleteProfile(profile.id)}
+                              className="text-red-500 hover:text-red-700"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          )}
+                        </div>
+                      </div>
 
-                  {kindRoots.length === 0 ? (
-                    <div className="text-sm text-gray-500 bg-gray-50 rounded-lg p-4 text-center">
-                      No booking hierarchy categories found. Create top-level booking categories in the Categories page first.
-                    </div>
-                  ) : (
-                    <Accordion type="single" collapsible className="w-full space-y-3">
-                      {kindRoots.map((root) => (
-                        <AccordionItem key={root.id} value={root.id} className="border rounded-lg px-3">
-                          <AccordionTrigger className="hover:no-underline py-3">
-                            <div className="text-left">
-                              <p className="font-medium text-gray-900">{root.name}</p>
-                              <p className="text-xs text-gray-500">
-                                Override reminders and follow-ups for all {root.name} appointments
-                              </p>
-                            </div>
-                          </AccordionTrigger>
-                          <AccordionContent className="space-y-4 pb-4">
-                            {CRON_NOTIFICATION_ITEMS.map((item) => {
-                              const notifKind = item.key === "primary_reminder" ? "reminder_primary"
-                                : item.key === "secondary_reminder" ? "reminder_secondary"
-                                : item.key === "quick_followup" ? "followup_quick"
-                                : "followup_longterm";
-                              const key = `${root.id}__${notifKind}`;
-                              const setting = kindSettings[key] || {};
-                              const studioEnabled = Boolean(emailSettings[item.enabledField]);
-                              const studioMinutes = emailSettings[item.timingField];
-                              const studioSubject = emailSettings[item.subjectField];
+                      <div className="rounded-lg border border-gray-200 p-3 space-y-1 bg-gray-50/60">
+                        <p className="text-xs font-semibold text-gray-700">Supported placeholders</p>
+                        <p className="text-xs text-gray-500 break-words">{TEMPLATE_PLACEHOLDERS.join(", ")}</p>
+                        <p className="text-[11px] text-gray-400">
+                          Leave subject/body blank to use the studio default template from the Default Emails tab.
+                        </p>
+                      </div>
 
-                              return (
-                                <div key={item.key} className="rounded-lg border border-gray-100 p-4 space-y-3">
-                                  <div className="space-y-2">
-                                    <div className="flex items-center justify-between">
-                                      <div>
-                                        <p className="font-medium text-gray-900 text-sm">{item.title}</p>
-                                        <p className="text-xs text-gray-400">
-                                          Studio default: {studioEnabled ? "enabled" : "disabled"}
-                                          {item.timingField && `, ${formatMinutes(studioMinutes, item.timingDirection)}`}
-                                        </p>
-                                      </div>
-                                      <div className="flex flex-col items-end gap-1">
-                                        <div className="flex items-center gap-2">
-                                          <Label className="text-xs text-gray-600">Send for this category</Label>
-                                          <Select
-                                            value={setting.enabled == null ? "inherit" : setting.enabled ? "on" : "off"}
-                                            disabled={!isPlus}
-                                            onValueChange={(val) =>
-                                              updateKindSetting(root.id, notifKind, "enabled",
-                                                val === "inherit" ? null : val === "on")
-                                            }
-                                          >
-                                            <SelectTrigger className="w-28 h-8 text-xs">
-                                              <SelectValue />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                              <SelectItem value="inherit">Inherit</SelectItem>
-                                              <SelectItem value="on">Enabled</SelectItem>
-                                              <SelectItem value="off">Disabled</SelectItem>
-                                            </SelectContent>
-                                          </Select>
-                                        </div>
-                                      </div>
-                                    </div>
+                      <Accordion type="single" collapsible className="w-full space-y-2">
+                        {PROFILE_SLOTS.map((slot) => {
+                          const enabled = profile[`${slot.field}_enabled`] !== false;
+                          const minutes = profile[`${slot.field}_minutes`];
+                          return (
+                            <AccordionItem key={slot.field} value={`${profile.id}-${slot.field}`} className="border rounded-lg px-3">
+                              <div className="flex items-center gap-3">
+                                <AccordionTrigger className="hover:no-underline py-3 flex-1">
+                                  <div className="text-left">
+                                    <p className="font-medium text-gray-900 text-sm">{slot.label}</p>
                                     <p className="text-xs text-gray-500">
-                                      <strong className="font-medium text-gray-600">Inherit</strong> — use the on/off
-                                      setting from Default Emails for this category.{" "}
-                                      <strong className="font-medium text-gray-600">Enabled</strong> — always send for{" "}
-                                      {root.name} appointments, even if studio default is off.{" "}
-                                      <strong className="font-medium text-gray-600">Disabled</strong> — never send for{" "}
-                                      {root.name}, even if studio default is on.
+                                      {slot.noMinutes
+                                        ? "Sent on booking"
+                                        : formatMinutes(minutes, slot.direction)}
                                     </p>
                                   </div>
-                                  {item.timingField && (
-                                    <div className="space-y-1">
-                                      <Label className="text-xs text-gray-600">
-                                        Timing override (minutes {item.timingDirection} appointment)
-                                      </Label>
+                                </AccordionTrigger>
+                                <div className="flex items-center gap-2 pl-2">
+                                  <span className="text-xs text-gray-500">Enabled</span>
+                                  <Switch
+                                    checked={enabled}
+                                    onClick={(e) => e.stopPropagation()}
+                                    onCheckedChange={(checked) => {
+                                      setProfiles((prev) =>
+                                        prev.map((p) =>
+                                          p.id === profile.id ? { ...p, [`${slot.field}_enabled`]: checked } : p
+                                        )
+                                      );
+                                      handleUpdateProfile(profile.id, { [`${slot.field}_enabled`]: checked });
+                                    }}
+                                  />
+                                </div>
+                              </div>
+                              <AccordionContent className="space-y-3 pb-4">
+                                {!slot.noMinutes && (
+                                  <div className="space-y-1">
+                                    <Label className="text-xs text-gray-600">
+                                      Timing (minutes {slot.direction} appointment)
+                                    </Label>
+                                    <div className="flex items-center gap-2">
+                                      <Clock className="w-4 h-4 text-indigo-500" />
                                       <Input
                                         type="number"
                                         min="1"
-                                        step="1"
-                                        placeholder={`Inherit (${studioMinutes})`}
-                                        value={setting.minutes ?? ""}
-                                        disabled={!isPlus}
-                                        onChange={(e) =>
-                                          updateKindSetting(root.id, notifKind, "minutes",
-                                            e.target.value === "" ? null : Math.max(1, Number(e.target.value) || 1))
+                                        className="h-8 text-sm w-32"
+                                        value={minutes || ""}
+                                        onChange={(e) => {
+                                          const val = Math.max(1, Number(e.target.value) || 1);
+                                          setProfiles((prev) =>
+                                            prev.map((p) =>
+                                              p.id === profile.id ? { ...p, [`${slot.field}_minutes`]: val } : p
+                                            )
+                                          );
+                                        }}
+                                        onBlur={() =>
+                                          handleUpdateProfile(profile.id, {
+                                            [`${slot.field}_minutes`]: profile[`${slot.field}_minutes`],
+                                          })
                                         }
                                       />
                                     </div>
-                                  )}
-                                  <div className="space-y-1">
-                                    <Label className="text-xs text-gray-600">Subject override</Label>
-                                    <Input
-                                      placeholder={`Inherit: ${studioSubject}`}
-                                      value={setting.subject_template || ""}
-                                      disabled={!isPlus}
-                                      onChange={(e) => updateKindSetting(root.id, notifKind, "subject_template", e.target.value)}
-                                    />
                                   </div>
-                                  <div className="space-y-1">
-                                    <Label className="text-xs text-gray-600">Body override</Label>
-                                    <Textarea
-                                      rows={5}
-                                      placeholder={`Inherit from studio default`}
-                                      value={setting.body_template || ""}
-                                      disabled={!isPlus}
-                                      onChange={(e) => updateKindSetting(root.id, notifKind, "body_template", e.target.value)}
-                                    />
-                                  </div>
+                                )}
+                                <div className="space-y-1">
+                                  <Label className="text-xs text-gray-600">Subject</Label>
+                                  <Input
+                                    className="h-8 text-sm"
+                                    placeholder="Use studio default"
+                                    value={profile[`${slot.field}_subject`] || ""}
+                                    onChange={(e) =>
+                                      setProfiles((prev) =>
+                                        prev.map((p) =>
+                                          p.id === profile.id ? { ...p, [`${slot.field}_subject`]: e.target.value } : p
+                                        )
+                                      )
+                                    }
+                                    onBlur={() =>
+                                      handleUpdateProfile(profile.id, {
+                                        [`${slot.field}_subject`]: profile[`${slot.field}_subject`]?.trim() || null,
+                                      })
+                                    }
+                                  />
                                 </div>
-                              );
-                            })}
-                          </AccordionContent>
-                        </AccordionItem>
-                      ))}
-                    </Accordion>
-                  )}
+                                <div className="space-y-1">
+                                  <Label className="text-xs text-gray-600">Body</Label>
+                                  <Textarea
+                                    rows={6}
+                                    placeholder="Use studio default"
+                                    value={profile[`${slot.field}_body`] || ""}
+                                    onChange={(e) =>
+                                      setProfiles((prev) =>
+                                        prev.map((p) =>
+                                          p.id === profile.id ? { ...p, [`${slot.field}_body`]: e.target.value } : p
+                                        )
+                                      )
+                                    }
+                                    onBlur={() =>
+                                      handleUpdateProfile(profile.id, {
+                                        [`${slot.field}_body`]: profile[`${slot.field}_body`]?.trim() || null,
+                                      })
+                                    }
+                                  />
+                                </div>
+                                {slot.field === "reminder_tertiary" && (
+                                  <p className="text-[11px] text-amber-700">
+                                    Day-of reminders intentionally omit the reschedule link.
+                                  </p>
+                                )}
+                              </AccordionContent>
+                            </AccordionItem>
+                          );
+                        })}
+                      </Accordion>
+                    </div>
+                  ))}
 
-                  {kindRoots.length > 0 && (
-                    <Button
-                      className={categorySaved ? "bg-green-600 hover:bg-green-700" : "bg-indigo-600 hover:bg-indigo-700"}
-                      onClick={handleSaveKindSettings}
-                      disabled={!isPlus}
-                    >
-                      {categorySaved ? (
-                        <><Check className="w-4 h-4 mr-2" />Saved!</>
-                      ) : (
-                        "Save Category Overrides"
-                      )}
-                    </Button>
+                  {profiles.length > 0 && allKindCategories.length > 0 && (
+                    <div className="border-t pt-6 space-y-4">
+                      <div>
+                        <h3 className="font-semibold text-gray-900">Assignments</h3>
+                        <p className="text-sm text-gray-500">
+                          Assign a notification profile to each appointment type. Types without an assignment use the default profile.
+                        </p>
+                      </div>
+                      <div className="space-y-2">
+                        {allKindCategories
+                          .filter((c) => !c.parent_id)
+                          .sort((a, b) => (a.display_order ?? 0) - (b.display_order ?? 0))
+                          .map((root) => {
+                            const children = allKindCategories.filter((c) => c.parent_id === root.id);
+                            const nodes = children.length > 0 ? children : [root];
+                            return (
+                              <div key={root.id} className="space-y-1">
+                                {children.length > 0 && (
+                                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">{root.name}</p>
+                                )}
+                                {nodes.map((node) => {
+                                  const assignment = assignments.find((a) => a.kind_category_id === node.id);
+                                  return (
+                                    <div key={node.id} className="flex items-center justify-between gap-3 bg-gray-50 rounded-lg px-3 py-2">
+                                      <span className="text-sm text-gray-800">{node.name}</span>
+                                      <Select
+                                        value={assignment?.profile_id || "__default__"}
+                                        onValueChange={(val) => handleAssignmentChange(node.id, val)}
+                                      >
+                                        <SelectTrigger className="w-[200px] h-8 text-sm">
+                                          <SelectValue placeholder="Use default" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                          <SelectItem value="__default__">Use default</SelectItem>
+                                          {profiles.map((p) => (
+                                            <SelectItem key={p.id} value={p.id}>
+                                              {p.name}
+                                            </SelectItem>
+                                          ))}
+                                        </SelectContent>
+                                      </Select>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            );
+                          })}
+                      </div>
+                    </div>
                   )}
                 </CardContent>
               </Card>
             </TabsContent>
+
           </Tabs>
         )}
       </div>

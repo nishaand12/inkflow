@@ -526,29 +526,6 @@ create trigger set_artist_payouts_updated_at
 before update on artist_payouts
 for each row execute procedure set_updated_at();
 
-create table if not exists appointment_kind_notification_settings (
-  id uuid primary key default gen_random_uuid(),
-  studio_id uuid not null references studios(id) on delete cascade,
-  kind_root_category_id uuid not null references reporting_categories(id) on delete cascade,
-  notification_kind text not null check (notification_kind in (
-    'reminder_primary', 'reminder_secondary', 'followup_quick', 'followup_longterm'
-  )),
-  enabled boolean,
-  minutes integer,
-  subject_template text,
-  body_template text,
-  aftercare_template text,
-  created_at timestamptz default now(),
-  updated_at timestamptz default now(),
-  unique (kind_root_category_id, notification_kind)
-);
-
-create index if not exists akns_studio_idx on appointment_kind_notification_settings(studio_id);
-
-create trigger set_akns_updated_at
-before update on appointment_kind_notification_settings
-for each row execute procedure set_updated_at();
-
 create table if not exists appointment_manage_tokens (
   id uuid primary key default gen_random_uuid(),
   appointment_id uuid not null references appointments(id) on delete cascade,
