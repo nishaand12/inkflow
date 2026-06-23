@@ -6,19 +6,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Badge } from "@/components/ui/badge";
-import { Calendar, Clock, CreditCard, CheckCircle, Loader2, AlertCircle, ChevronRight, ArrowLeft } from "lucide-react";
+import { Calendar, CreditCard, CheckCircle, Loader2, AlertCircle } from "lucide-react";
 import { addMinutesToTime, formatDuration, formatTime12h } from "@/utils/index";
-import {
-  CATEGORY_ROLE_APPOINTMENT_KIND,
-  filterCategoriesByRole,
-  groupChildrenByParentId,
-} from "@/utils/reportingCategories";
 import { format, addDays } from "date-fns";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { isPublicPiercingBookableArtistType } from "@/utils/artistTypes";
 import AppointmentTypeImage from "@/components/appointment-types/AppointmentTypeImage";
 import { useEmbedResize } from "@/hooks/useEmbedResize";
+import { computeArtistSlots, computeAnyArtistSlots } from "@/utils/bookingSlots";
+import ServiceBrowser from "@/components/public-booking/ServiceBrowser";
 
 export default function PublicBooking() {
   const [searchParams] = useSearchParams();
@@ -85,17 +81,6 @@ export default function PublicBooking() {
     }
   };
 
-  const timeToMinutes = (t) => {
-    const [h, m] = t.split(':').map(Number);
-    return h * 60 + m;
-  };
-
-  const minutesToTime = (m) => {
-    const h = Math.floor(m / 60);
-    const min = m % 60;
-    return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
-  };
-
   const piercers = useMemo(
     () => artists.filter((a) => isPublicPiercingBookableArtistType(a.artist_type)),
     [artists]
@@ -103,149 +88,16 @@ export default function PublicBooking() {
 
   const getSlotsForArtist = (artistId, date) => {
     if (!selectedType || !selectedLocation || !date) return [];
-    const durationMinutes = selectedType.default_duration_minutes || 60;
-
-    const dateObj = new Date(date + 'T00:00:00');
-    const dayOfWeek = dateObj.getDay();
-
-    const artistAvail = availabilities.filter(a => {
-      if (a.artist_id !== artistId) return false;
-      if (a.is_blocked) return false;
-      return date >= a.start_date && date <= a.end_date;
+    return computeArtistSlots({
+      artistId,
+      date,
+      durationMinutes: selectedType.default_duration_minutes || 60,
+      locationId: selectedLocation,
+      availabilities,
+      weeklySchedules,
+      appointments,
+      workStations,
     });
-
-    const weeklyAvail = weeklySchedules
-      .filter(ws => ws.artist_id === artistId && ws.day_of_week === dayOfWeek)
-      .map(ws => ({
-        start_time: ws.start_time,
-        end_time: ws.end_time,
-        location_id: ws.location_id,
-        _isWeekly: true
-      }));
-
-    const combinedAvail = [...artistAvail, ...weeklyAvail];
-    if (combinedAvail.length === 0) return [];
-
-    const blockedSlots = availabilities.filter(a => {
-      if (a.artist_id !== artistId) return false;
-      if (!a.is_blocked) return false;
-      return date >= a.start_date && date <= a.end_date;
-    });
-
-    const dayAppointments = appointments.filter(
-      a => a.artist_id === artistId && a.appointment_date === date
-    );
-
-    const locationStations = workStations.filter(ws => ws.location_id === selectedLocation);
-    const slots = [];
-
-    for (const avail of combinedAvail) {
-      if (avail.location_id && avail.location_id !== selectedLocation) continue;
-
-      const availStart = timeToMinutes(avail.start_time);
-      const availEnd = timeToMinutes(avail.end_time);
-
-      for (let slotStart = availStart; slotStart + durationMinutes <= availEnd; slotStart += 30) {
-        const slotEnd = slotStart + durationMinutes;
-
-        const isBlocked = blockedSlots.some(b => {
-          const bs = timeToMinutes(b.start_time);
-          const be = timeToMinutes(b.end_time);
-          return slotStart < be && slotEnd > bs;
-        });
-        if (isBlocked) continue;
-
-        const hasConflict = dayAppointments.some(apt => {
-          const as = timeToMinutes(apt.start_time);
-          const ae = apt.end_time ? timeToMinutes(apt.end_time) : as + 60;
-          return slotStart < ae && slotEnd > as;
-        });
-        if (hasConflict) continue;
-
-        const occupiedStations = dayAppointments
-          .filter(apt => {
-            if (apt.location_id !== selectedLocation) return false;
-            const as = timeToMinutes(apt.start_time);
-            const ae = apt.end_time ? timeToMinutes(apt.end_time) : as + 60;
-            return slotStart < ae && slotEnd > as;
-          })
-          .map(apt => apt.work_station_id)
-          .filter(Boolean);
-
-        const freeStation = locationStations.find(ws => !occupiedStations.includes(ws.id));
-        if (!freeStation && locationStations.length > 0) continue;
-
-        slots.push({
-          time: minutesToTime(slotStart),
-          stationId: freeStation?.id || null,
-          artistId
-        });
-      }
-    }
-    return slots;
-  };
-
-  const serviceBrowser = useMemo(() => {
-    const activeKindCategories = filterCategoriesByRole(
-      kindCategories,
-      CATEGORY_ROLE_APPOINTMENT_KIND
-    ).filter(c => c.is_active !== false);
-    const childrenByParent = groupChildrenByParentId(activeKindCategories, CATEGORY_ROLE_APPOINTMENT_KIND);
-    const activeCategoryIds = new Set(activeKindCategories.map(c => c.id));
-    const typesByCategory = new Map();
-
-    for (const type of appointmentTypes) {
-      if (!type.appointment_kind_category_id) continue;
-      if (!activeCategoryIds.has(type.appointment_kind_category_id)) continue;
-      const key = type.appointment_kind_category_id;
-      if (!typesByCategory.has(key)) typesByCategory.set(key, []);
-      typesByCategory.get(key).push(type);
-    }
-
-    for (const [key, list] of typesByCategory.entries()) {
-      typesByCategory.set(key, sortAppointmentTypes(list));
-    }
-
-    const countTypesInCategory = (categoryId, seen = new Set()) => {
-      if (seen.has(categoryId)) return 0;
-      seen.add(categoryId);
-      const directCount = typesByCategory.get(categoryId)?.length || 0;
-      const childCount = (childrenByParent.get(categoryId) || []).reduce(
-        (sum, child) => sum + countTypesInCategory(child.id, seen),
-        0
-      );
-      return directCount + childCount;
-    };
-
-    const visibleChildrenByParent = new Map();
-    for (const [parentId, children] of childrenByParent.entries()) {
-      visibleChildrenByParent.set(
-        parentId,
-        children.filter(child => countTypesInCategory(child.id) > 0)
-      );
-    }
-
-    return {
-      childrenByParent: visibleChildrenByParent,
-      typesByCategory,
-      countTypesInCategory,
-    };
-  }, [appointmentTypes, kindCategories]);
-
-  const currentCategoryId = selectedCategoryPath[selectedCategoryPath.length - 1]?.id || "";
-  const currentCategoryChildren = serviceBrowser.childrenByParent.get(currentCategoryId) || [];
-  const currentCategoryTypes = currentCategoryId
-    ? serviceBrowser.typesByCategory.get(currentCategoryId) || []
-    : [];
-  const hasServicesToShow =
-    currentCategoryChildren.length > 0 || currentCategoryTypes.length > 0;
-
-  const handleCategorySelect = (category) => {
-    setSelectedCategoryPath(prev => [...prev, category]);
-  };
-
-  const handleCategoryBack = () => {
-    setSelectedCategoryPath(prev => prev.slice(0, -1));
   };
 
   const handleTypeSelect = (type) => {
@@ -258,15 +110,16 @@ export default function PublicBooking() {
     if (!selectedType || !selectedLocation || !selectedDate) return [];
 
     if (selectedArtist === '__any__') {
-      const allSlots = new Map();
-      for (const piercer of piercers) {
-        for (const slot of getSlotsForArtist(piercer.id, selectedDate)) {
-          if (!allSlots.has(slot.time)) {
-            allSlots.set(slot.time, slot);
-          }
-        }
-      }
-      return Array.from(allSlots.values()).sort((a, b) => a.time.localeCompare(b.time));
+      return computeAnyArtistSlots({
+        artistIds: piercers.map((p) => p.id),
+        date: selectedDate,
+        durationMinutes: selectedType.default_duration_minutes || 60,
+        locationId: selectedLocation,
+        availabilities,
+        weeklySchedules,
+        appointments,
+        workStations,
+      });
     }
 
     if (!selectedArtist) return [];
@@ -455,57 +308,14 @@ export default function PublicBooking() {
               <CardTitle className="text-xl">Select Service</CardTitle>
             </CardHeader>
             <CardContent>
-              {!hasServicesToShow ? (
-                <p className="text-gray-500 text-center py-6">No services available for online booking at this time.</p>
-              ) : (
-                <div className="space-y-4">
-                  {selectedCategoryPath.length > 0 && (
-                    <div className="space-y-3">
-                      <Button variant="outline" size="sm" onClick={handleCategoryBack}>
-                        <ArrowLeft className="w-4 h-4 mr-2" />
-                        Back
-                      </Button>
-                      <div>
-                        <p className="text-xs uppercase tracking-wide text-gray-500">Browsing</p>
-                        <p className="font-semibold text-gray-900">
-                          {selectedCategoryPath.map(c => c.name).join(" / ")}
-                        </p>
-                      </div>
-                    </div>
-                  )}
-
-                  {currentCategoryChildren.length > 0 && (
-                    <div className="space-y-2">
-                      {currentCategoryChildren.map(category => (
-                        <button
-                          key={category.id}
-                          data-testid="public-service-category"
-                          onClick={() => handleCategorySelect(category)}
-                          className="w-full p-4 rounded-xl border-2 border-gray-200 text-left transition-all hover:border-indigo-300 hover:bg-indigo-50"
-                        >
-                          <div className="flex items-center justify-between gap-3">
-                            <div>
-                              <p className="font-semibold text-gray-900">{category.name}</p>
-                              <p className="text-sm text-gray-500">
-                                {serviceBrowser.countTypesInCategory(category.id)} services
-                              </p>
-                            </div>
-                            <ChevronRight className="w-5 h-5 text-gray-400" />
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-
-                  {currentCategoryTypes.length > 0 && (
-                    <ServiceTypeList
-                      types={currentCategoryTypes}
-                      selectedType={selectedType}
-                      onSelect={handleTypeSelect}
-                    />
-                  )}
-                </div>
-              )}
+              <ServiceBrowser
+                appointmentTypes={appointmentTypes}
+                kindCategories={kindCategories}
+                selectedType={selectedType}
+                categoryPath={selectedCategoryPath}
+                onCategoryPathChange={setSelectedCategoryPath}
+                onSelectType={handleTypeSelect}
+              />
             </CardContent>
           </Card>
         )}
@@ -689,63 +499,4 @@ export default function PublicBooking() {
       </div>
     </div>
   );
-}
-
-function ServiceTypeList({ types, selectedType, onSelect }) {
-  return (
-    <div className="space-y-2">
-      {types.map(type => (
-        <button
-          key={type.id}
-          data-testid="public-service-type"
-          onClick={() => onSelect(type)}
-          className={`w-full p-4 rounded-xl border-2 text-left transition-all hover:border-indigo-300 hover:bg-indigo-50 ${
-            selectedType?.id === type.id ? 'border-indigo-500 bg-indigo-50' : 'border-gray-200'
-          }`}
-        >
-          <div className="flex items-start justify-between gap-3">
-            {type.image_url && (
-              <AppointmentTypeImage
-                imageUrl={type.image_url}
-                alt={type.name}
-                className="h-16 w-16 shrink-0 rounded-lg object-cover"
-              />
-            )}
-            <div className="flex-1 min-w-0">
-              <p className="font-semibold text-gray-900">{type.name}</p>
-              {type.description && (
-                <p className="text-sm text-gray-500 mt-0.5">{type.description}</p>
-              )}
-            </div>
-            <div className="text-right shrink-0 space-y-1">
-              <div className="flex items-center gap-1 text-sm text-gray-500 justify-end">
-                <Clock className="w-3.5 h-3.5" />
-                {formatDuration(type.default_duration_minutes)}
-              </div>
-              {type.service_cost > 0 && (
-                <p className="text-sm font-semibold text-gray-900">
-                  ${type.service_cost}
-                  {type.price_includes_tax ? <span className="text-xs font-normal text-gray-500"> incl. tax</span> : null}
-                </p>
-              )}
-              {type.default_deposit > 0 && (
-                <Badge className="bg-indigo-100 text-indigo-700 text-xs">
-                  ${type.default_deposit} deposit
-                </Badge>
-              )}
-            </div>
-          </div>
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function sortAppointmentTypes(types) {
-  return [...(types || [])].sort((a, b) => {
-    const orderA = a.display_order ?? 0;
-    const orderB = b.display_order ?? 0;
-    if (orderA !== orderB) return orderA - orderB;
-    return (a.name || "").localeCompare(b.name || "");
-  });
 }

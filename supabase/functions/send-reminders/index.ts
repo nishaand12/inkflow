@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { formatTime12h } from "../_shared/timeDisplay.ts";
+import { appUrl } from "../_shared/appUrl.ts";
 
 const MAILJET_API_KEY = Deno.env.get("MAILJET_API_KEY");
 const MAILJET_SECRET_KEY = Deno.env.get("MAILJET_SECRET_KEY");
@@ -10,7 +11,6 @@ const MAILJET_SENDER_NAME = Deno.env.get("MAILJET_SENDER_NAME");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const CRON_SECRET = Deno.env.get("CRON_SECRET");
-const APP_URL = Deno.env.get("APP_URL") || "https://inkflow.app";
 
 const MAILJET_API_URL = "https://api.mailjet.com/v3.1/send";
 const DEFAULT_PRIMARY_REMINDER_SUBJECT_TEMPLATE = "Appointment Reminder - {{studio_name}}";
@@ -512,7 +512,7 @@ async function resolveManageLink(supabase: any, appointment: any): Promise<strin
       .maybeSingle();
 
     if (tokenRow && new Date(tokenRow.expires_at) > new Date()) {
-      return `${APP_URL}/manage-appointment?token=${tokenRow.token}`;
+      return appUrl(`/manage-appointment?token=${tokenRow.token}`);
     }
   } catch {
     // silently ignore

@@ -54,6 +54,11 @@ serve(async (req) => {
     const hoursUntil = (appointmentUTC.getTime() - Date.now()) / (1000 * 60 * 60);
     const canModify = hoursUntil > 24 && ["scheduled", "confirmed", "deposit_paid"].includes(appointment.status);
 
+    // Rescheduling is only allowed once the deposit has actually been collected.
+    const depositPaid =
+      appointment.deposit_status === "paid" || appointment.status === "deposit_paid";
+    const canReschedule = canModify && depositPaid;
+
     return json({
       appointment: {
         id: appointment.id,
@@ -64,6 +69,11 @@ serve(async (req) => {
         client_name: appointment.client_name,
         deposit_amount: appointment.deposit_amount,
         deposit_status: appointment.deposit_status,
+        location_id: appointment.location_id,
+        artist_id: appointment.artist_id,
+        work_station_id: appointment.work_station_id,
+        appointment_type_id: appointment.appointment_type_id,
+        appointment_kind_category_id: appointment.appointment_type?.appointment_kind_category_id || null,
       },
       studio: studio ? {
         id: studio.id,
@@ -82,15 +92,22 @@ serve(async (req) => {
       appointment_type: appointment.appointment_type ? {
         id: appointment.appointment_type.id,
         name: appointment.appointment_type.name,
-        duration_minutes: appointment.appointment_type.duration_minutes,
+        appointment_kind_category_id: appointment.appointment_type.appointment_kind_category_id,
+        default_duration_minutes: appointment.appointment_type.default_duration_minutes,
+        default_deposit: appointment.appointment_type.default_deposit,
       } : null,
       can_modify: canModify,
+      can_reschedule: canReschedule,
+      deposit_paid: depositPaid,
       hours_until: Math.max(0, Math.round(hoursUntil * 10) / 10),
       modify_reason: !canModify
         ? appointment.status === "cancelled" ? "Appointment is already cancelled"
           : appointment.status === "completed" ? "Appointment is already completed"
           : hoursUntil <= 24 ? "Cannot modify within 24 hours of the appointment"
           : "Appointment cannot be modified"
+        : null,
+      reschedule_reason: canModify && !depositPaid
+        ? "Rescheduling online is only available after the deposit has been paid. Please contact the studio."
         : null,
     });
   } catch (err) {

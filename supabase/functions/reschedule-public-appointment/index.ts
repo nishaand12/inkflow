@@ -17,7 +17,16 @@ serve(async (req) => {
   }
 
   try {
-    const { token, newDate, newStartTime, newEndTime } = await req.json();
+    const {
+      token,
+      newDate,
+      newStartTime,
+      newEndTime,
+      newArtistId,
+      newAppointmentTypeId,
+      newLocationId,
+      newWorkStationId,
+    } = await req.json();
     if (!token || !newDate || !newStartTime) {
       return json({ error: "Missing required fields (token, newDate, newStartTime)" }, 400);
     }
@@ -41,7 +50,18 @@ serve(async (req) => {
       return json({ error: "Appointment cannot be rescheduled in its current state" }, 400);
     }
 
+    // Rescheduling online is only allowed once the deposit has been collected.
+    const depositPaid =
+      appointment.deposit_status === "paid" || appointment.status === "deposit_paid";
+    if (!depositPaid) {
+      return json(
+        { error: "Rescheduling online is only available after the deposit has been paid." },
+        400
+      );
+    }
+
     const studio = appointment.studio;
+    const studioId = appointment.studio_id;
     const timezone = studio?.timezone || "UTC";
 
     // 24-hour cutoff on the original appointment
@@ -58,19 +78,72 @@ serve(async (req) => {
       return json({ error: "New appointment time must be at least 24 hours from now" }, 400);
     }
 
-    // Check for conflicts with existing appointments for the same artist
+    // Resolve the (possibly changed) service. Must be a public-bookable service
+    // belonging to this studio.
+    let aptType = appointment.appointment_type;
+    let resolvedTypeId = appointment.appointment_type_id;
+    if (newAppointmentTypeId && newAppointmentTypeId !== appointment.appointment_type_id) {
+      const { data: newType, error: typeErr } = await supabase
+        .from("appointment_types")
+        .select("*")
+        .eq("id", newAppointmentTypeId)
+        .eq("studio_id", studioId)
+        .eq("is_public_bookable", true)
+        .eq("is_active", true)
+        .maybeSingle();
+      if (typeErr || !newType) {
+        return json({ error: "Selected service is not available for online booking" }, 400);
+      }
+      aptType = newType;
+      resolvedTypeId = newType.id;
+    }
+
+    // Resolve the (possibly changed) artist. Must be an active, public-bookable
+    // piercer at this studio.
+    let resolvedArtistId = appointment.artist_id;
+    if (newArtistId && newArtistId !== appointment.artist_id) {
+      const { data: artist, error: artistErr } = await supabase
+        .from("artists")
+        .select("id, studio_id, is_active, artist_type")
+        .eq("id", newArtistId)
+        .maybeSingle();
+      if (artistErr || !artist || artist.studio_id !== studioId || !artist.is_active) {
+        return json({ error: "Selected artist is not available" }, 400);
+      }
+      const at = artist.artist_type || "tattoo";
+      if (!(at === "piercer" || at === "both")) {
+        return json({ error: "Selected artist is not available for online booking" }, 400);
+      }
+      resolvedArtistId = artist.id;
+    }
+
+    // Resolve the (possibly changed) location.
+    let resolvedLocationId = appointment.location_id;
+    if (newLocationId && newLocationId !== appointment.location_id) {
+      const { data: location, error: locationErr } = await supabase
+        .from("locations")
+        .select("id")
+        .eq("id", newLocationId)
+        .eq("studio_id", studioId)
+        .eq("is_active", true)
+        .maybeSingle();
+      if (locationErr || !location) {
+        return json({ error: "Selected location is not available" }, 400);
+      }
+      resolvedLocationId = location.id;
+    }
+
+    const durationMinutes = aptType?.default_duration_minutes || 30;
+    const computedEndTime = newEndTime || addMinutes(newStartTime, durationMinutes);
+
+    // Check for conflicts with existing appointments for the resolved artist.
     const { data: conflicts } = await supabase
       .from("appointments")
       .select("id, start_time, end_time")
-      .eq("artist_id", appointment.artist_id)
+      .eq("artist_id", resolvedArtistId)
       .eq("appointment_date", newDate)
       .neq("id", appointment.id)
-      .in("status", ["scheduled", "confirmed", "deposit_paid", "completed"])
-      .neq("status", "cancelled");
-
-    const aptType = appointment.appointment_type;
-    const durationMinutes = aptType?.duration_minutes || 30;
-    const computedEndTime = newEndTime || addMinutes(newStartTime, durationMinutes);
+      .in("status", ["scheduled", "confirmed", "deposit_paid", "completed"]);
 
     if (conflicts && conflicts.length > 0) {
       for (const existing of conflicts) {
@@ -80,12 +153,22 @@ serve(async (req) => {
       }
     }
 
+    const svcCost =
+      aptType?.service_cost != null && Number(aptType.service_cost) > 0
+        ? Number(aptType.service_cost)
+        : null;
+
     const { error: updateErr } = await supabase
       .from("appointments")
       .update({
         appointment_date: newDate,
         start_time: newStartTime,
         end_time: computedEndTime,
+        artist_id: resolvedArtistId,
+        appointment_type_id: resolvedTypeId,
+        location_id: resolvedLocationId,
+        work_station_id: newWorkStationId ?? null,
+        total_estimate: svcCost,
         reminder_primary_sent_at: null,
         reminder_secondary_sent_at: null,
         reminder_tertiary_sent_at: null,

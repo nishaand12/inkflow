@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import Stripe from "npm:stripe@17";
 import { formatTime12h } from "../_shared/timeDisplay.ts";
+import { appUrl } from "../_shared/appUrl.ts";
 
 const MAILJET_API_KEY = Deno.env.get("MAILJET_API_KEY");
 const MAILJET_SECRET_KEY = Deno.env.get("MAILJET_SECRET_KEY");
@@ -11,7 +12,6 @@ const MAILJET_SENDER_NAME = Deno.env.get("MAILJET_SENDER_NAME");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY");
-const APP_URL = Deno.env.get("APP_URL") || "https://inkflow.app";
 
 const MAILJET_API_URL = "https://api.mailjet.com/v3.1/send";
 const DEFAULT_CONFIRMATION_SUBJECT_TEMPLATE = "Appointment Confirmation - {{studio_name}}";
@@ -221,7 +221,7 @@ serve(async (req) => {
         .maybeSingle();
 
       if (tokenRow && new Date(tokenRow.expires_at) > new Date()) {
-        manageLink = `${APP_URL}/manage-appointment?token=${tokenRow.token}`;
+        manageLink = appUrl(`/manage-appointment?token=${tokenRow.token}`);
       } else if (source === "public_booking") {
         const newToken = crypto.randomUUID().replace(/-/g, "") + crypto.randomUUID().replace(/-/g, "");
         const expiresAt = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString();
@@ -231,7 +231,7 @@ serve(async (req) => {
           .select("token")
           .single();
         if (created) {
-          manageLink = `${APP_URL}/manage-appointment?token=${created.token}`;
+          manageLink = appUrl(`/manage-appointment?token=${created.token}`);
         }
       }
     } catch (tokenErr) {
@@ -760,8 +760,8 @@ async function createDepositCheckout(
       ],
       customer_email: customerEmail || undefined,
       expires_at: expiresAt,
-      success_url: `${APP_URL}/payment-success?session_id={CHECKOUT_SESSION_ID}&studio=${encodeURIComponent(studio.name)}&type=deposit`,
-      cancel_url: `${APP_URL}/payment-cancelled?appointment_id=${appointment.id}&studio=${encodeURIComponent(studio.name)}`,
+      success_url: appUrl(`/payment-success?session_id={CHECKOUT_SESSION_ID}&studio=${encodeURIComponent(studio.name)}&type=deposit`),
+      cancel_url: appUrl(`/payment-cancelled?appointment_id=${appointment.id}&studio=${encodeURIComponent(studio.name)}`),
       metadata: {
         appointment_id: appointment.id,
         studio_id: studio.id,
