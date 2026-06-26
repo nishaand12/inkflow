@@ -44,6 +44,18 @@ export function computeArtistSlots({
 }) {
   if (!artistId || !locationId || !date || !durationMinutes) return [];
 
+  // All-day blocked entries block the entire day — no slots available
+  const hasAllDayBlock = availabilities.some(
+    (a) =>
+      a.artist_id === artistId &&
+      a.is_blocked &&
+      a.is_all_day &&
+      date >= a.start_date &&
+      date <= a.end_date &&
+      (!a.location_id || a.location_id === locationId)
+  );
+  if (hasAllDayBlock) return [];
+
   const dateObj = new Date(date + "T00:00:00");
   const dayOfWeek = dateObj.getDay();
 
@@ -68,6 +80,7 @@ export function computeArtistSlots({
   const blockedSlots = availabilities.filter((a) => {
     if (a.artist_id !== artistId) return false;
     if (!a.is_blocked) return false;
+    if (a.is_all_day) return false; // handled above as full-day block
     return date >= a.start_date && date <= a.end_date;
   });
 

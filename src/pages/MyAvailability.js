@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
@@ -6,26 +6,37 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Calendar, Clock, X, ChevronLeft, ChevronRight, Save, Trash2 } from "lucide-react";
-import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, startOfWeek, endOfWeek, addMonths, subMonths, parseISO, isWithinInterval, isSameMonth } from "date-fns";
+import { Plus, Calendar, Clock, ChevronLeft, ChevronRight, Save, Trash2 } from "lucide-react";
 import AvailabilityDialog from "../components/availability/AvailabilityDialog";
+import AvailabilityCalendar from "../components/availability/AvailabilityCalendar";
 import { normalizeUserRole } from "@/utils/roles";
 import { formatTimeRange12h } from "@/utils/index";
 import { sortByFullNameThenId, sortByNameThenId } from "@/utils/listSort";
+import { getArtistColor } from "@/utils/artistColors";
+import { navigateNext, navigatePrev, getViewTitle } from "@/utils/calendarViews";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 const ROLES_WITH_MY_AVAILABILITY = ["Artist", "Owner", "Admin", "Front_Desk"];
 
 export default function MyAvailability() {
+  const isMobile = useIsMobile();
   const [currentDate, setCurrentDate] = useState(new Date());
+  const [view, setView] = useState(() => (isMobile ? "day" : "month"));
   const [showDialog, setShowDialog] = useState(false);
   const [selectedDate, setSelectedDate] = useState(null);
   const [selectedAvailability, setSelectedAvailability] = useState(null);
-  const [selectedArtistId, setSelectedArtistId] = useState(null);
+  const [artistFilter, setArtistFilter] = useState("all");
   const queryClient = useQueryClient();
 
+  // Force off month view on mobile
+  useEffect(() => {
+    if (isMobile && view === "month") setView("day");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isMobile]);
+
   const { data: user } = useQuery({
-    queryKey: ['currentUser'],
-    queryFn: () => base44.auth.me()
+    queryKey: ["currentUser"],
+    queryFn: () => base44.auth.me(),
   });
 
   const normalizedRole = user
@@ -34,106 +45,97 @@ export default function MyAvailability() {
   const isAdmin = normalizedRole === "Admin" || normalizedRole === "Owner";
 
   const { data: artists = [] } = useQuery({
-    queryKey: ['artists', user?.studio_id],
+    queryKey: ["artists", user?.studio_id],
     queryFn: async () => {
       if (!user?.studio_id) return [];
       return base44.entities.Artist.filter({ studio_id: user.studio_id });
     },
-    enabled: !!user?.studio_id
+    enabled: !!user?.studio_id,
   });
 
   const { data: locations = [] } = useQuery({
-    queryKey: ['locations', user?.studio_id],
+    queryKey: ["locations", user?.studio_id],
     queryFn: async () => {
       if (!user?.studio_id) return [];
       return base44.entities.Location.filter({ studio_id: user.studio_id });
     },
-    enabled: !!user?.studio_id
+    enabled: !!user?.studio_id,
   });
 
   const sortedArtists = useMemo(() => sortByFullNameThenId(artists), [artists]);
   const sortedLocations = useMemo(() => sortByNameThenId(locations), [locations]);
+  const activeArtists = useMemo(() => sortedArtists.filter((a) => a.is_active), [sortedArtists]);
 
-  const activeArtists = sortedArtists.filter(a => a.is_active);
+  const currentArtist = useMemo(
+    () => (user ? sortedArtists.find((a) => a.user_id === user.id) : null),
+    [user, sortedArtists]
+  );
 
-  useEffect(() => {
-    if (!user || sortedArtists.length === 0) return;
-    if (selectedArtistId) return;
-
-    const ownArtist = sortedArtists.find(a => a.user_id === user.id);
-    if (ownArtist) {
-      setSelectedArtistId(ownArtist.id);
-    } else if (isAdmin && activeArtists.length > 0) {
-      setSelectedArtistId(activeArtists[0].id);
-    }
-  }, [user, sortedArtists, activeArtists, isAdmin, selectedArtistId]);
-
-  const currentArtist = sortedArtists.find(a => a.id === selectedArtistId) || null;
-
+  // Load all studio availabilities (no per-artist filter)
   const { data: availabilities = [] } = useQuery({
-    queryKey: ['availabilities', user?.studio_id, selectedArtistId],
+    queryKey: ["availabilities", user?.studio_id],
     queryFn: async () => {
       if (!user?.studio_id) return [];
       return base44.entities.Availability.filter({ studio_id: user.studio_id });
     },
-    enabled: !!user?.studio_id && !!selectedArtistId
+    enabled: !!user?.studio_id,
   });
 
+  // Load all studio weekly schedules (no per-artist filter)
   const { data: weeklySchedules = [] } = useQuery({
-    queryKey: ['weeklySchedules', user?.studio_id, selectedArtistId],
+    queryKey: ["weeklySchedules", user?.studio_id],
     queryFn: async () => {
-      if (!user?.studio_id || !selectedArtistId) return [];
-      return base44.entities.ArtistWeeklySchedule.filter({ studio_id: user.studio_id, artist_id: selectedArtistId });
+      if (!user?.studio_id) return [];
+      return base44.entities.ArtistWeeklySchedule.filter({ studio_id: user.studio_id });
     },
-    enabled: !!user?.studio_id && !!selectedArtistId
+    enabled: !!user?.studio_id,
   });
 
   const deleteMutation = useMutation({
     mutationFn: (id) => base44.entities.Availability.delete(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['availabilities'] });
-    }
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["availabilities"] }),
   });
 
-  const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  // ── Weekly schedule CRUD (single-artist mode) ──
+  const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
   const [editingSchedule, setEditingSchedule] = useState(null);
-  const [scheduleForm, setScheduleForm] = useState({ day_of_week: 1, start_time: '10:00', end_time: '18:00', location_id: '' });
+  const [scheduleForm, setScheduleForm] = useState({ day_of_week: 1, start_time: "10:00", end_time: "18:00", location_id: "" });
   const [showScheduleForm, setShowScheduleForm] = useState(false);
+
+  const selectedSingleArtistId = artistFilter !== "all" ? artistFilter : null;
 
   const createScheduleMutation = useMutation({
     mutationFn: (data) => base44.entities.ArtistWeeklySchedule.create(data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['weeklySchedules'] });
+      queryClient.invalidateQueries({ queryKey: ["weeklySchedules"] });
       setShowScheduleForm(false);
       setEditingSchedule(null);
-    }
+    },
   });
 
   const updateScheduleMutation = useMutation({
     mutationFn: ({ id, data }) => base44.entities.ArtistWeeklySchedule.update(id, data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['weeklySchedules'] });
+      queryClient.invalidateQueries({ queryKey: ["weeklySchedules"] });
       setShowScheduleForm(false);
       setEditingSchedule(null);
-    }
+    },
   });
 
   const deleteScheduleMutation = useMutation({
     mutationFn: (id) => base44.entities.ArtistWeeklySchedule.delete(id),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['weeklySchedules'] });
-    }
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["weeklySchedules"] }),
   });
 
   const handleSaveSchedule = () => {
     const payload = {
       studio_id: user.studio_id,
-      artist_id: selectedArtistId,
+      artist_id: selectedSingleArtistId,
       day_of_week: scheduleForm.day_of_week,
       start_time: scheduleForm.start_time,
       end_time: scheduleForm.end_time,
       location_id: scheduleForm.location_id || null,
-      is_active: true
+      is_active: true,
     };
     if (editingSchedule) {
       updateScheduleMutation.mutate({ id: editingSchedule.id, data: payload });
@@ -148,70 +150,70 @@ export default function MyAvailability() {
       day_of_week: sched.day_of_week,
       start_time: sched.start_time,
       end_time: sched.end_time,
-      location_id: sched.location_id || ''
+      location_id: sched.location_id || "",
     });
     setShowScheduleForm(true);
   };
 
   const handleNewSchedule = () => {
     setEditingSchedule(null);
-    setScheduleForm({ day_of_week: 1, start_time: '10:00', end_time: '18:00', location_id: '' });
+    setScheduleForm({ day_of_week: 1, start_time: "10:00", end_time: "18:00", location_id: "" });
     setShowScheduleForm(true);
   };
 
-  const activeSchedules = weeklySchedules.filter(s => s.is_active).sort((a, b) => a.day_of_week - b.day_of_week);
+  // ── Permissions ──
+  const canEditArtist = useCallback(
+    (artistId) => {
+      if (!user) return false;
+      if (isAdmin) return true;
+      const artist = sortedArtists.find((a) => a.id === artistId);
+      return artist && artist.user_id === user.id;
+    },
+    [user, isAdmin, sortedArtists]
+  );
 
-  const getDaysToShow = () => {
-    const start = startOfWeek(startOfMonth(currentDate));
-    const end = endOfWeek(endOfMonth(currentDate));
-    return eachDayOfInterval({ start, end });
-  };
-
-  const getAvailabilityForDay = (day) => {
-    if (!selectedArtistId) return [];
-    return availabilities.filter(avail => {
-      if (avail.artist_id !== selectedArtistId) return false;
-      const startDate = parseISO(avail.start_date + 'T00:00:00');
-      const endDate = parseISO(avail.end_date + 'T00:00:00');
-      return isWithinInterval(day, { start: startDate, end: endDate });
+  // ── Artist color map ──
+  const artistColorMap = useMemo(() => {
+    const map = {};
+    activeArtists.forEach((a, i) => {
+      map[a.id] = getArtistColor(a, i);
     });
-  };
+    return map;
+  }, [activeArtists]);
 
-  const getWeeklyScheduleForDay = (day) => {
-    const dow = day.getDay();
-    return activeSchedules.filter(s => s.day_of_week === dow);
-  };
-
+  // ── Calendar callbacks ──
   const handleAddAvailability = (date) => {
-    if (!selectedArtistId) return;
     setSelectedDate(date);
     setSelectedAvailability(null);
     setShowDialog(true);
   };
 
-  const handleEditAvailability = (availability, e) => {
-    e.stopPropagation();
-    if (!selectedArtistId) return;
+  const handleEditAvailability = (availability) => {
     setSelectedAvailability(availability);
     setSelectedDate(null);
     setShowDialog(true);
   };
 
-  const handleDelete = (id, e) => {
-    e.stopPropagation();
-    if (window.confirm('Remove this availability slot?')) {
-      deleteMutation.mutate(id);
-    }
-  };
-
-  const handlePrevMonth = () => setCurrentDate(subMonths(currentDate, 1));
-  const handleNextMonth = () => setCurrentDate(addMonths(currentDate, 1));
+  const handlePrev = () => setCurrentDate(navigatePrev(currentDate, view));
+  const handleNext = () => setCurrentDate(navigateNext(currentDate, view));
   const handleToday = () => setCurrentDate(new Date());
 
-  const canEdit = isAdmin || (currentArtist && currentArtist.user_id === user?.id);
+  // ── Filtered weekly schedules for the weekly-schedule card ──
+  const activeSchedules = useMemo(() => {
+    if (!selectedSingleArtistId) return [];
+    return weeklySchedules
+      .filter((s) => s.is_active && s.artist_id === selectedSingleArtistId)
+      .sort((a, b) => a.day_of_week - b.day_of_week);
+  }, [weeklySchedules, selectedSingleArtistId]);
 
-  const days = getDaysToShow();
+  const canEditSelectedArtist = selectedSingleArtistId && canEditArtist(selectedSingleArtistId);
 
+  // ── Dialog artist context: when "All Artists", admin picks from dialog; else preset ──
+  const dialogArtistId = selectedAvailability
+    ? selectedAvailability.artist_id
+    : selectedSingleArtistId || (currentArtist?.id || null);
+
+  // ── Loading / access gates ──
   if (!user) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-6">
@@ -245,96 +247,126 @@ export default function MyAvailability() {
     );
   }
 
-  if (!currentArtist) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-6">
-        <div className="max-w-4xl mx-auto">
-          <Card className="bg-white border-none shadow-lg">
-            <CardContent className="p-12 text-center">
-              <Calendar className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-              <h2 className="text-xl font-bold text-gray-900 mb-2">No Artist Profile</h2>
-              <p className="text-gray-500">
-                {isAdmin
-                  ? 'No active artists found. Add an artist from the Artists page first.'
-                  : normalizedRole === 'Front_Desk'
-                    ? 'Ask an admin to link an artist profile to your account so you can log hours (they can mark it inactive if you should not appear on public booking).'
-                    : 'You need an artist profile to manage availability. Ask an admin to create one for you.'}
-              </p>
-            </CardContent>
-          </Card>
-        </div>
-      </div>
-    );
-  }
+  // No artist profile gate removed — users can still see the team calendar
+  const hasProfile = !!currentArtist;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-6">
-      <div className="max-w-7xl mx-auto space-y-6">
-        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-4 sm:p-6">
+      <div className="max-w-7xl mx-auto space-y-4 sm:space-y-6">
+        {/* ── Header ── */}
+        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-3">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Availability</h1>
-            <p className="text-gray-500 mt-1">
-              {isAdmin
-                ? 'Manage artist working hours and time off'
-                : normalizedRole === 'Front_Desk'
-                  ? 'Log your working hours and time off'
-                  : 'Set your working hours and time off'}
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Availability</h1>
+            <p className="text-gray-500 mt-1 text-sm">
+              {hasProfile
+                ? "View team availability and manage your schedule"
+                : "View team availability"}
             </p>
           </div>
-          {isAdmin && activeArtists.length > 1 && (
-            <div className="flex items-center gap-2">
-              <Label className="text-sm text-gray-600 whitespace-nowrap">Artist:</Label>
-              <Select
-                value={selectedArtistId || ''}
-                onValueChange={(v) => {
-                  setSelectedArtistId(v);
-                  setShowScheduleForm(false);
-                  setEditingSchedule(null);
-                }}
-              >
-                <SelectTrigger className="w-56">
-                  <SelectValue placeholder="Select artist" />
-                </SelectTrigger>
-                <SelectContent>
-                  {activeArtists.map(a => (
-                    <SelectItem key={a.id} value={a.id}>
-                      {a.full_name}
-                      {a.user_id === user.id ? ' (You)' : ''}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
         </div>
 
-        <Card className="bg-white border-none shadow-lg">
-          <CardContent className="p-6">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-bold text-gray-900">Weekly Schedule</h2>
-              {canEdit && (
+        {/* ── Toolbar ── */}
+        <Card className="bg-white border-none shadow-md">
+          <CardContent className="p-3 sm:p-4">
+            <div className="rounded-xl bg-gray-50/80 p-3 sm:p-4 space-y-3">
+              <div className="flex flex-wrap gap-2 items-center">
+                <Select value={view} onValueChange={setView}>
+                  <SelectTrigger className="text-sm w-32 shrink-0">
+                    <SelectValue placeholder="View" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="day">Day View</SelectItem>
+                    <SelectItem value="week">Week View</SelectItem>
+                    {!isMobile && <SelectItem value="month">Month View</SelectItem>}
+                  </SelectContent>
+                </Select>
+
+                <div className="flex gap-1 flex-1 sm:flex-none">
+                  <Button variant="outline" onClick={handlePrev} className="px-3">
+                    <ChevronLeft className="w-4 h-4" />
+                  </Button>
+                  <Button variant="outline" onClick={handleToday} className="px-3 text-sm">
+                    Today
+                  </Button>
+                  <Button variant="outline" onClick={handleNext} className="px-3">
+                    <ChevronRight className="w-4 h-4" />
+                  </Button>
+                </div>
+
+                <div className="text-sm font-semibold text-gray-700 hidden sm:block">
+                  {getViewTitle(currentDate, view)}
+                </div>
+
+                <div className="ml-auto">
+                  <Select
+                    value={artistFilter}
+                    onValueChange={(v) => {
+                      setArtistFilter(v);
+                      setShowScheduleForm(false);
+                      setEditingSchedule(null);
+                    }}
+                  >
+                    <SelectTrigger className="text-sm w-44">
+                      <SelectValue placeholder="All Artists" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Artists</SelectItem>
+                      {activeArtists.map((a) => (
+                        <SelectItem key={a.id} value={a.id}>
+                          <span className="flex items-center gap-2">
+                            <span
+                              className="inline-block w-2.5 h-2.5 rounded-full shrink-0"
+                              style={{ backgroundColor: artistColorMap[a.id] }}
+                            />
+                            {a.full_name}
+                            {a.user_id === user.id ? " (You)" : ""}
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {/* Mobile view title */}
+              <div className="text-sm font-semibold text-gray-700 sm:hidden text-center">
+                {getViewTitle(currentDate, view)}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* ── Weekly Schedule (single artist + editable) ── */}
+        {selectedSingleArtistId && canEditSelectedArtist && (
+          <Card className="bg-white border-none shadow-lg">
+            <CardContent className="p-4 sm:p-6">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-lg font-bold text-gray-900">Weekly Schedule</h2>
                 <Button size="sm" onClick={handleNewSchedule} className="bg-indigo-600 hover:bg-indigo-700">
                   <Plus className="w-4 h-4 mr-1" /> Add Day
                 </Button>
+              </div>
+
+              {activeSchedules.length === 0 && !showScheduleForm && (
+                <p className="text-sm text-gray-500 text-center py-4">
+                  No recurring weekly schedule set. Add regular working days.
+                </p>
               )}
-            </div>
 
-            {activeSchedules.length === 0 && !showScheduleForm && (
-              <p className="text-sm text-gray-500 text-center py-4">No recurring weekly schedule set. Add regular working days.</p>
-            )}
-
-            {activeSchedules.length > 0 && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 mb-4">
-                {activeSchedules.map(sched => {
-                  const loc = sortedLocations.find(l => l.id === sched.location_id);
-                  return (
-                    <div key={sched.id} className="flex items-center justify-between bg-green-50 border border-green-200 rounded-lg px-3 py-2 text-sm group">
-                      <div>
-                        <span className="font-semibold text-green-900">{DAY_NAMES[sched.day_of_week]}</span>
-                        <span className="text-green-700 ml-2">{formatTimeRange12h(sched.start_time, sched.end_time)}</span>
-                        {loc && <span className="text-green-600 ml-1 text-xs">({loc.name})</span>}
-                      </div>
-                      {canEdit && (
+              {activeSchedules.length > 0 && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 mb-4">
+                  {activeSchedules.map((sched) => {
+                    const loc = sortedLocations.find((l) => l.id === sched.location_id);
+                    return (
+                      <div
+                        key={sched.id}
+                        className="flex items-center justify-between bg-green-50 border border-green-200 rounded-lg px-3 py-2 text-sm group"
+                      >
+                        <div>
+                          <span className="font-semibold text-green-900">{DAY_NAMES[sched.day_of_week]}</span>
+                          <span className="text-green-700 ml-2">{formatTimeRange12h(sched.start_time, sched.end_time)}</span>
+                          {loc && <span className="text-green-600 ml-1 text-xs">({loc.name})</span>}
+                        </div>
                         <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                           <button onClick={() => handleEditSchedule(sched)} className="text-gray-500 hover:text-indigo-600">
                             <Save className="w-3.5 h-3.5" />
@@ -343,208 +375,120 @@ export default function MyAvailability() {
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            {showScheduleForm && canEdit && (
-              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-3">
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  <div className="space-y-1">
-                    <Label className="text-xs">Day</Label>
-                    <Select
-                      value={String(scheduleForm.day_of_week)}
-                      onValueChange={(v) => setScheduleForm({ ...scheduleForm, day_of_week: parseInt(v) })}
-                    >
-                      <SelectTrigger className="text-sm"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        {DAY_NAMES.map((name, idx) => (
-                          <SelectItem key={idx} value={String(idx)}>{name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">Start</Label>
-                    <Input
-                      type="time"
-                      value={scheduleForm.start_time}
-                      onChange={(e) => setScheduleForm({ ...scheduleForm, start_time: e.target.value })}
-                      className="text-sm"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">End</Label>
-                    <Input
-                      type="time"
-                      value={scheduleForm.end_time}
-                      onChange={(e) => setScheduleForm({ ...scheduleForm, end_time: e.target.value })}
-                      className="text-sm"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs">Location</Label>
-                    <Select
-                      value={scheduleForm.location_id || '__all__'}
-                      onValueChange={(v) => setScheduleForm({ ...scheduleForm, location_id: v === '__all__' ? '' : v })}
-                    >
-                      <SelectTrigger className="text-sm"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__all__">All Locations</SelectItem>
-                        {sortedLocations.map(l => (
-                          <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-                <div className="flex gap-2 justify-end">
-                  <Button size="sm" variant="outline" onClick={() => { setShowScheduleForm(false); setEditingSchedule(null); }}>Cancel</Button>
-                  <Button size="sm" className="bg-indigo-600 hover:bg-indigo-700" onClick={handleSaveSchedule}
-                    disabled={createScheduleMutation.isPending || updateScheduleMutation.isPending}
-                  >
-                    {editingSchedule ? 'Update' : 'Save'}
-                  </Button>
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className="bg-white border-none shadow-lg">
-          <CardContent className="p-6">
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-2xl font-bold text-gray-900">
-                {format(currentDate, 'MMMM yyyy')}
-              </h2>
-              <div className="flex gap-2">
-                <Button variant="outline" onClick={handlePrevMonth}>
-                  <ChevronLeft className="w-4 h-4" />
-                </Button>
-                <Button variant="outline" onClick={handleToday}>
-                  Today
-                </Button>
-                <Button variant="outline" onClick={handleNextMonth}>
-                  <ChevronRight className="w-4 h-4" />
-                </Button>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-7 gap-2">
-              {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map(day => (
-                <div key={day} className="text-center font-semibold text-gray-600 text-sm p-2">
-                  {day}
-                </div>
-              ))}
-
-              {days.map((day, idx) => {
-                const dayAvailabilities = getAvailabilityForDay(day);
-                const dayWeeklySchedules = getWeeklyScheduleForDay(day);
-                const isToday = isSameDay(day, new Date());
-                const isCurrentMonth = isSameMonth(day, currentDate);
-
-                return (
-                  <div
-                    key={idx}
-                    className={`min-h-[120px] p-2 rounded-lg border-2 transition-all duration-200 ${
-                      isToday ? 'border-indigo-500 bg-indigo-50' : 'border-gray-100'
-                    } ${
-                      !isCurrentMonth ? 'bg-gray-50' : 'bg-white'
-                    }`}
-                  >
-                    <div className="flex justify-between items-center mb-2">
-                      <div className={`text-sm font-medium ${
-                        isToday ? 'text-indigo-600' : isCurrentMonth ? 'text-gray-900' : 'text-gray-400'
-                      }`}>
-                        {format(day, 'd')}
                       </div>
-                      {isCurrentMonth && canEdit && (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="h-6 w-6 p-0 hover:bg-indigo-100"
-                          onClick={() => handleAddAvailability(day)}
-                        >
-                          <Plus className="w-3 h-3" />
-                        </Button>
-                      )}
-                    </div>
+                    );
+                  })}
+                </div>
+              )}
 
+              {showScheduleForm && (
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 space-y-3">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                     <div className="space-y-1">
-                      {dayWeeklySchedules.map(ws => {
-                        const loc = sortedLocations.find(l => l.id === ws.location_id);
-                        return (
-                          <div key={'ws-' + ws.id} className="text-xs p-1.5 rounded bg-indigo-50 border border-indigo-200 text-indigo-700">
-                            <div className="font-medium">{formatTimeRange12h(ws.start_time, ws.end_time)}</div>
-                            <div className="text-indigo-500 text-[10px]">{loc ? loc.name : 'All'} (weekly)</div>
-                          </div>
-                        );
-                      })}
-                      {dayAvailabilities.map(avail => {
-                        const location = sortedLocations.find(l => l.id === avail.location_id);
-                        const isMultiDay = avail.start_date !== avail.end_date;
-                        
-                        return (
-                          <div
-                            key={avail.id}
-                            onClick={(e) => canEdit && handleEditAvailability(avail, e)}
-                            className={`text-xs p-2 rounded ${canEdit ? 'cursor-pointer' : ''} ${
-                              avail.is_blocked
-                                ? 'bg-red-100 border border-red-200 hover:bg-red-200'
-                                : 'bg-green-100 border border-green-200 hover:bg-green-200'
-                            } group relative transition-colors`}
-                          >
-                            {canEdit && (
-                              <button
-                                onClick={(e) => handleDelete(avail.id, e)}
-                                className="absolute top-0.5 right-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
-                              >
-                                <X className="w-3 h-3 text-gray-600 hover:text-red-600" />
-                              </button>
-                            )}
-                            <div className={`font-medium ${
-                              avail.is_blocked ? 'text-red-900' : 'text-green-900'
-                            }`}>
-                              {formatTimeRange12h(avail.start_time, avail.end_time)}
-                            </div>
-                            {isMultiDay && (
-                              <div className={`text-xs ${
-                                avail.is_blocked ? 'text-red-700' : 'text-green-700'
-                              }`}>
-                                {format(parseISO(avail.start_date + 'T00:00:00'), 'MMM d')} - {format(parseISO(avail.end_date + 'T00:00:00'), 'MMM d')}
-                              </div>
-                            )}
-                            {location && (
-                              <div className={`${
-                                avail.is_blocked ? 'text-red-700' : 'text-green-700'
-                              } truncate`}>
-                                {location.name}
-                              </div>
-                            )}
-                            {!location && (
-                              <div className={`${
-                                avail.is_blocked ? 'text-red-700' : 'text-green-700'
-                              } truncate`}>
-                                All Locations
-                              </div>
-                            )}
-                            {avail.is_blocked && (
-                              <div className="text-red-600 font-medium">Blocked</div>
-                            )}
-                          </div>
-                        );
-                      })}
+                      <Label className="text-xs">Day</Label>
+                      <Select
+                        value={String(scheduleForm.day_of_week)}
+                        onValueChange={(v) => setScheduleForm({ ...scheduleForm, day_of_week: parseInt(v) })}
+                      >
+                        <SelectTrigger className="text-sm">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {DAY_NAMES.map((name, idx) => (
+                            <SelectItem key={idx} value={String(idx)}>
+                              {name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Start</Label>
+                      <Input
+                        type="time"
+                        value={scheduleForm.start_time}
+                        onChange={(e) => setScheduleForm({ ...scheduleForm, start_time: e.target.value })}
+                        className="text-sm"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">End</Label>
+                      <Input
+                        type="time"
+                        value={scheduleForm.end_time}
+                        onChange={(e) => setScheduleForm({ ...scheduleForm, end_time: e.target.value })}
+                        className="text-sm"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs">Location</Label>
+                      <Select
+                        value={scheduleForm.location_id || "__all__"}
+                        onValueChange={(v) =>
+                          setScheduleForm({ ...scheduleForm, location_id: v === "__all__" ? "" : v })
+                        }
+                      >
+                        <SelectTrigger className="text-sm">
+                          <SelectValue placeholder="All" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="__all__">All Locations</SelectItem>
+                          {sortedLocations.map((loc) => (
+                            <SelectItem key={loc.id} value={loc.id}>
+                              {loc.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
                   </div>
-                );
-              })}
-            </div>
+                  <div className="flex gap-2 justify-end">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        setShowScheduleForm(false);
+                        setEditingSchedule(null);
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      size="sm"
+                      className="bg-indigo-600 hover:bg-indigo-700"
+                      onClick={handleSaveSchedule}
+                      disabled={createScheduleMutation.isPending || updateScheduleMutation.isPending}
+                    >
+                      {editingSchedule ? "Update" : "Save"}
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* ── Calendar ── */}
+        <Card className="bg-white border-none shadow-lg">
+          <CardContent className="p-3 sm:p-6">
+            <AvailabilityCalendar
+              view={view}
+              currentDate={currentDate}
+              isMobile={isMobile}
+              artists={activeArtists}
+              availabilities={availabilities}
+              weeklySchedules={weeklySchedules}
+              locations={sortedLocations}
+              artistFilter={artistFilter}
+              artistColorMap={artistColorMap}
+              canEditArtist={canEditArtist}
+              onAddAvailability={handleAddAvailability}
+              onEditAvailability={handleEditAvailability}
+            />
           </CardContent>
         </Card>
 
+        {/* ── Help Card ── */}
         <Card className="bg-gradient-to-r from-indigo-50 to-purple-50 border-none shadow-md">
           <CardContent className="p-6">
             <div className="flex items-start gap-4">
@@ -552,11 +496,12 @@ export default function MyAvailability() {
               <div>
                 <h3 className="font-semibold text-gray-900 mb-2">How Availability Works</h3>
                 <ul className="space-y-1 text-sm text-gray-600">
-                  <li>• Use <strong>Weekly Schedule</strong> to set regular working days (e.g. Mon/Wed/Fri 10am–6pm)</li>
-                  <li>• Use the calendar to add one-off availability or block off specific time</li>
+                  <li>• Use the <strong>artist filter</strong> to view a specific person or the whole team</li>
+                  <li>• Select an artist to manage their <strong>Weekly Schedule</strong> (recurring working days)</li>
+                  <li>• Use the calendar to add one-off availability or block time off</li>
+                  <li>• Toggle <strong>All Day</strong> to book entire days off without choosing times</li>
                   <li>• Set date ranges for multi-day periods (like vacations)</li>
-                  <li>• Choose a specific location or leave blank for all locations</li>
-                  <li>• Mark time as "blocked" for time off or breaks</li>
+                  <li>• Switch between <strong>Day</strong>, <strong>Week</strong>, and <strong>Month</strong> views</li>
                   <li>• Appointments can only be booked during scheduled or available times</li>
                 </ul>
               </div>
@@ -565,15 +510,18 @@ export default function MyAvailability() {
         </Card>
       </div>
 
-      {selectedArtistId && user && (
+      {/* ── Availability Dialog ── */}
+      {user && (
         <AvailabilityDialog
           open={showDialog}
           onOpenChange={setShowDialog}
           date={selectedDate}
           availability={selectedAvailability}
-          artistId={selectedArtistId}
+          artistId={dialogArtistId}
+          artists={activeArtists}
           locations={sortedLocations}
           currentUser={user}
+          isAdmin={isAdmin}
         />
       )}
     </div>

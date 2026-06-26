@@ -40,7 +40,11 @@ export function sumExplicitAvailableHoursInRange(rows, {
     }
     const days = countOverlappingDays(row.start_date, row.end_date, rangeStartStr, rangeEndStr);
     if (days <= 0) continue;
-    total += days * hoursPerDayFromTimeRange(row.start_time, row.end_time);
+    if (row.is_all_day) {
+      total += days * 24;
+    } else {
+      total += days * hoursPerDayFromTimeRange(row.start_time, row.end_time);
+    }
   }
   return total;
 }

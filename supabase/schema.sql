@@ -102,12 +102,16 @@ create table if not exists availabilities (
   location_id uuid references locations (id),
   start_date date not null,
   end_date date not null,
-  start_time text not null,
-  end_time text not null,
+  start_time text,
+  end_time text,
   is_blocked boolean default false,
+  is_all_day boolean not null default false,
   notes text,
   created_at timestamptz default now(),
-  updated_at timestamptz default now()
+  updated_at timestamptz default now(),
+  constraint availabilities_times_required_unless_all_day check (
+    is_all_day = true or (start_time is not null and end_time is not null)
+  )
 );
 
 create table if not exists workstations (

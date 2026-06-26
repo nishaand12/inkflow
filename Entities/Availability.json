@@ -37,6 +37,11 @@
         "default": false,
         "description": "Whether this is a blocked time (unavailable)"
       },
+      "is_all_day": {
+        "type": "boolean",
+        "default": false,
+        "description": "Whether this covers the entire day (times are null when true)"
+      },
       "notes": {
         "type": "string",
         "description": "Notes about availability"
@@ -46,9 +51,7 @@
       "studio_id",
       "artist_id",
       "start_date",
-      "end_date",
-      "start_time",
-      "end_time"
+      "end_date"
     ],
     "rls": {
       "read": {

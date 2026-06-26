@@ -11,41 +11,48 @@ import { Textarea } from "@/components/ui/textarea";
 import { format } from "date-fns";
 import { Save, Trash2 } from "lucide-react";
 
-export default function AvailabilityDialog({ open, onOpenChange, date, availability, artistId, locations, currentUser }) {
+export default function AvailabilityDialog({ open, onOpenChange, date, availability, artistId, artists, locations, currentUser, isAdmin }) {
   const queryClient = useQueryClient();
   const [formData, setFormData] = useState({
+    artist_id: artistId || '',
     location_id: '',
     start_date: date ? format(date, 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'),
     end_date: date ? format(date, 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'),
     start_time: '09:00',
     end_time: '17:00',
     is_blocked: false,
+    is_all_day: false,
     notes: ''
   });
 
   useEffect(() => {
     if (availability) {
       setFormData({
+        artist_id: availability.artist_id || artistId || '',
         location_id: availability.location_id || '',
         start_date: availability.start_date,
         end_date: availability.end_date,
-        start_time: availability.start_time,
-        end_time: availability.end_time,
+        start_time: availability.start_time || '09:00',
+        end_time: availability.end_time || '17:00',
         is_blocked: availability.is_blocked || false,
+        is_all_day: availability.is_all_day || false,
         notes: availability.notes || ''
       });
     } else if (date) {
-      setFormData({
+      setFormData(prev => ({
+        ...prev,
+        artist_id: artistId || prev.artist_id || '',
         location_id: '',
         start_date: format(date, 'yyyy-MM-dd'),
         end_date: format(date, 'yyyy-MM-dd'),
         start_time: '09:00',
         end_time: '17:00',
         is_blocked: false,
+        is_all_day: false,
         notes: ''
-      });
+      }));
     }
-  }, [availability, date]);
+  }, [availability, date, artistId]);
 
   const createMutation = useMutation({
     mutationFn: (data) => base44.entities.Availability.create(data),
@@ -75,14 +82,13 @@ export default function AvailabilityDialog({ open, onOpenChange, date, availabil
   const handleSubmit = (e) => {
     e.preventDefault();
     
-    // Build submit data, excluding location_id if empty (for "All Locations")
-    const { location_id, ...restFormData } = formData;
+    const { location_id, artist_id, ...restFormData } = formData;
     const submitData = {
       studio_id: currentUser?.studio_id,
-      artist_id: artistId,
+      artist_id: artist_id || artistId,
       ...restFormData,
-      // Only include location_id if it's set (not empty)
-      ...(location_id ? { location_id } : { location_id: null })
+      ...(location_id ? { location_id } : { location_id: null }),
+      ...(formData.is_all_day ? { start_time: null, end_time: null } : {}),
     };
 
     if (availability) {
@@ -100,15 +106,19 @@ export default function AvailabilityDialog({ open, onOpenChange, date, availabil
 
   const resetForm = () => {
     setFormData({
+      artist_id: artistId || '',
       location_id: '',
       start_date: format(new Date(), 'yyyy-MM-dd'),
       end_date: format(new Date(), 'yyyy-MM-dd'),
       start_time: '09:00',
       end_time: '17:00',
       is_blocked: false,
+      is_all_day: false,
       notes: ''
     });
   };
+
+  const showArtistPicker = isAdmin && artists && artists.length > 0 && !artistId;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -123,6 +133,27 @@ export default function AvailabilityDialog({ open, onOpenChange, date, availabil
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-6">
+          {showArtistPicker && (
+            <div className="space-y-2">
+              <Label htmlFor="artist_id">Artist *</Label>
+              <Select
+                value={formData.artist_id}
+                onValueChange={(value) => setFormData({ ...formData, artist_id: value })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select artist" />
+                </SelectTrigger>
+                <SelectContent>
+                  {artists.map(a => (
+                    <SelectItem key={a.id} value={a.id}>
+                      {a.full_name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="start_date">Start Date *</Label>
@@ -171,29 +202,45 @@ export default function AvailabilityDialog({ open, onOpenChange, date, availabil
             </p>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label htmlFor="start_time">Start Time *</Label>
-              <Input
-                id="start_time"
-                type="time"
-                value={formData.start_time}
-                onChange={(e) => setFormData({ ...formData, start_time: e.target.value })}
-                required
-              />
+          <div className="flex items-center justify-between p-4 rounded-lg border border-gray-200">
+            <div>
+              <Label htmlFor="is_all_day" className="cursor-pointer">All Day</Label>
+              <p className="text-sm text-gray-500">
+                {formData.is_blocked ? 'Block the entire day' : 'Mark as available all day'}
+              </p>
             </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="end_time">End Time *</Label>
-              <Input
-                id="end_time"
-                type="time"
-                value={formData.end_time}
-                onChange={(e) => setFormData({ ...formData, end_time: e.target.value })}
-                required
-              />
-            </div>
+            <Switch
+              id="is_all_day"
+              checked={formData.is_all_day}
+              onCheckedChange={(checked) => setFormData({ ...formData, is_all_day: checked })}
+            />
           </div>
+
+          {!formData.is_all_day && (
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="start_time">Start Time *</Label>
+                <Input
+                  id="start_time"
+                  type="time"
+                  value={formData.start_time}
+                  onChange={(e) => setFormData({ ...formData, start_time: e.target.value })}
+                  required
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="end_time">End Time *</Label>
+                <Input
+                  id="end_time"
+                  type="time"
+                  value={formData.end_time}
+                  onChange={(e) => setFormData({ ...formData, end_time: e.target.value })}
+                  required
+                />
+              </div>
+            </div>
+          )}
 
           <div className="flex items-center justify-between p-4 rounded-lg border border-gray-200">
             <div>
@@ -241,7 +288,7 @@ export default function AvailabilityDialog({ open, onOpenChange, date, availabil
               <Button
                 type="submit"
                 className="bg-indigo-600 hover:bg-indigo-700"
-                disabled={createMutation.isPending || updateMutation.isPending}
+                disabled={createMutation.isPending || updateMutation.isPending || (showArtistPicker && !formData.artist_id)}
               >
                 <Save className="w-4 h-4 mr-2" />
                 {availability ? 'Update' : 'Save'}

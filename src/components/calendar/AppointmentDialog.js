@@ -604,6 +604,8 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
 
         if (avail.location_id && avail.location_id !== formData.location_id) return false;
 
+        if (avail.is_all_day) return true;
+
         const availStart = timeToMinutes(avail.start_time);
         const availEnd = timeToMinutes(avail.end_time);
 
@@ -611,10 +613,17 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
       });
 
       if (unavailableSlot) {
-        const location = unavailableSlot.location_id 
-          ? locations.find(l => l.id === unavailableSlot.location_id)?.name || 'this location'
-          : 'all locations';
-        errors.artistConflict = `This artist is unavailable from ${formatTime12h(unavailableSlot.start_time)} to ${formatTime12h(unavailableSlot.end_time)} at ${location}.`;
+        if (unavailableSlot.is_all_day) {
+          const location = unavailableSlot.location_id
+            ? locations.find(l => l.id === unavailableSlot.location_id)?.name || 'this location'
+            : 'all locations';
+          errors.artistConflict = `This artist is unavailable all day at ${location}.`;
+        } else {
+          const location = unavailableSlot.location_id 
+            ? locations.find(l => l.id === unavailableSlot.location_id)?.name || 'this location'
+            : 'all locations';
+          errors.artistConflict = `This artist is unavailable from ${formatTime12h(unavailableSlot.start_time)} to ${formatTime12h(unavailableSlot.end_time)} at ${location}.`;
+        }
       } else {
         const dow = appointmentDate.getDay();
         const artistWeeklyEntries = weeklySchedules.filter(
