@@ -360,10 +360,12 @@ export default function CustomerDialog({ open, onOpenChange, customer, locations
                           <div className="min-w-0">
                             <p className="font-medium text-gray-900">
                               {apt.appointment_date}
-                              {apt.start_time ? (
+                              {(apt.is_all_day || apt.start_time) ? (
                                 <span className="font-normal text-gray-600">
                                   {" · "}
-                                  {formatTimeRange12h(apt.start_time, apt.end_time)}
+                                  {apt.is_all_day
+                                    ? "All day"
+                                    : formatTimeRange12h(apt.start_time, apt.end_time)}
                                 </span>
                               ) : null}
                             </p>

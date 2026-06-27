@@ -195,8 +195,9 @@ create table if not exists appointments (
   client_email text,
   client_phone text,
   appointment_date date not null,
-  start_time text not null,
-  end_time text not null,
+  start_time text,
+  end_time text,
+  is_all_day boolean not null default false,
   deposit_amount numeric,
   total_estimate numeric,
   charge_amount numeric,
@@ -223,7 +224,10 @@ create table if not exists appointments (
   followup_longterm_sent_at timestamptz,
   reminder_minutes_before integer,
   created_at timestamptz default now(),
-  updated_at timestamptz default now()
+  updated_at timestamptz default now(),
+  constraint appointments_times_required_unless_all_day check (
+    is_all_day = true or (start_time is not null and end_time is not null)
+  )
 );
 
 create table if not exists payments (

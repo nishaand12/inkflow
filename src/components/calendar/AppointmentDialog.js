@@ -14,6 +14,7 @@ import { Trash2, Save, AlertCircle, CheckCircle, Unlock, Mail, Loader2, Link2, C
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import CustomerSearch from "../customers/CustomerSearch";
 import CustomerDialog from "../customers/CustomerDialog";
 import AdvancedSearchDialog from "../customers/AdvancedSearchDialog";
@@ -87,6 +88,7 @@ function computeAvailableStations({
       if (apt.location_id !== locationId) return false;
       if (apt.appointment_date !== appointmentDate) return false;
       if (apt.status === "cancelled" || apt.status === "no_show") return false;
+      if (apt.is_all_day) return false;
 
       const aptStart = timeToMinutesFromTime(apt.start_time);
       const aptEnd = apt.end_time ? timeToMinutesFromTime(apt.end_time) : aptStart + 60;
@@ -185,6 +187,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     appointment_date: defaultDate ? format(defaultDate, 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'),
     start_time: '10:00',
     end_time: '12:00',
+    is_all_day: false,
     deposit_amount: 0,
     total_estimate: 0,
     design_description: '',
@@ -388,6 +391,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
         notes: src.notes || '',
         status: src.status || 'scheduled',
         end_time: src.end_time || '12:00',
+        is_all_day: src.is_all_day || false,
         deposit_amount: src.deposit_amount ?? 0,
         total_estimate: src.total_estimate ?? 0,
         tax_amount: src.tax_amount ?? 0,
@@ -416,6 +420,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
         appointment_date: defaultDate ? format(defaultDate, 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'),
         start_time: '10:00',
         end_time: '12:00',
+        is_all_day: false,
         deposit_amount: 0,
         total_estimate: 0,
         tax_amount: 0,
@@ -439,13 +444,22 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
   }, [appointment, appointmentForForm, defaultDate, open, isArtist, isAdmin, userArtistId, customers, artists, locations]);
 
   useEffect(() => {
-    if (open && formData.artist_id && formData.appointment_date && formData.start_time && formData.location_id) {
+    const canValidateTimed =
+      formData.artist_id &&
+      formData.appointment_date &&
+      formData.start_time &&
+      formData.end_time &&
+      !formData.is_all_day;
+    const canValidateAllDay =
+      formData.artist_id && formData.appointment_date && formData.is_all_day;
+
+    if (open && (canValidateTimed || canValidateAllDay)) {
       validateAppointment();
     } else {
       setValidationErrors({ artistConflict: null, stationsFull: false });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [formData.artist_id, formData.appointment_date, formData.start_time, formData.end_time, formData.location_id, formData.work_station_id, open, allAppointments, workStations, availabilities, appointment, weeklySchedules, locations]);
+  }, [formData.artist_id, formData.appointment_date, formData.start_time, formData.end_time, formData.is_all_day, formData.location_id, formData.work_station_id, open, allAppointments, workStations, availabilities, appointment, weeklySchedules, locations]);
 
   const availableStations = useMemo(
     () =>
@@ -568,6 +582,15 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     const type = appointmentTypes.find(t => t.id === typeId);
     if (type) {
       setFormData(prev => {
+        if (prev.is_all_day) {
+          const svc = type.service_cost != null ? Number(type.service_cost) : NaN;
+          return {
+            ...prev,
+            appointment_type_id: typeId,
+            deposit_amount: type.default_deposit,
+            ...(Number.isFinite(svc) && svc > 0 ? { total_estimate: svc } : {}),
+          };
+        }
         const newEnd = addMinutesToTime(prev.start_time, type.default_duration_minutes || 120);
         const svc = type.service_cost != null ? Number(type.service_cost) : NaN;
         return {
@@ -581,17 +604,77 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     }
   };
 
+  const isActiveAppointment = (apt) =>
+    apt.status !== 'cancelled' && apt.status !== 'no_show';
+
   const validateAppointment = () => {
     const errors = {
       artistConflict: null,
       stationsFull: false
     };
 
-    if (formData.artist_id && formData.appointment_date && formData.start_time && formData.end_time) {
+    if (!formData.artist_id || !formData.appointment_date) {
+      setValidationErrors(errors);
+      return;
+    }
+
+    const appointmentDate = parseISO(formData.appointment_date + 'T00:00:00');
+
+    if (formData.is_all_day) {
+      const unavailableSlot = availabilities.find(avail => {
+        if (avail.artist_id !== formData.artist_id) return false;
+        if (!avail.is_blocked) return false;
+        const availStartDate = parseISO(avail.start_date + 'T00:00:00');
+        const availEndDate = parseISO(avail.end_date + 'T00:00:00');
+        const isDateInRange = appointmentDate >= availStartDate && appointmentDate <= availEndDate;
+        if (!isDateInRange) return false;
+        if (avail.location_id && avail.location_id !== formData.location_id) return false;
+        return avail.is_all_day;
+      });
+
+      if (unavailableSlot) {
+        const location = unavailableSlot.location_id
+          ? locations.find(l => l.id === unavailableSlot.location_id)?.name || 'this location'
+          : 'all locations';
+        errors.artistConflict = `This artist is unavailable all day at ${location}.`;
+      } else {
+        const conflictingAppointment = allAppointments.find(apt => {
+          if (appointment && apt.id === appointment.id) return false;
+          if (apt.artist_id !== formData.artist_id) return false;
+          if (apt.appointment_date !== formData.appointment_date) return false;
+          if (!isActiveAppointment(apt)) return false;
+          return true;
+        });
+
+        if (conflictingAppointment) {
+          if (conflictingAppointment.is_all_day) {
+            errors.artistConflict = 'This artist already has an all-day appointment on this date.';
+          } else {
+            const conflictLocation = locations.find(l => l.id === conflictingAppointment.location_id);
+            errors.artistConflict = `This artist is already booked from ${formatTime12h(conflictingAppointment.start_time)} to ${formatTime12h(conflictingAppointment.end_time)} at ${conflictLocation?.name || 'another location'}.`;
+          }
+        }
+      }
+
+      setValidationErrors(errors);
+      return;
+    }
+
+    if (formData.start_time && formData.end_time) {
       const startMinutes = timeToMinutes(formData.start_time);
       const endMinutes = timeToMinutes(formData.end_time);
-      const appointmentDate = parseISO(formData.appointment_date + 'T00:00:00');
 
+      const allDayConflict = allAppointments.find(apt => {
+        if (appointment && apt.id === appointment.id) return false;
+        if (apt.artist_id !== formData.artist_id) return false;
+        if (apt.appointment_date !== formData.appointment_date) return false;
+        if (!isActiveAppointment(apt)) return false;
+        return apt.is_all_day;
+      });
+
+      if (allDayConflict) {
+        errors.artistConflict = 'This artist has an all-day appointment on this date.';
+      } else {
       const unavailableSlot = availabilities.find(avail => {
         if (avail.artist_id !== formData.artist_id) return false;
         if (!avail.is_blocked) return false;
@@ -662,6 +745,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
             if (apt.artist_id !== formData.artist_id) return false;
             if (apt.appointment_date !== formData.appointment_date) return false;
             if (apt.status === 'cancelled' || apt.status === 'no_show') return false;
+            if (apt.is_all_day) return false;
 
             const aptStart = timeToMinutes(apt.start_time);
             const aptEnd = apt.end_time ? timeToMinutes(apt.end_time) : aptStart + 60;
@@ -675,9 +759,16 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
           }
         }
       }
+      }
     }
 
-    if (formData.location_id && formData.appointment_date && formData.start_time && formData.artist_id) {
+    if (
+      !formData.is_all_day &&
+      formData.location_id &&
+      formData.appointment_date &&
+      formData.start_time &&
+      formData.artist_id
+    ) {
       const stationsForValidation = computeAvailableStations({
         locationId: formData.location_id,
         appointmentDate: formData.appointment_date,
@@ -836,7 +927,13 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
       return;
     }
 
-    if (formData.location_id && formData.appointment_date && formData.start_time && !formData.work_station_id) {
+    if (
+      !formData.is_all_day &&
+      formData.location_id &&
+      formData.appointment_date &&
+      formData.start_time &&
+      !formData.work_station_id
+    ) {
       if (availableStations.length > 0) {
         alert('Please select a work station.');
         return;
@@ -873,10 +970,12 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
       studio_id: currentUser?.studio_id,
       appointment_type_id: sanitizeUuid(formData.appointment_type_id),
       customer_id: sanitizeUuid(formData.customer_id),
-      work_station_id: sanitizeUuid(formData.work_station_id),
+      work_station_id: formData.is_all_day ? null : sanitizeUuid(formData.work_station_id),
       artist_id: sanitizeUuid(formData.artist_id),
       location_id: sanitizeUuid(formData.location_id),
       health_fields: appointment?.health_fields ?? {},
+      is_all_day: formData.is_all_day,
+      ...(formData.is_all_day ? { start_time: null, end_time: null } : {}),
     };
 
     // Tax is set at checkout only; do not persist it from the booking form.
@@ -1123,6 +1222,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
       appointment_date: format(new Date(), 'yyyy-MM-dd'),
       start_time: '10:00',
       end_time: '12:00',
+      is_all_day: false,
       deposit_amount: 0,
       total_estimate: 0,
       design_description: '',
@@ -1320,6 +1420,26 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
               </div>
             </div>
 
+            <div className="flex items-center justify-between p-3 sm:p-4 rounded-lg border border-gray-200">
+              <div>
+                <Label htmlFor="is_all_day" className="cursor-pointer text-sm">All day</Label>
+                <p className="text-xs text-gray-500">Appointment spans the entire day (no specific time)</p>
+              </div>
+              <Switch
+                id="is_all_day"
+                checked={formData.is_all_day}
+                onCheckedChange={(checked) =>
+                  setFormData({
+                    ...formData,
+                    is_all_day: checked,
+                    work_station_id: checked ? '' : formData.work_station_id,
+                  })
+                }
+                disabled={!canEdit()}
+              />
+            </div>
+
+            {!formData.is_all_day && (
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
               <div className="space-y-2 col-span-2 sm:col-span-1">
                 <Label className="text-sm">Date *</Label>
@@ -1364,8 +1484,9 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                 />
               </div>
             </div>
+            )}
 
-            {formData.location_id && formData.appointment_date && formData.start_time && canEdit() && (
+            {!formData.is_all_day && formData.location_id && formData.appointment_date && formData.start_time && canEdit() && (
               <div className="space-y-2">
                 <Label htmlFor="work_station_id">Work Station *</Label>
                 <Select

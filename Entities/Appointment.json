@@ -51,6 +51,11 @@
         "type": "string",
         "description": "End time (HH:MM format)"
       },
+      "is_all_day": {
+        "type": "boolean",
+        "default": false,
+        "description": "Whether this appointment spans the entire day (times are null when true)"
+      },
       "deposit_amount": {
         "type": "number",
         "description": "Deposit amount paid"
@@ -151,9 +156,7 @@
       "studio_id",
       "artist_id",
       "location_id",
-      "appointment_date",
-      "start_time",
-      "end_time"
+      "appointment_date"
     ],
     "rls": {
       "read": {

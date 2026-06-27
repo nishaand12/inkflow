@@ -91,6 +91,15 @@ export function computeArtistSlots({
       (!excludeAppointmentId || a.id !== excludeAppointmentId)
   );
 
+  const activeDayAppointments = dayAppointments.filter(
+    (a) => a.status !== "cancelled" && a.status !== "no_show"
+  );
+
+  const hasAllDayAppointment = activeDayAppointments.some((a) => a.is_all_day);
+  if (hasAllDayAppointment) return [];
+
+  const timedDayAppointments = activeDayAppointments.filter((a) => !a.is_all_day);
+
   const locationStations = workStations.filter((ws) => ws.location_id === locationId);
   const slots = [];
 
@@ -110,14 +119,14 @@ export function computeArtistSlots({
       });
       if (isBlocked) continue;
 
-      const hasConflict = dayAppointments.some((apt) => {
+      const hasConflict = timedDayAppointments.some((apt) => {
         const as = timeToMinutes(apt.start_time);
         const ae = apt.end_time ? timeToMinutes(apt.end_time) : as + 60;
         return slotStart < ae && slotEnd > as;
       });
       if (hasConflict) continue;
 
-      const occupiedStations = dayAppointments
+      const occupiedStations = timedDayAppointments
         .filter((apt) => {
           if (apt.location_id !== locationId) return false;
           const as = timeToMinutes(apt.start_time);

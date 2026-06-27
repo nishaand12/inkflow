@@ -32,10 +32,11 @@ import {
 
 // ─── Time grid constants ───────────────────────────────────────────────────
 const HOUR_HEIGHT = 64;   // px per hour
-const START_HOUR  = 9;    // 9 AM
-const END_HOUR    = 21;   // 9 PM (last block is 8–9 PM)
+const START_HOUR  = 0;    // midnight
+const END_HOUR    = 24;   // end of day (hour rows 0–23)
 const GRID_HOURS  = END_HOUR - START_HOUR;
 const TOTAL_HEIGHT = GRID_HOURS * HOUR_HEIGHT;
+const NOON_OFFSET = 12 * HOUR_HEIGHT;
 
 const HOURS_LIST = Array.from({ length: GRID_HOURS }, (_, i) => START_HOUR + i);
 
@@ -92,6 +93,83 @@ function layoutDayAppointments(apts) {
   });
 }
 
+const ALL_DAY_COLLAPSED_LIMIT = 1;
+
+function AllDayAppointmentsRow({
+  days,
+  getAllDayAppointmentsForDay,
+  expandedDays,
+  onToggleExpand,
+  onEditAppointment,
+  artists,
+  locations,
+  getCustomerName,
+  isOwnAppointment,
+  getAptColor,
+  getAptTypeName,
+}) {
+  const hasAny = days.some((day) => getAllDayAppointmentsForDay(day).length > 0);
+  if (!hasAny) return null;
+
+  return (
+    <div className="flex border-b border-gray-200 bg-gray-50/90 shrink-0">
+      <div className="w-14 sm:w-16 shrink-0 border-r border-gray-100 text-[10px] text-gray-400 text-right pr-2 py-1.5 self-start">
+        all-day
+      </div>
+      {days.map((day, idx) => {
+        const allDayApts = getAllDayAppointmentsForDay(day);
+        const dayKey = format(day, 'yyyy-MM-dd');
+        const isExpanded = expandedDays.has(dayKey);
+        const visibleApts = isExpanded
+          ? allDayApts
+          : allDayApts.slice(0, ALL_DAY_COLLAPSED_LIMIT);
+        const hiddenCount = allDayApts.length - ALL_DAY_COLLAPSED_LIMIT;
+        const showExpand = allDayApts.length > ALL_DAY_COLLAPSED_LIMIT;
+
+        return (
+          <div
+            key={idx}
+            className="flex-1 min-w-0 border-l border-gray-100 first:border-l-0 px-0.5 py-0.5 space-y-0.5"
+          >
+            {visibleApts.map((apt) => (
+              <AppointmentCard
+                key={apt.id}
+                appointment={{ ...apt, client_name: getCustomerName(apt) }}
+                artists={artists}
+                locations={locations}
+                onClick={() => onEditAppointment(apt)}
+                compact
+                isOwnAppointment={isOwnAppointment(apt)}
+                artistColor={getAptColor(apt)}
+                appointmentTypeName={getAptTypeName(apt)}
+              />
+            ))}
+            {showExpand && (
+              <button
+                type="button"
+                onClick={() => onToggleExpand(dayKey)}
+                className="flex items-center gap-0.5 w-full text-[10px] text-gray-500 hover:text-gray-700 px-1 py-0.5 rounded hover:bg-gray-100"
+              >
+                {isExpanded ? (
+                  <>
+                    <ChevronUp className="w-3 h-3 shrink-0" />
+                    <span>Show less</span>
+                  </>
+                ) : (
+                  <>
+                    <ChevronDown className="w-3 h-3 shrink-0" />
+                    <span>+{hiddenCount} more</span>
+                  </>
+                )}
+              </button>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ─── Component ────────────────────────────────────────────────────────────
 export default function Calendar() {
   const isMobile = useIsMobile();
@@ -114,6 +192,7 @@ export default function Calendar() {
   const [selectedDate, setSelectedDate]           = useState(null);
   const [user, setUser]                           = useState(null);
   const [userArtist, setUserArtist]               = useState(null);
+  const [expandedAllDayDays, setExpandedAllDayDays] = useState(() => new Set());
 
   const advancedActiveCount = [selectedLocation, workStationFilter, specificTypeFilter]
     .filter(v => v && v !== 'all').length + (customerSearch ? 1 : 0);
@@ -124,12 +203,29 @@ export default function Calendar() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMobile]);
 
-  // Scroll time grid to 9 AM (start of grid) on mount / view change
+  // Scroll time grid to center on 12 noon on mount / view / date change
   useEffect(() => {
     if (scrollRef.current && !isMobile && view !== 'month') {
-      scrollRef.current.scrollTop = 0;
+      const el = scrollRef.current;
+      el.scrollTop = Math.max(
+        0,
+        Math.min(NOON_OFFSET - el.clientHeight / 2, el.scrollHeight - el.clientHeight)
+      );
     }
-  }, [view, isMobile]);
+  }, [view, isMobile, currentDate]);
+
+  useEffect(() => {
+    setExpandedAllDayDays(new Set());
+  }, [view, currentDate]);
+
+  const toggleAllDayExpand = useCallback((dayKey) => {
+    setExpandedAllDayDays((prev) => {
+      const next = new Set(prev);
+      if (next.has(dayKey)) next.delete(dayKey);
+      else next.add(dayKey);
+      return next;
+    });
+  }, []);
 
   useEffect(() => { loadUser(); }, []);
 
@@ -298,6 +394,9 @@ export default function Calendar() {
       )
     );
 
+  const getAllDayAppointmentsForDay = (day) =>
+    getAppointmentsForDay(day).filter((a) => a.is_all_day);
+
   const isOwnAppointment = (apt) => !userArtist || apt.artist_id === userArtist.id;
 
   // ── Navigation ──────────────────────────────────────────────────────────
@@ -330,7 +429,7 @@ export default function Calendar() {
   const now = new Date();
   const nowMinutes = now.getHours() * 60 + now.getMinutes();
   const nowTop = ((nowMinutes - START_HOUR * 60) / 60) * HOUR_HEIGHT;
-  const showNowLine = nowMinutes >= START_HOUR * 60 && nowMinutes <= END_HOUR * 60;
+  const showNowLine = true;
 
   // ── Date header label ───────────────────────────────────────────────────
   const headerLabel =
@@ -551,6 +650,8 @@ export default function Calendar() {
                 ))}
                 {days.map((day, idx) => {
                   const dayApts  = getAppointmentsForDay(day);
+                  const allDayApts = dayApts.filter((a) => a.is_all_day);
+                  const timedApts = dayApts.filter((a) => !a.is_all_day);
                   const isCurrentMonth = isSameMonth(day, currentDate);
                   const isToday  = isSameDay(day, new Date());
                   return (
@@ -567,7 +668,7 @@ export default function Calendar() {
                         {format(day, 'd')}
                       </div>
                       <div className="space-y-0.5">
-                        {dayApts.slice(0, 3).map(apt => (
+                        {allDayApts.map(apt => (
                           <AppointmentCard
                             key={apt.id}
                             appointment={{ ...apt, client_name: getCustomerName(apt) }}
@@ -580,8 +681,21 @@ export default function Calendar() {
                             appointmentTypeName={getAptTypeName(apt)}
                           />
                         ))}
-                        {dayApts.length > 3 && (
-                          <div className="text-xs text-gray-500 text-center">+{dayApts.length - 3} more</div>
+                        {timedApts.slice(0, 3).map(apt => (
+                          <AppointmentCard
+                            key={apt.id}
+                            appointment={{ ...apt, client_name: getCustomerName(apt) }}
+                            artists={artists}
+                            locations={locations}
+                            onClick={e => { e.stopPropagation(); handleEditAppointment(apt); }}
+                            compact
+                            isOwnAppointment={isOwnAppointment(apt)}
+                            artistColor={getAptColor(apt)}
+                            appointmentTypeName={getAptTypeName(apt)}
+                          />
+                        ))}
+                        {timedApts.length > 3 && (
+                          <div className="text-xs text-gray-500 text-center">+{timedApts.length - 3} more</div>
                         )}
                       </div>
                     </div>
@@ -595,13 +709,11 @@ export default function Calendar() {
             ═══════════════════════════════════════════════════════════ */}
             {!isMobile && view !== 'month' && (
               <div
-                ref={scrollRef}
-                className="overflow-y-auto rounded-lg border border-gray-100"
+                className="flex flex-col rounded-lg border border-gray-100"
                 style={{ maxHeight: 'calc(100vh - 340px)', minHeight: 400 }}
               >
-                {/* Sticky day headers */}
-                <div className="sticky top-0 z-20 flex bg-white border-b border-gray-200 shadow-sm">
-                  {/* Gutter spacer */}
+                {/* Fixed day headers */}
+                <div className="flex shrink-0 bg-white border-b border-gray-200 shadow-sm z-20">
                   <div className="w-14 sm:w-16 shrink-0 border-r border-gray-100" />
                   {days.map((day, idx) => {
                     const isToday = isSameDay(day, new Date());
@@ -628,121 +740,138 @@ export default function Calendar() {
                   })}
                 </div>
 
-                {/* Grid body */}
-                <div className="flex">
-                  {/* Time gutter */}
-                  <div
-                    className="w-14 sm:w-16 shrink-0 relative select-none border-r border-gray-100"
-                    style={{ height: TOTAL_HEIGHT }}
-                  >
-                    {HOURS_LIST.map((hour, i) => (
-                      <div
-                        key={hour}
-                        className="absolute right-2 text-[11px] text-gray-400 font-medium leading-none"
-                        style={{ top: i * HOUR_HEIGHT - 7 }}
-                      >
-                        {formatHourLabel(hour)}
-                      </div>
-                    ))}
-                  </div>
+                {/* Fixed all-day row — outside scroll so it stays visible */}
+                <AllDayAppointmentsRow
+                  days={days}
+                  getAllDayAppointmentsForDay={getAllDayAppointmentsForDay}
+                  expandedDays={expandedAllDayDays}
+                  onToggleExpand={toggleAllDayExpand}
+                  onEditAppointment={handleEditAppointment}
+                  artists={artists}
+                  locations={locations}
+                  getCustomerName={getCustomerName}
+                  isOwnAppointment={isOwnAppointment}
+                  getAptColor={getAptColor}
+                  getAptTypeName={getAptTypeName}
+                />
 
-                  {/* Day columns */}
-                  {days.map((day, dayIdx) => {
-                    const dayApts  = getAppointmentsForDay(day);
-                    const laid     = layoutDayAppointments(dayApts);
-                    const isToday  = isSameDay(day, new Date());
+                {/* Scrollable time grid only */}
+                <div ref={scrollRef} className="overflow-y-auto flex-1 min-h-0">
+                  <div className="flex">
+                    {/* Time gutter */}
+                    <div
+                      className="w-14 sm:w-16 shrink-0 relative select-none border-r border-gray-100"
+                      style={{ height: TOTAL_HEIGHT }}
+                    >
+                      {HOURS_LIST.map((hour, i) => (
+                        <div
+                          key={hour}
+                          className="absolute right-2 text-[11px] text-gray-400 font-medium leading-none"
+                          style={{ top: i * HOUR_HEIGHT - 7 }}
+                        >
+                          {formatHourLabel(hour)}
+                        </div>
+                      ))}
+                    </div>
 
-                    return (
-                      <div
-                        key={dayIdx}
-                        className="flex-1 min-w-0 relative border-l border-gray-100 first:border-l-0"
-                        style={{ height: TOTAL_HEIGHT }}
-                        onClick={(e) => {
-                          // Click on empty area → new appointment on that day
-                          if (e.target === e.currentTarget) handleNewAppointment(day);
-                        }}
-                      >
-                        {/* Hour grid lines */}
-                        {HOURS_LIST.map((_, i) => (
-                          <React.Fragment key={i}>
+                    {/* Day columns */}
+                    {days.map((day, dayIdx) => {
+                      const dayApts = getAppointmentsForDay(day);
+                      const timedApts = dayApts.filter((a) => !a.is_all_day && a.start_time);
+                      const laid = layoutDayAppointments(timedApts);
+                      const isToday = isSameDay(day, new Date());
+
+                      return (
+                        <div
+                          key={dayIdx}
+                          className="flex-1 min-w-0 relative border-l border-gray-100 first:border-l-0"
+                          style={{ height: TOTAL_HEIGHT }}
+                          onClick={(e) => {
+                            if (e.target === e.currentTarget) handleNewAppointment(day);
+                          }}
+                        >
+                          {/* Hour grid lines */}
+                          {HOURS_LIST.map((_, i) => (
+                            <React.Fragment key={i}>
+                              <div
+                                className="absolute w-full border-t border-gray-100 pointer-events-none"
+                                style={{ top: i * HOUR_HEIGHT }}
+                              />
+                              <div
+                                className="absolute w-full border-t border-gray-50 pointer-events-none"
+                                style={{ top: i * HOUR_HEIGHT + HOUR_HEIGHT / 2 }}
+                              />
+                            </React.Fragment>
+                          ))}
+
+                          {/* Current-time indicator */}
+                          {isToday && showNowLine && (
                             <div
-                              className="absolute w-full border-t border-gray-100 pointer-events-none"
-                              style={{ top: i * HOUR_HEIGHT }}
-                            />
-                            <div
-                              className="absolute w-full border-t border-gray-50 pointer-events-none"
-                              style={{ top: i * HOUR_HEIGHT + HOUR_HEIGHT / 2 }}
-                            />
-                          </React.Fragment>
-                        ))}
-
-                        {/* Current-time indicator */}
-                        {isToday && showNowLine && (
-                          <div
-                            className="absolute w-full z-20 pointer-events-none"
-                            style={{ top: nowTop }}
-                          >
-                            <div className="flex items-center">
-                              <div className="w-2 h-2 rounded-full bg-red-500 -ml-1 shrink-0" />
-                              <div className="flex-1 border-t-2 border-red-500" />
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Appointment blocks */}
-                        {laid.map(({ apt, col, totalCols }) => {
-                          const top    = topFromTime(apt.start_time);
-                          const durationMins = apt.end_time
-                            ? parseTimeToMinutes(apt.end_time) - parseTimeToMinutes(apt.start_time)
-                            : 60;
-                          const height = Math.max(HOUR_HEIGHT * 0.45, (durationMins / 60) * HOUR_HEIGHT - 2);
-                          const widthPct = 100 / totalCols;
-                          const leftPct  = (col / totalCols) * 100;
-                          const color    = getAptColor(apt);
-                          const name     = getCustomerName(apt);
-                          const typeName = getAptTypeName(apt);
-
-                          return (
-                            <div
-                              key={apt.id}
-                              onClick={e => { e.stopPropagation(); handleEditAppointment(apt); }}
-                              className="absolute rounded-r-md overflow-hidden cursor-pointer transition-opacity hover:opacity-80 group"
-                              style={{
-                                top: top + 1,
-                                height,
-                                left:  `calc(${leftPct}% + 1px)`,
-                                width: `calc(${widthPct}% - 2px)`,
-                                backgroundColor: hexToRgba(color, 0.15),
-                                borderLeft: `3px solid ${color}`,
-                                zIndex: 10,
-                              }}
+                              className="absolute w-full z-20 pointer-events-none"
+                              style={{ top: nowTop }}
                             >
-                              <div className="p-1 h-full overflow-hidden">
-                                <div className="text-[10px] font-bold leading-none" style={{ color }}>
-                                  {formatTime12h(apt.start_time)}
-                                </div>
-                                {height >= 28 && (
-                                  <div className="text-xs font-semibold text-gray-900 truncate mt-0.5 leading-tight">
-                                    {name}
-                                  </div>
-                                )}
-                                {height >= 44 && typeName && (
-                                  <div className="text-[10px] text-gray-500 truncate leading-tight">
-                                    {typeName}
-                                  </div>
-                                )}
-                                {height >= 58 && apt.end_time && (
-                                  <div className="text-[10px] text-gray-400 leading-tight">
-                                    {formatTimeRange12h(apt.start_time, apt.end_time)}
-                                  </div>
-                                )}
+                              <div className="flex items-center">
+                                <div className="w-2 h-2 rounded-full bg-red-500 -ml-1 shrink-0" />
+                                <div className="flex-1 border-t-2 border-red-500" />
                               </div>
                             </div>
-                          );
-                        })}
-                      </div>
-                    );
-                  })}
+                          )}
+
+                          {/* Appointment blocks */}
+                          {laid.map(({ apt, col, totalCols }) => {
+                            const top = topFromTime(apt.start_time);
+                            const durationMins = apt.end_time
+                              ? parseTimeToMinutes(apt.end_time) - parseTimeToMinutes(apt.start_time)
+                              : 60;
+                            const height = Math.max(HOUR_HEIGHT * 0.45, (durationMins / 60) * HOUR_HEIGHT - 2);
+                            const widthPct = 100 / totalCols;
+                            const leftPct = (col / totalCols) * 100;
+                            const color = getAptColor(apt);
+                            const name = getCustomerName(apt);
+                            const typeName = getAptTypeName(apt);
+
+                            return (
+                              <div
+                                key={apt.id}
+                                onClick={(e) => { e.stopPropagation(); handleEditAppointment(apt); }}
+                                className="absolute rounded-r-md overflow-hidden cursor-pointer transition-opacity hover:opacity-80 group"
+                                style={{
+                                  top: top + 1,
+                                  height,
+                                  left: `calc(${leftPct}% + 1px)`,
+                                  width: `calc(${widthPct}% - 2px)`,
+                                  backgroundColor: hexToRgba(color, 0.15),
+                                  borderLeft: `3px solid ${color}`,
+                                  zIndex: 10,
+                                }}
+                              >
+                                <div className="p-1 h-full overflow-hidden">
+                                  <div className="text-[10px] font-bold leading-none" style={{ color }}>
+                                    {formatTime12h(apt.start_time)}
+                                  </div>
+                                  {height >= 28 && (
+                                    <div className="text-xs font-semibold text-gray-900 truncate mt-0.5 leading-tight">
+                                      {name}
+                                    </div>
+                                  )}
+                                  {height >= 44 && typeName && (
+                                    <div className="text-[10px] text-gray-500 truncate leading-tight">
+                                      {typeName}
+                                    </div>
+                                  )}
+                                  {height >= 58 && apt.end_time && (
+                                    <div className="text-[10px] text-gray-400 leading-tight">
+                                      {formatTimeRange12h(apt.start_time, apt.end_time)}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
             )}
@@ -805,31 +934,66 @@ export default function Calendar() {
                   <div className="text-xs text-indigo-600 font-medium">{format(currentDate, 'EEEE')}</div>
                   <div className="text-xl font-bold text-gray-900">{format(currentDate, 'MMMM d, yyyy')}</div>
                 </div>
-                {getAppointmentsForDay(currentDate).length === 0 ? (
-                  <div className="text-center py-8">
-                    <p className="text-gray-500 text-sm">No appointments scheduled</p>
-                    <Button onClick={() => handleNewAppointment(currentDate)} variant="outline" className="mt-4">
-                      <Plus className="w-4 h-4 mr-2" />
-                      Add Appointment
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {getAppointmentsForDay(currentDate).map(apt => (
-                      <AppointmentCard
-                        key={apt.id}
-                        appointment={{ ...apt, client_name: getCustomerName(apt) }}
-                        artists={artists}
-                        locations={locations}
-                        onClick={() => handleEditAppointment(apt)}
-                        detailed
-                        isMobile
-                        artistColor={getAptColor(apt)}
-                        appointmentTypeName={getAptTypeName(apt)}
-                      />
-                    ))}
-                  </div>
-                )}
+                {(() => {
+                  const dayApts = getAppointmentsForDay(currentDate);
+                  const allDayApts = dayApts.filter((a) => a.is_all_day);
+                  const timedApts = dayApts.filter((a) => !a.is_all_day);
+                  if (dayApts.length === 0) {
+                    return (
+                      <div className="text-center py-8">
+                        <p className="text-gray-500 text-sm">No appointments scheduled</p>
+                        <Button onClick={() => handleNewAppointment(currentDate)} variant="outline" className="mt-4">
+                          <Plus className="w-4 h-4 mr-2" />
+                          Add Appointment
+                        </Button>
+                      </div>
+                    );
+                  }
+                  return (
+                    <div className="space-y-3">
+                      {allDayApts.length > 0 && (
+                        <div className="space-y-2">
+                          <div className="text-xs font-semibold text-gray-500 uppercase">All Day</div>
+                          {allDayApts.map((apt) => (
+                            <AppointmentCard
+                              key={apt.id}
+                              appointment={{ ...apt, client_name: getCustomerName(apt) }}
+                              artists={artists}
+                              locations={locations}
+                              onClick={() => handleEditAppointment(apt)}
+                              detailed
+                              isMobile
+                              isOwnAppointment={isOwnAppointment(apt)}
+                              artistColor={getAptColor(apt)}
+                              appointmentTypeName={getAptTypeName(apt)}
+                            />
+                          ))}
+                        </div>
+                      )}
+                      {timedApts.length > 0 && (
+                        <div className="space-y-2">
+                          {allDayApts.length > 0 && (
+                            <div className="text-xs font-semibold text-gray-500 uppercase">Timed</div>
+                          )}
+                          {timedApts.map((apt) => (
+                            <AppointmentCard
+                              key={apt.id}
+                              appointment={{ ...apt, client_name: getCustomerName(apt) }}
+                              artists={artists}
+                              locations={locations}
+                              onClick={() => handleEditAppointment(apt)}
+                              detailed
+                              isMobile
+                              isOwnAppointment={isOwnAppointment(apt)}
+                              artistColor={getAptColor(apt)}
+                              appointmentTypeName={getAptTypeName(apt)}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             )}
 

@@ -91,11 +91,6 @@ export default function MyAvailability() {
     enabled: !!user?.studio_id,
   });
 
-  const deleteMutation = useMutation({
-    mutationFn: (id) => base44.entities.Availability.delete(id),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["availabilities"] }),
-  });
-
   // ── Weekly schedule CRUD (single-artist mode) ──
   const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
   const [editingSchedule, setEditingSchedule] = useState(null);

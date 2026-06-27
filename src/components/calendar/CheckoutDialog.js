@@ -438,7 +438,11 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
               </div>
               <div>
                 <span className="text-gray-500">Time:</span>
-                <p className="font-medium">{formatTimeRange12h(appointment.start_time, appointment.end_time)}</p>
+                <p className="font-medium">
+                  {appointment.is_all_day
+                    ? "All day"
+                    : formatTimeRange12h(appointment.start_time, appointment.end_time)}
+                </p>
               </div>
               <div>
                 <span className="text-gray-500">Service:</span>

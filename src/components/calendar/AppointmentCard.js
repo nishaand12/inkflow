@@ -38,6 +38,10 @@ export default function AppointmentCard({
     no_show: "No Show"
   };
 
+  const timeLabel = appointment.is_all_day
+    ? "All day"
+    : formatTimeRange12h(appointment.start_time, appointment.end_time);
+
   // Compact chip — used in month view and mobile multi-day views
   if (compact) {
     return (
@@ -50,7 +54,7 @@ export default function AppointmentCard({
         }}
       >
         <div className="font-semibold truncate" style={{ color }}>
-          {formatTime12h(appointment.start_time)}
+          {appointment.is_all_day ? "All day" : formatTime12h(appointment.start_time)}
         </div>
         <div className="truncate text-gray-800 leading-tight">
           {appointment.client_name || 'Client'}
@@ -92,7 +96,7 @@ export default function AppointmentCard({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 sm:gap-3 text-xs sm:text-sm">
             <div className="flex items-center gap-2 text-gray-600">
               <Clock className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
-              <span className="truncate">{formatTimeRange12h(appointment.start_time, appointment.end_time)}</span>
+              <span className="truncate">{timeLabel}</span>
             </div>
             <div className="flex items-center gap-2 text-gray-600">
               <MapPin className="w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0" />
@@ -143,7 +147,7 @@ export default function AppointmentCard({
         <div className="flex items-center gap-2 min-w-0">
           <Clock className="w-4 h-4 text-gray-400 shrink-0" />
           <span className="font-medium text-gray-900 truncate">
-            {formatTime12h(appointment.start_time)} - {appointment.client_name}
+            {appointment.is_all_day ? "All day" : formatTime12h(appointment.start_time)} - {appointment.client_name}
           </span>
         </div>
         <Badge className={`${statusColors[appointment.status]} border text-xs shrink-0`}>
