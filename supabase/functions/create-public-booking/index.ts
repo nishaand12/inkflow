@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import Stripe from "npm:stripe@17";
 import { formatTime12h } from "../_shared/timeDisplay.ts";
+import { resolvePublicBookingDeposit } from "../_shared/publicBookingDeposit.js";
 
 const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY")!;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -25,7 +26,7 @@ serve(async (req) => {
   try {
     const {
       studioId, appointmentTypeId, artistId, locationId, workStationId,
-      date, startTime, endTime, depositAmount,
+      date, startTime, endTime,
       customerName, customerEmail, customerPhone
     } = await req.json();
 
@@ -126,6 +127,8 @@ serve(async (req) => {
         ? Number(aptType.service_cost)
         : null;
 
+    const actualDeposit = resolvePublicBookingDeposit(aptType);
+
     const { data: appointment, error: aptErr } = await supabase
       .from("appointments")
       .insert({
@@ -141,7 +144,7 @@ serve(async (req) => {
         appointment_date: date,
         start_time: startTime,
         end_time: endTime,
-        deposit_amount: depositAmount ?? aptType.default_deposit,
+        deposit_amount: actualDeposit,
         total_estimate: svcCost,
         status: "scheduled",
         booking_source: "public",
@@ -155,8 +158,6 @@ serve(async (req) => {
     }
 
     let checkoutUrl: string | null = null;
-
-    const actualDeposit = depositAmount ?? aptType.default_deposit;
     if (actualDeposit > 0 && studio.stripe_account_id && studio.stripe_charges_enabled) {
       try {
         const currency = (studio.currency || "USD").toLowerCase();

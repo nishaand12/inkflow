@@ -150,7 +150,6 @@ export default function PublicBooking() {
           date: selectedDate,
           startTime: selectedTime,
           endTime: addMinutesToTime(selectedTime, selectedType.default_duration_minutes || 60),
-          depositAmount: selectedType.default_deposit,
           customerName: customerInfo.name,
           customerEmail: customerInfo.email,
           customerPhone: customerInfo.phone
