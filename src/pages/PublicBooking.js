@@ -11,6 +11,10 @@ import { addMinutesToTime, formatDuration, formatTime12h } from "@/utils/index";
 import { format, addDays } from "date-fns";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { isPublicPiercingBookableArtistType } from "@/utils/artistTypes";
+import {
+  buildExclusionKeySet,
+  filterArtistsForAppointmentType,
+} from "@/utils/artistServiceEligibility";
 import AppointmentTypeImage from "@/components/appointment-types/AppointmentTypeImage";
 import { useEmbedResize } from "@/hooks/useEmbedResize";
 import { computeArtistSlots, computeAnyArtistSlots } from "@/utils/bookingSlots";
@@ -33,6 +37,7 @@ export default function PublicBooking() {
   const [appointments, setAppointments] = useState([]);
   const [workStations, setWorkStations] = useState([]);
   const [kindCategories, setKindCategories] = useState([]);
+  const [serviceExclusions, setServiceExclusions] = useState([]);
 
   const [step, setStep] = useState(1);
   const [selectedType, setSelectedType] = useState(null);
@@ -74,6 +79,7 @@ export default function PublicBooking() {
       setAppointments(data.appointments || []);
       setWorkStations(data.workstations || []);
       setKindCategories(data.appointment_kind_categories || []);
+      setServiceExclusions(data.artist_appointment_type_exclusions || []);
     } catch (err) {
       setError("Unable to load booking information. Please check the link and try again.");
     } finally {
@@ -81,10 +87,20 @@ export default function PublicBooking() {
     }
   };
 
+  const exclusionKeys = useMemo(
+    () => buildExclusionKeySet(serviceExclusions),
+    [serviceExclusions]
+  );
+
   const piercers = useMemo(
     () => artists.filter((a) => isPublicPiercingBookableArtistType(a.artist_type)),
     [artists]
   );
+
+  const eligiblePiercers = useMemo(() => {
+    if (!selectedType?.id) return piercers;
+    return filterArtistsForAppointmentType(piercers, selectedType.id, exclusionKeys);
+  }, [piercers, selectedType, exclusionKeys]);
 
   const getSlotsForArtist = (artistId, date) => {
     if (!selectedType || !selectedLocation || !date) return [];
@@ -102,6 +118,10 @@ export default function PublicBooking() {
 
   const handleTypeSelect = (type) => {
     setSelectedType(type);
+    setSelectedArtist('');
+    setSelectedLocation('');
+    setSelectedDate('');
+    setSelectedTime('');
     setStep(2);
     setError(null);
   };
@@ -111,7 +131,7 @@ export default function PublicBooking() {
 
     if (selectedArtist === '__any__') {
       return computeAnyArtistSlots({
-        artistIds: piercers.map((p) => p.id),
+        artistIds: eligiblePiercers.map((p) => p.id),
         date: selectedDate,
         durationMinutes: selectedType.default_duration_minutes || 60,
         locationId: selectedLocation,
@@ -125,7 +145,7 @@ export default function PublicBooking() {
     if (!selectedArtist) return [];
     return getSlotsForArtist(selectedArtist, selectedDate);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedType, selectedArtist, selectedLocation, selectedDate, availabilities, weeklySchedules, appointments, workStations, piercers]);
+  }, [selectedType, selectedArtist, selectedLocation, selectedDate, availabilities, weeklySchedules, appointments, workStations, eligiblePiercers]);
 
   const handleSubmitBooking = async () => {
     if (!customerInfo.name || !customerInfo.email || !customerInfo.phone) {
@@ -343,11 +363,16 @@ export default function PublicBooking() {
                   <SelectTrigger><SelectValue placeholder="Select piercer" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="__any__">Any Available Piercer</SelectItem>
-                    {piercers.map(a => (
+                    {eligiblePiercers.map(a => (
                       <SelectItem key={a.id} value={a.id}>{a.full_name}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
+                {selectedType && eligiblePiercers.length === 0 && (
+                  <p className="text-sm text-amber-700">
+                    No piercers are available for this service. Go back and choose a different service.
+                  </p>
+                )}
               </div>
               <div className="flex gap-2 pt-4">
                 <Button variant="outline" onClick={() => setStep(1)}>Back</Button>
@@ -432,7 +457,7 @@ export default function PublicBooking() {
                 )}
                 <div className="space-y-1">
                   <p><span className="font-medium">Service:</span> {selectedType?.name}</p>
-                  <p><span className="font-medium">Piercer:</span> {selectedArtist === '__any__' ? 'Any Available Piercer' : piercers.find(a => a.id === selectedArtist)?.full_name}</p>
+                  <p><span className="font-medium">Piercer:</span> {selectedArtist === '__any__' ? 'Any Available Piercer' : eligiblePiercers.find(a => a.id === selectedArtist)?.full_name || piercers.find(a => a.id === selectedArtist)?.full_name}</p>
                   <p><span className="font-medium">Location:</span> {locations.find(l => l.id === selectedLocation)?.name}</p>
                   <p><span className="font-medium">Date:</span> {selectedDate} at {formatTime12h(selectedTime)}</p>
                   <p><span className="font-medium">Duration:</span> {formatDuration(selectedType?.default_duration_minutes)}</p>

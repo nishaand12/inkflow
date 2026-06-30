@@ -80,6 +80,7 @@ create table if not exists artists (
   hourly_rate numeric,
   primary_location_id uuid references locations (id),
   preferred_work_station_id uuid references workstations (id) on delete set null,
+  appointment_type_split_enabled boolean not null default false,
   is_active boolean default true,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
@@ -339,6 +340,22 @@ create unique index if not exists artist_split_rules_appointment_default_unique_
 create unique index if not exists artist_split_rules_appointment_artist_unique_idx
   on artist_split_rules(studio_id, appointment_type_id, artist_id)
   where is_active = true and appointment_type_id is not null and artist_id is not null;
+
+create table if not exists artist_appointment_type_exclusions (
+  id uuid primary key default gen_random_uuid(),
+  studio_id uuid not null references studios (id),
+  artist_id uuid not null references artists (id) on delete cascade,
+  appointment_type_id uuid not null references appointment_types (id) on delete cascade,
+  created_at timestamptz not null default now(),
+  unique (artist_id, appointment_type_id)
+);
+
+create index if not exists artist_appointment_type_exclusions_studio_idx
+  on artist_appointment_type_exclusions(studio_id);
+create index if not exists artist_appointment_type_exclusions_artist_idx
+  on artist_appointment_type_exclusions(artist_id);
+create index if not exists artist_appointment_type_exclusions_type_idx
+  on artist_appointment_type_exclusions(appointment_type_id);
 
 create table if not exists daily_settlements (
   id uuid primary key default gen_random_uuid(),

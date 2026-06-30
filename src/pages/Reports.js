@@ -12,7 +12,7 @@ import { format, startOfMonth, endOfMonth, parseISO } from "date-fns";
 import { normalizeUserRole } from "@/utils/roles";
 import { getArtistTypeLabel, isSupportStaffArtistType } from "@/utils/artistTypes";
 import { sumExplicitAvailableHoursInRange } from "@/utils/explicitAvailabilityHours";
-import { resolveRevenueSplitRule } from "@/utils/revenueSplits";
+import { resolveRevenueSplitRule, isAppointmentTypeSplitEnabled } from "@/utils/revenueSplits";
 import {
   CATEGORY_ROLE_REPORTING,
   filterCategoriesByRole,
@@ -262,6 +262,7 @@ export default function Reports() {
       const splitResolution = resolveRevenueSplitRule(splitRules, {
         appointmentTypeId: apt.appointment_type_id,
         artistId: apt.artist_id,
+        appointmentTypeSplitEnabled: isAppointmentTypeSplitEnabled(artist),
       });
 
       const aptCharges = charges.filter(c => c.appointment_id === apt.id);

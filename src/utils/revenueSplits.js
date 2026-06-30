@@ -44,7 +44,14 @@ export function isAppointmentArtistSplitRule(rule, appointmentTypeId) {
   );
 }
 
-export function resolveRevenueSplitRule(splitRules, { appointmentTypeId, artistId }) {
+export function isAppointmentTypeSplitEnabled(artist) {
+  return Boolean(artist?.appointment_type_split_enabled);
+}
+
+export function resolveRevenueSplitRule(
+  splitRules,
+  { appointmentTypeId, artistId, appointmentTypeSplitEnabled = true }
+) {
   const rules = Array.isArray(splitRules) ? splitRules : [];
 
   const buildResult = (rule, source) => {
@@ -78,7 +85,7 @@ export function resolveRevenueSplitRule(splitRules, { appointmentTypeId, artistI
       rule.appointment_type_id === appointmentTypeId &&
       rule.artist_id === artistId
   );
-  if (byAppointmentAndArtist) {
+  if (byAppointmentAndArtist && appointmentTypeSplitEnabled !== false) {
     return buildResult(byAppointmentAndArtist, "appointment_artist");
   }
 

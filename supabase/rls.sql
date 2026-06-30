@@ -453,6 +453,11 @@ begin
       select json_agg(row_to_json(wst))
       from workstations wst
       where wst.studio_id = p_studio_id and wst.status = 'active'
+    ), '[]'::json),
+    'artist_appointment_type_exclusions', coalesce((
+      select json_agg(row_to_json(ex))
+      from artist_appointment_type_exclusions ex
+      where ex.studio_id = p_studio_id
     ), '[]'::json)
   ) into v_result;
 
@@ -597,6 +602,42 @@ using (
 drop policy if exists artist_split_rules_delete on public.artist_split_rules;
 create policy artist_split_rules_delete
 on public.artist_split_rules
+for delete
+using (
+  studio_id = public.current_user_studio()
+  and public.current_user_role() in ('Owner', 'Admin')
+);
+
+-- Artist appointment type exclusions (Owner/Admin manage)
+alter table public.artist_appointment_type_exclusions enable row level security;
+
+drop policy if exists artist_appointment_type_exclusions_select on public.artist_appointment_type_exclusions;
+create policy artist_appointment_type_exclusions_select
+on public.artist_appointment_type_exclusions
+for select
+using (studio_id = public.current_user_studio());
+
+drop policy if exists artist_appointment_type_exclusions_insert on public.artist_appointment_type_exclusions;
+create policy artist_appointment_type_exclusions_insert
+on public.artist_appointment_type_exclusions
+for insert
+with check (
+  studio_id = public.current_user_studio()
+  and public.current_user_role() in ('Owner', 'Admin')
+);
+
+drop policy if exists artist_appointment_type_exclusions_update on public.artist_appointment_type_exclusions;
+create policy artist_appointment_type_exclusions_update
+on public.artist_appointment_type_exclusions
+for update
+using (
+  studio_id = public.current_user_studio()
+  and public.current_user_role() in ('Owner', 'Admin')
+);
+
+drop policy if exists artist_appointment_type_exclusions_delete on public.artist_appointment_type_exclusions;
+create policy artist_appointment_type_exclusions_delete
+on public.artist_appointment_type_exclusions
 for delete
 using (
   studio_id = public.current_user_studio()
