@@ -234,7 +234,9 @@ export default function AppointmentTypeDialog({ open, onOpenChange, appointmentT
       }
     } else if (appointmentDefaultRule) {
       await base44.entities.ArtistSplitRule.update(appointmentDefaultRule.id, {
-        ...appointmentDefaultRule,
+        studio_id: currentUser?.studio_id,
+        appointment_type_id: appointmentTypeId,
+        artist_id: null,
         split_mode: appointmentDefaultSplitMode,
         split_value: desiredDefault,
         split_percent: appointmentDefaultSplitMode === "percent" ? desiredDefault : 0,
@@ -261,7 +263,9 @@ export default function AppointmentTypeDialog({ open, onOpenChange, appointmentT
         await base44.entities.ArtistSplitRule.delete(existing.id);
       } else {
         await base44.entities.ArtistSplitRule.update(existing.id, {
-          ...existing,
+          studio_id: currentUser?.studio_id,
+          appointment_type_id: appointmentTypeId,
+          artist_id: existing.artist_id,
           split_mode: desired.mode,
           split_value: desired.value,
           split_percent: desired.mode === "percent" ? desired.value : 0,

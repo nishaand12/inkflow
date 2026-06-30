@@ -9,7 +9,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { Plus, Search, MapPin, Instagram, Trash, Percent } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Plus, Search, MapPin, Instagram, Trash, Percent, Loader2 } from "lucide-react";
 import { normalizeUserRole } from "@/utils/roles";
 import { isArtistDefaultSplitRule } from "@/utils/revenueSplits";
 import ArtistDialog from "../components/artists/ArtistDialog";
@@ -30,6 +31,7 @@ function SplitRuleDialog({ open, onOpenChange, artist, studioId }) {
   const queryClient = useQueryClient();
   const [splitMode, setSplitMode] = useState("percent");
   const [splitValue, setSplitValue] = useState(50);
+  const [saveError, setSaveError] = useState("");
 
   const { data: splitRules = [] } = useQuery({
     queryKey: ['artistSplitRules', studioId],
@@ -38,6 +40,10 @@ function SplitRuleDialog({ open, onOpenChange, artist, studioId }) {
   });
 
   useEffect(() => {
+    if (!open) {
+      setSaveError("");
+      return;
+    }
     if (artist && splitRules.length >= 0) {
       const existing = splitRules.find(
         (r) => isArtistDefaultSplitRule(r) && r.artist_id === artist.id
@@ -51,31 +57,43 @@ function SplitRuleDialog({ open, onOpenChange, artist, studioId }) {
         setSplitValue(50);
       }
     }
-  }, [artist, splitRules]);
+  }, [artist, splitRules, open]);
 
-  const handleSave = async () => {
-    const existing = splitRules.find(
-      (r) => isArtistDefaultSplitRule(r) && r.artist_id === artist.id
-    );
-    const ruleData = {
-      studio_id: studioId,
-      artist_id: artist.id,
-      appointment_type_id: null,
-      split_mode: splitMode,
-      split_value: Math.max(0, Number(splitValue) || 0),
-      split_percent:
-        splitMode === "percent"
-          ? Math.min(100, Math.max(0, Number(splitValue) || 0))
-          : 0,
-      is_active: true
-    };
-    if (existing) {
-      await base44.entities.ArtistSplitRule.update(existing.id, ruleData);
-    } else {
-      await base44.entities.ArtistSplitRule.create(ruleData);
-    }
-    queryClient.invalidateQueries({ queryKey: ['artistSplitRules'] });
-    onOpenChange(false);
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      const existing = splitRules.find(
+        (r) => isArtistDefaultSplitRule(r) && r.artist_id === artist.id
+      );
+      const ruleData = {
+        studio_id: studioId,
+        artist_id: artist.id,
+        appointment_type_id: null,
+        split_mode: splitMode,
+        split_value: Math.max(0, Number(splitValue) || 0),
+        split_percent:
+          splitMode === "percent"
+            ? Math.min(100, Math.max(0, Number(splitValue) || 0))
+            : 0,
+        is_active: true
+      };
+      if (existing) {
+        return base44.entities.ArtistSplitRule.update(existing.id, ruleData);
+      }
+      return base44.entities.ArtistSplitRule.create(ruleData);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['artistSplitRules'] });
+      onOpenChange(false);
+    },
+    onError: (error) => {
+      console.error("Error saving artist split rule:", error);
+      setSaveError(error?.message || "Failed to save split rule. Please try again.");
+    },
+  });
+
+  const handleSave = () => {
+    setSaveError("");
+    saveMutation.mutate();
   };
 
   return (
@@ -115,10 +133,30 @@ function SplitRuleDialog({ open, onOpenChange, artist, studioId }) {
                 : "Artist receives this fixed amount from service revenue (capped at service amount)."}
             </p>
           </div>
+          {saveError && (
+            <Alert className="border-red-200 bg-red-50 text-red-900">
+              <AlertDescription>{saveError}</AlertDescription>
+            </Alert>
+          )}
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button className="bg-indigo-600 hover:bg-indigo-700" onClick={handleSave}>Save Split Rule</Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saveMutation.isPending}>
+            Cancel
+          </Button>
+          <Button
+            className="bg-indigo-600 hover:bg-indigo-700"
+            onClick={handleSave}
+            disabled={saveMutation.isPending}
+          >
+            {saveMutation.isPending ? (
+              <>
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                Saving…
+              </>
+            ) : (
+              "Save Split Rule"
+            )}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
