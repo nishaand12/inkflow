@@ -175,7 +175,6 @@ serve(async (req) => {
         followup_quick_sent_at: null,
         followup_longterm_sent_at: null,
         followup_midterm_sent_at: null,
-        reminder_sent_at: null,
         notification_anchor_at: new Date().toISOString(),
       })
       .eq("id", appointment.id);

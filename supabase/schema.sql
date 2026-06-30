@@ -85,16 +85,6 @@ create table if not exists artists (
   updated_at timestamptz default now()
 );
 
-create table if not exists artist_locations (
-  id uuid primary key default gen_random_uuid(),
-  studio_id uuid references studios (id),
-  artist_id uuid references artists (id),
-  location_id uuid references locations (id),
-  days_available text[],
-  created_at timestamptz default now(),
-  updated_at timestamptz default now()
-);
-
 create table if not exists availabilities (
   id uuid primary key default gen_random_uuid(),
   studio_id uuid references studios (id),
@@ -207,7 +197,6 @@ create table if not exists appointments (
   design_description text,
   placement text,
   notes text,
-  invitees jsonb,
   deposit_status text default 'none',
   discount_amount numeric default 0,
   health_fields jsonb default '{}',
@@ -215,14 +204,10 @@ create table if not exists appointments (
   email_send_status text default 'pending',
   email_send_failed_reason text,
   email_sent_at timestamptz,
-  reminder_sent_week boolean default false,
-  reminder_sent_day boolean default false,
-  reminder_sent_at timestamptz,
   reminder_primary_sent_at timestamptz,
   reminder_secondary_sent_at timestamptz,
   followup_quick_sent_at timestamptz,
   followup_longterm_sent_at timestamptz,
-  reminder_minutes_before integer,
   created_at timestamptz default now(),
   updated_at timestamptz default now(),
   constraint appointments_times_required_unless_all_day check (
@@ -336,7 +321,6 @@ create table if not exists artist_split_rules (
   split_percent numeric not null default 50,
   split_mode text not null default 'percent' check (split_mode in ('percent', 'fixed_amount')),
   split_value numeric,
-  eligible_category_ids uuid[] default '{}',
   is_active boolean default true,
   constraint artist_split_rules_scope_check check (artist_id is not null or appointment_type_id is not null),
   created_at timestamptz default now(),
@@ -374,7 +358,6 @@ create table if not exists daily_settlements (
   gift_card_returns numeric not null default 0,
   locked_at timestamptz,
   locked_by uuid references users (id),
-  notes text,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );
@@ -480,10 +463,6 @@ for each row execute procedure set_updated_at();
 
 create trigger set_artists_updated_at
 before update on artists
-for each row execute procedure set_updated_at();
-
-create trigger set_artist_locations_updated_at
-before update on artist_locations
 for each row execute procedure set_updated_at();
 
 create trigger set_availabilities_updated_at

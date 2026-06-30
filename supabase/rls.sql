@@ -181,33 +181,6 @@ on public.artists
 for insert
 with check (public.current_user_role() in ('Owner', 'Admin'));
 
--- Artist Locations
-alter table public.artist_locations enable row level security;
-
-drop policy if exists artist_locations_select on public.artist_locations;
-create policy artist_locations_select
-on public.artist_locations
-for select
-using (studio_id = public.current_user_studio());
-
-drop policy if exists artist_locations_update on public.artist_locations;
-create policy artist_locations_update
-on public.artist_locations
-for update
-using (studio_id = public.current_user_studio());
-
-drop policy if exists artist_locations_delete on public.artist_locations;
-create policy artist_locations_delete
-on public.artist_locations
-for delete
-using (studio_id = public.current_user_studio());
-
-drop policy if exists artist_locations_insert on public.artist_locations;
-create policy artist_locations_insert
-on public.artist_locations
-for insert
-with check (true);
-
 -- Availabilities
 alter table public.availabilities enable row level security;
 

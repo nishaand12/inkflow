@@ -248,7 +248,6 @@ export default function AppointmentTypeDialog({ open, onOpenChange, appointmentT
         split_mode: appointmentDefaultSplitMode,
         split_value: desiredDefault,
         split_percent: appointmentDefaultSplitMode === "percent" ? desiredDefault : 0,
-        eligible_category_ids: [],
         is_active: true,
       });
     }
@@ -280,7 +279,6 @@ export default function AppointmentTypeDialog({ open, onOpenChange, appointmentT
         split_mode: config.mode,
         split_value: config.value,
         split_percent: config.mode === "percent" ? config.value : 0,
-        eligible_category_ids: [],
         is_active: true,
       });
     }

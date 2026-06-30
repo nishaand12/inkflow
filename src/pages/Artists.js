@@ -8,15 +8,9 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Plus, Search, MapPin, Instagram, Trash, Percent } from "lucide-react";
 import { normalizeUserRole } from "@/utils/roles";
-import {
-  CATEGORY_ROLE_REPORTING,
-  filterCategoriesByRole,
-  getCategoryPathLabel,
-} from "@/utils/reportingCategories";
 import { isArtistDefaultSplitRule } from "@/utils/revenueSplits";
 import ArtistDialog from "../components/artists/ArtistDialog";
 import { sortByFullNameThenId } from "@/utils/listSort";
@@ -36,18 +30,6 @@ function SplitRuleDialog({ open, onOpenChange, artist, studioId }) {
   const queryClient = useQueryClient();
   const [splitMode, setSplitMode] = useState("percent");
   const [splitValue, setSplitValue] = useState(50);
-  const [eligibleCategoryIds, setEligibleCategoryIds] = useState([]);
-
-  const { data: reportingCategories = [] } = useQuery({
-    queryKey: ['reportingCategories', studioId],
-    queryFn: () => base44.entities.ReportingCategory.filter({ studio_id: studioId }),
-    enabled: open && !!studioId
-  });
-
-  const reportingListForPaths = useMemo(
-    () => filterCategoriesByRole(reportingCategories, CATEGORY_ROLE_REPORTING),
-    [reportingCategories]
-  );
 
   const { data: splitRules = [] } = useQuery({
     queryKey: ['artistSplitRules', studioId],
@@ -64,11 +46,9 @@ function SplitRuleDialog({ open, onOpenChange, artist, studioId }) {
         const mode = existing.split_mode === "fixed_amount" ? "fixed_amount" : "percent";
         setSplitMode(mode);
         setSplitValue(Number(existing.split_value ?? existing.split_percent) || 0);
-        setEligibleCategoryIds(existing.eligible_category_ids || []);
       } else {
         setSplitMode("percent");
         setSplitValue(50);
-        setEligibleCategoryIds([]);
       }
     }
   }, [artist, splitRules]);
@@ -87,7 +67,6 @@ function SplitRuleDialog({ open, onOpenChange, artist, studioId }) {
         splitMode === "percent"
           ? Math.min(100, Math.max(0, Number(splitValue) || 0))
           : 0,
-      eligible_category_ids: eligibleCategoryIds,
       is_active: true
     };
     if (existing) {
@@ -136,27 +115,6 @@ function SplitRuleDialog({ open, onOpenChange, artist, studioId }) {
                 : "Artist receives this fixed amount from service revenue (capped at service amount)."}
             </p>
           </div>
-          {reportingCategories.length > 0 && (
-            <div className="space-y-2">
-              <Label>Eligible Categories</Label>
-              <p className="text-xs text-gray-500">Select which revenue categories this split applies to</p>
-              <div className="grid grid-cols-2 gap-2">
-                {reportingCategories.filter(c => c.is_active && (c.category_role || CATEGORY_ROLE_REPORTING) === CATEGORY_ROLE_REPORTING).map(cat => (
-                  <label key={cat.id} className="flex items-center gap-2 text-sm cursor-pointer">
-                    <Checkbox
-                      checked={eligibleCategoryIds.includes(cat.id)}
-                      onCheckedChange={(checked) => {
-                        setEligibleCategoryIds(prev =>
-                          checked ? [...prev, cat.id] : prev.filter(id => id !== cat.id)
-                        );
-                      }}
-                    />
-                    {getCategoryPathLabel(reportingListForPaths, cat.id) || cat.name}
-                  </label>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
