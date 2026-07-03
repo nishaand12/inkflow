@@ -1,20 +1,13 @@
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/utils/supabase";
+import {
+  getResetPasswordRedirectUrl,
+  markPasswordRecovery
+} from "@/utils/passwordRecovery";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-
-export const PASSWORD_RECOVERY_KEY = "inkflow_password_recovery";
-
-export function markPasswordRecovery() {
-  sessionStorage.setItem(PASSWORD_RECOVERY_KEY, "1");
-}
-
-export function hasRecoveryHash() {
-  const hashParams = new URLSearchParams(window.location.hash.slice(1));
-  return hashParams.get("type") === "recovery";
-}
 
 export default function ForgotPassword() {
   const navigate = useNavigate();
@@ -30,7 +23,7 @@ export default function ForgotPassword() {
     setLoading(true);
 
     try {
-      const redirectTo = `${window.location.origin}/reset-password`;
+      const redirectTo = getResetPasswordRedirectUrl();
       const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
         redirectTo
       });

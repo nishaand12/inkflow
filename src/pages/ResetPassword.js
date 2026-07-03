@@ -4,7 +4,7 @@ import { supabase } from "@/utils/supabase";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { PASSWORD_RECOVERY_KEY } from "./ForgotPassword";
+import { clearPasswordRecovery } from "@/utils/passwordRecovery";
 
 export default function ResetPassword({ onComplete }) {
   const navigate = useNavigate();
@@ -32,7 +32,7 @@ export default function ResetPassword({ onComplete }) {
     try {
       const { error: updateError } = await supabase.auth.updateUser({ password });
       if (updateError) throw updateError;
-      sessionStorage.removeItem(PASSWORD_RECOVERY_KEY);
+      clearPasswordRecovery();
       onComplete?.();
       navigate("/dashboard", { replace: true });
     } catch (err) {
