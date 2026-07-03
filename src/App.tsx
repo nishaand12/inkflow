@@ -5,6 +5,12 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { supabase } from "./utils/supabase";
 import Layout from "./Layout";
 import Auth from "./pages/Auth";
+import ForgotPassword, {
+  hasRecoveryHash,
+  markPasswordRecovery,
+  PASSWORD_RECOVERY_KEY
+} from "./pages/ForgotPassword";
+import ResetPassword from "./pages/ResetPassword";
 import Dashboard from "./pages/Dashboard";
 import Calendar from "./pages/Calendar";
 import Appointments from "./pages/Appointments";
@@ -47,6 +53,9 @@ const AppShell = ({ session }) => {
 
 export default function App() {
   const [session, setSession] = useState(null);
+  const [isRecovering, setIsRecovering] = useState(
+    () => sessionStorage.getItem(PASSWORD_RECOVERY_KEY) === "1" || hasRecoveryHash()
+  );
   const [loading, setLoading] = useState(true);
   const queryClient = useMemo(() => new QueryClient(), []);
 
@@ -54,6 +63,11 @@ export default function App() {
     let mounted = true;
 
     const initSession = async () => {
+      if (hasRecoveryHash()) {
+        markPasswordRecovery();
+        setIsRecovering(true);
+      }
+
       const { data } = await supabase.auth.getSession();
       if (mounted) {
         setSession(data.session || null);
@@ -63,7 +77,11 @@ export default function App() {
 
     initSession();
 
-    const { data: authListener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    const { data: authListener } = supabase.auth.onAuthStateChange((event, nextSession) => {
+      if (event === "PASSWORD_RECOVERY") {
+        markPasswordRecovery();
+        setIsRecovering(true);
+      }
       setSession(nextSession);
     });
 
@@ -91,7 +109,23 @@ export default function App() {
           />
           <Route
             path="/auth"
-            element={session ? <Navigate to="/dashboard" replace /> : <Auth />}
+            element={session && !isRecovering ? <Navigate to="/dashboard" replace /> : <Auth />}
+          />
+          <Route
+            path="/forgot-password"
+            element={
+              session && !isRecovering ? <Navigate to="/dashboard" replace /> : <ForgotPassword />
+            }
+          />
+          <Route
+            path="/reset-password"
+            element={
+              !session || !isRecovering ? (
+                <Navigate to="/forgot-password" replace />
+              ) : (
+                <ResetPassword onComplete={() => setIsRecovering(false)} />
+              )
+            }
           />
           <Route path="/book" element={<PublicBooking />} />
           <Route path="/manage-appointment" element={<ManageAppointment />} />
