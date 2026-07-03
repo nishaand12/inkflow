@@ -97,7 +97,7 @@ export default function ForgotPassword() {
           <form onSubmit={handleVerifyOtp} className="space-y-4">
             <p className="text-sm text-gray-500">
               If an account exists for <strong className="text-gray-700">{email}</strong>, we sent
-              instructions. Click the link in the email, or enter the 6-digit code below.
+              instructions. Click the link in the email, or enter the 8-digit code below.
             </p>
 
             <div className="space-y-1">
@@ -108,10 +108,10 @@ export default function ForgotPassword() {
                 inputMode="numeric"
                 autoComplete="one-time-code"
                 value={otp}
-                onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                placeholder="123456"
-                maxLength={6}
-                pattern="[0-9]{6}"
+                onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 8))}
+                placeholder="12345678"
+                maxLength={8}
+                pattern="[0-9]{8}"
                 required
               />
             </div>
@@ -125,7 +125,7 @@ export default function ForgotPassword() {
             <Button
               type="submit"
               className="w-full bg-indigo-600 hover:bg-indigo-700"
-              disabled={loading || otp.length !== 6}
+              disabled={loading || otp.length !== 8}
             >
               {loading ? "Please wait..." : "Verify code"}
             </Button>
