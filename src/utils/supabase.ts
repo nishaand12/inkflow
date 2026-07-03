@@ -8,5 +8,9 @@ if (!supabaseUrl || !supabaseKey) {
   console.warn("Supabase env vars are missing. Check .env.local.");
 }
 
-export const supabase = createClient(supabaseUrl, supabaseKey);
+export const supabase = createClient(supabaseUrl, supabaseKey, {
+  auth: {
+    detectSessionInUrl: true
+  }
+});
         
