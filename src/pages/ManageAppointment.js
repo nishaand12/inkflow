@@ -11,6 +11,10 @@ import { Calendar, Clock, MapPin, User, AlertCircle, AlertTriangle, Loader2, Che
 import { supabase } from "@/utils/supabase";
 import { formatTimeRange12h, formatTime12h, formatDuration, addMinutesToTime } from "@/utils";
 import { isPublicPiercingBookableArtistType } from "@/utils/artistTypes";
+import {
+  buildExclusionKeySet,
+  filterArtistsForAppointmentType,
+} from "@/utils/artistServiceEligibility";
 import { computeArtistSlots, computeAnyArtistSlots } from "@/utils/bookingSlots";
 import ServiceBrowser from "@/components/public-booking/ServiceBrowser";
 import { format, addDays } from "date-fns";
@@ -86,6 +90,7 @@ export default function ManageAppointment() {
         appointments: result.appointments || [],
         workStations: result.workstations || [],
         kindCategories: result.appointment_kind_categories || [],
+        serviceExclusions: result.artist_appointment_type_exclusions || [],
       });
     } catch (err) {
       setActionResult({
@@ -103,10 +108,22 @@ export default function ManageAppointment() {
   const artist = data?.artist;
   const aptType = data?.appointment_type;
 
+  const exclusionKeys = useMemo(
+    () => buildExclusionKeySet(bookingData?.serviceExclusions || []),
+    [bookingData]
+  );
+
   const piercers = useMemo(
     () => (bookingData?.artists || []).filter((a) => isPublicPiercingBookableArtistType(a.artist_type)),
     [bookingData]
   );
+
+  const eligiblePiercers = useMemo(() => {
+    if (!selectedType?.id) return piercers;
+    return filterArtistsForAppointmentType(piercers, selectedType.id, exclusionKeys, {
+      alwaysIncludeArtistId: apt?.artist_id || null,
+    });
+  }, [piercers, selectedType, exclusionKeys, apt]);
 
   const durationMinutes = selectedType?.default_duration_minutes || 60;
 
@@ -123,11 +140,11 @@ export default function ManageAppointment() {
       excludeAppointmentId: apt?.id || null,
     };
     if (selectedArtist === ANY_ARTIST) {
-      return computeAnyArtistSlots({ artistIds: piercers.map((p) => p.id), ...common });
+      return computeAnyArtistSlots({ artistIds: eligiblePiercers.map((p) => p.id), ...common });
     }
     if (!selectedArtist) return [];
     return computeArtistSlots({ artistId: selectedArtist, ...common });
-  }, [bookingData, selectedType, selectedArtist, selectedLocation, selectedDate, durationMinutes, piercers, apt]);
+  }, [bookingData, selectedType, selectedArtist, selectedLocation, selectedDate, durationMinutes, eligiblePiercers, apt]);
 
   const startReschedule = async () => {
     setActionResult(null);
@@ -521,7 +538,7 @@ export default function ManageAppointment() {
                           <SelectTrigger><SelectValue placeholder="Select artist" /></SelectTrigger>
                           <SelectContent>
                             <SelectItem value={ANY_ARTIST}>Any Available Artist</SelectItem>
-                            {piercers.map((a) => (
+                            {eligiblePiercers.map((a) => (
                               <SelectItem key={a.id} value={a.id}>{a.full_name}</SelectItem>
                             ))}
                           </SelectContent>

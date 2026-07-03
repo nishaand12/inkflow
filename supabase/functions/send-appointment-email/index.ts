@@ -174,7 +174,6 @@ serve(async (req) => {
       return jsonResponse({ skipped: true, reason: "email_unsubscribed", message: "Customer unsubscribed." }, 200);
     }
 
-    const reminderMinutes = studio.reminder_minutes_before || 1440;
     const formattedDateTime = formatAppointmentTime(
       appointment.appointment_date,
       appointment.start_time,
@@ -330,7 +329,7 @@ serve(async (req) => {
       },
     });
 
-    await updateEmailStatus(supabase, appointmentId, "sent", null, reminderMinutes);
+    await updateEmailStatus(supabase, appointmentId, "sent", null);
     return jsonResponse({ success: true });
   } catch (err) {
     return jsonResponse({ error: err.message || "Unknown error" }, 500);
@@ -479,8 +478,7 @@ async function updateEmailStatus(
   supabase: ReturnType<typeof createClient>,
   appointmentId: string,
   status: "sent" | "failed" | "skipped",
-  reason: string | null,
-  reminderMinutes?: number
+  reason: string | null
 ) {
   await supabase
     .from("appointments")
@@ -488,7 +486,6 @@ async function updateEmailStatus(
       email_send_status: status,
       email_send_failed_reason: reason,
       email_sent_at: status === "sent" ? new Date().toISOString() : null,
-      reminder_minutes_before: reminderMinutes ?? null
     })
     .eq("id", appointmentId);
 }
@@ -500,7 +497,6 @@ async function resetAppointmentNotificationSchedule(
   const { error } = await supabase
     .from("appointments")
     .update({
-      reminder_sent_at: null,
       reminder_primary_sent_at: null,
       reminder_secondary_sent_at: null,
       reminder_tertiary_sent_at: null,

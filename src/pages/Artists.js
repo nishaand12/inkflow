@@ -8,17 +8,15 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import { Checkbox } from "@/components/ui/checkbox";
+import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
-import { Plus, Search, MapPin, Instagram, Trash, Percent } from "lucide-react";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Plus, Search, MapPin, Instagram, Trash, HandCoins, Loader2, Ban } from "lucide-react";
 import { normalizeUserRole } from "@/utils/roles";
-import {
-  CATEGORY_ROLE_REPORTING,
-  filterCategoriesByRole,
-  getCategoryPathLabel,
-} from "@/utils/reportingCategories";
 import { isArtistDefaultSplitRule } from "@/utils/revenueSplits";
+import { countExclusionsForArtist } from "@/utils/artistServiceEligibility";
 import ArtistDialog from "../components/artists/ArtistDialog";
+import ServiceRestrictionsDialog from "../components/artists/ServiceRestrictionsDialog";
 import { sortByFullNameThenId } from "@/utils/listSort";
 import {
   AlertDialog,
@@ -36,18 +34,8 @@ function SplitRuleDialog({ open, onOpenChange, artist, studioId }) {
   const queryClient = useQueryClient();
   const [splitMode, setSplitMode] = useState("percent");
   const [splitValue, setSplitValue] = useState(50);
-  const [eligibleCategoryIds, setEligibleCategoryIds] = useState([]);
-
-  const { data: reportingCategories = [] } = useQuery({
-    queryKey: ['reportingCategories', studioId],
-    queryFn: () => base44.entities.ReportingCategory.filter({ studio_id: studioId }),
-    enabled: open && !!studioId
-  });
-
-  const reportingListForPaths = useMemo(
-    () => filterCategoriesByRole(reportingCategories, CATEGORY_ROLE_REPORTING),
-    [reportingCategories]
-  );
+  const [appointmentTypeSplitEnabled, setAppointmentTypeSplitEnabled] = useState(false);
+  const [saveError, setSaveError] = useState("");
 
   const { data: splitRules = [] } = useQuery({
     queryKey: ['artistSplitRules', studioId],
@@ -56,6 +44,13 @@ function SplitRuleDialog({ open, onOpenChange, artist, studioId }) {
   });
 
   useEffect(() => {
+    if (!open) {
+      setSaveError("");
+      return;
+    }
+    if (artist) {
+      setAppointmentTypeSplitEnabled(Boolean(artist.appointment_type_split_enabled));
+    }
     if (artist && splitRules.length >= 0) {
       const existing = splitRules.find(
         (r) => isArtistDefaultSplitRule(r) && r.artist_id === artist.id
@@ -64,39 +59,63 @@ function SplitRuleDialog({ open, onOpenChange, artist, studioId }) {
         const mode = existing.split_mode === "fixed_amount" ? "fixed_amount" : "percent";
         setSplitMode(mode);
         setSplitValue(Number(existing.split_value ?? existing.split_percent) || 0);
-        setEligibleCategoryIds(existing.eligible_category_ids || []);
       } else {
         setSplitMode("percent");
         setSplitValue(50);
-        setEligibleCategoryIds([]);
       }
     }
-  }, [artist, splitRules]);
+  }, [artist, splitRules, open]);
 
-  const handleSave = async () => {
-    const existing = splitRules.find(
-      (r) => isArtistDefaultSplitRule(r) && r.artist_id === artist.id
-    );
-    const ruleData = {
-      studio_id: studioId,
-      artist_id: artist.id,
-      appointment_type_id: null,
-      split_mode: splitMode,
-      split_value: Math.max(0, Number(splitValue) || 0),
-      split_percent:
-        splitMode === "percent"
-          ? Math.min(100, Math.max(0, Number(splitValue) || 0))
-          : 0,
-      eligible_category_ids: eligibleCategoryIds,
-      is_active: true
-    };
-    if (existing) {
-      await base44.entities.ArtistSplitRule.update(existing.id, ruleData);
-    } else {
-      await base44.entities.ArtistSplitRule.create(ruleData);
-    }
-    queryClient.invalidateQueries({ queryKey: ['artistSplitRules'] });
-    onOpenChange(false);
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      await base44.entities.Artist.update(artist.id, {
+        appointment_type_split_enabled: appointmentTypeSplitEnabled,
+      });
+
+      const existing = splitRules.find(
+        (r) => isArtistDefaultSplitRule(r) && r.artist_id === artist.id
+      );
+      const ruleData = {
+        studio_id: studioId,
+        artist_id: artist.id,
+        appointment_type_id: null,
+        split_mode: splitMode,
+        split_value: Math.max(0, Number(splitValue) || 0),
+        split_percent:
+          splitMode === "percent"
+            ? Math.min(100, Math.max(0, Number(splitValue) || 0))
+            : 0,
+        is_active: true,
+      };
+      if (existing) {
+        await base44.entities.ArtistSplitRule.update(existing.id, ruleData);
+      } else {
+        await base44.entities.ArtistSplitRule.create(ruleData);
+      }
+
+      if (!appointmentTypeSplitEnabled) {
+        const typeRules = splitRules.filter(
+          (r) => r.artist_id === artist.id && r.appointment_type_id
+        );
+        await Promise.all(
+          typeRules.map((r) => base44.entities.ArtistSplitRule.delete(r.id))
+        );
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['artistSplitRules'] });
+      queryClient.invalidateQueries({ queryKey: ['artists'] });
+      onOpenChange(false);
+    },
+    onError: (error) => {
+      console.error("Error saving artist split rule:", error);
+      setSaveError(error?.message || "Failed to save split rule. Please try again.");
+    },
+  });
+
+  const handleSave = () => {
+    setSaveError("");
+    saveMutation.mutate();
   };
 
   return (
@@ -136,31 +155,46 @@ function SplitRuleDialog({ open, onOpenChange, artist, studioId }) {
                 : "Artist receives this fixed amount from service revenue (capped at service amount)."}
             </p>
           </div>
-          {reportingCategories.length > 0 && (
-            <div className="space-y-2">
-              <Label>Eligible Categories</Label>
-              <p className="text-xs text-gray-500">Select which revenue categories this split applies to</p>
-              <div className="grid grid-cols-2 gap-2">
-                {reportingCategories.filter(c => c.is_active && (c.category_role || CATEGORY_ROLE_REPORTING) === CATEGORY_ROLE_REPORTING).map(cat => (
-                  <label key={cat.id} className="flex items-center gap-2 text-sm cursor-pointer">
-                    <Checkbox
-                      checked={eligibleCategoryIds.includes(cat.id)}
-                      onCheckedChange={(checked) => {
-                        setEligibleCategoryIds(prev =>
-                          checked ? [...prev, cat.id] : prev.filter(id => id !== cat.id)
-                        );
-                      }}
-                    />
-                    {getCategoryPathLabel(reportingListForPaths, cat.id) || cat.name}
-                  </label>
-                ))}
-              </div>
+          <div className="flex items-start justify-between gap-4 rounded-lg border border-gray-200 p-4">
+            <div className="space-y-1">
+              <Label htmlFor="appointment_type_split_enabled" className="cursor-pointer">
+                Enable appointment type level split
+              </Label>
+              <p className="text-xs text-gray-500">
+                When off, this artist won&apos;t appear in appointment-type revenue split overrides.
+                Existing per-type overrides for them will be removed on save.
+              </p>
             </div>
+            <Switch
+              id="appointment_type_split_enabled"
+              checked={appointmentTypeSplitEnabled}
+              onCheckedChange={setAppointmentTypeSplitEnabled}
+            />
+          </div>
+          {saveError && (
+            <Alert className="border-red-200 bg-red-50 text-red-900">
+              <AlertDescription>{saveError}</AlertDescription>
+            </Alert>
           )}
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
-          <Button className="bg-indigo-600 hover:bg-indigo-700" onClick={handleSave}>Save Split Rule</Button>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saveMutation.isPending}>
+            Cancel
+          </Button>
+          <Button
+            className="bg-indigo-600 hover:bg-indigo-700"
+            onClick={handleSave}
+            disabled={saveMutation.isPending}
+          >
+            {saveMutation.isPending ? (
+              <>
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                Saving…
+              </>
+            ) : (
+              "Save Split Rule"
+            )}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -173,6 +207,8 @@ export default function Artists() {
   const [selectedArtist, setSelectedArtist] = useState(null);
   const [splitArtist, setSplitArtist] = useState(null);
   const [showSplitDialog, setShowSplitDialog] = useState(false);
+  const [restrictionsArtist, setRestrictionsArtist] = useState(null);
+  const [showRestrictionsDialog, setShowRestrictionsDialog] = useState(false);
   const [user, setUser] = useState(null);
   const queryClient = useQueryClient();
 
@@ -208,6 +244,12 @@ export default function Artists() {
   const { data: splitRules = [] } = useQuery({
     queryKey: ['artistSplitRules', user?.studio_id],
     queryFn: () => base44.entities.ArtistSplitRule.filter({ studio_id: user.studio_id }),
+    enabled: !!user?.studio_id
+  });
+
+  const { data: serviceExclusions = [] } = useQuery({
+    queryKey: ['artistAppointmentTypeExclusions', user?.studio_id],
+    queryFn: () => base44.entities.ArtistAppointmentTypeExclusion.filter({ studio_id: user.studio_id }),
     enabled: !!user?.studio_id
   });
 
@@ -285,6 +327,7 @@ export default function Artists() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredArtists.map(artist => {
             const primaryLocation = locations.find(l => l.id === artist.primary_location_id);
+            const exclusionCount = countExclusionsForArtist(artist.id, serviceExclusions);
 
             return (
               <Card
@@ -331,6 +374,11 @@ export default function Artists() {
                             {artist.specialty}
                           </Badge>
                         )}
+                        {exclusionCount > 0 && (
+                          <Badge variant="secondary" className="bg-amber-50 text-amber-800">
+                            {exclusionCount} service{exclusionCount === 1 ? "" : "s"} excluded
+                          </Badge>
+                        )}
                       </div>
                     </div>
                     <Badge className={artist.is_active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}>
@@ -375,7 +423,7 @@ export default function Artists() {
                             size="sm"
                             onClick={(e) => { e.stopPropagation(); setSplitArtist(artist); setShowSplitDialog(true); }}
                           >
-                            <Percent className="w-4 h-4 mr-1" />
+                            <HandCoins className="w-4 h-4 mr-1" />
                             {rule
                               ? rule.split_mode === "fixed_amount"
                                 ? `$${Number(rule.split_value ?? 0).toFixed(2)}`
@@ -384,6 +432,18 @@ export default function Artists() {
                           </Button>
                         );
                       })()}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setRestrictionsArtist(artist);
+                          setShowRestrictionsDialog(true);
+                        }}
+                      >
+                        <Ban className="w-4 h-4 mr-1" />
+                        {exclusionCount > 0 ? `${exclusionCount} excluded` : "Services"}
+                      </Button>
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
                           <Button
@@ -448,8 +508,23 @@ export default function Artists() {
       {canEdit && splitArtist && (
         <SplitRuleDialog
           open={showSplitDialog}
-          onOpenChange={setShowSplitDialog}
+          onOpenChange={(open) => {
+            setShowSplitDialog(open);
+            if (!open) setSplitArtist(null);
+          }}
           artist={splitArtist}
+          studioId={user?.studio_id}
+        />
+      )}
+
+      {canEdit && restrictionsArtist && (
+        <ServiceRestrictionsDialog
+          open={showRestrictionsDialog}
+          onOpenChange={(open) => {
+            setShowRestrictionsDialog(open);
+            if (!open) setRestrictionsArtist(null);
+          }}
+          artist={restrictionsArtist}
           studioId={user?.studio_id}
         />
       )}

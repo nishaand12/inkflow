@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { base44 } from "@/api/base44Client";
 import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Save, Trash2, AlertCircle } from "lucide-react";
 import {
   AlertDialog,
@@ -35,7 +36,9 @@ import AppointmentTypeImage from "@/components/appointment-types/AppointmentType
 import {
   isAppointmentArtistSplitRule,
   isAppointmentDefaultSplitRule,
+  isAppointmentTypeSplitEnabled,
 } from "@/utils/revenueSplits";
+import { filterArtistsSelectableForBooking } from "@/utils/artistTypes";
 
 const DURATION_PRESETS = [5, 10, 15, 20, 30, 45, 60, 90, 120, 150, 180, 240, 300, 360];
 
@@ -61,7 +64,13 @@ export default function AppointmentTypeDialog({ open, onOpenChange, appointmentT
   const [appointmentDefaultSplitMode, setAppointmentDefaultSplitMode] = useState("percent");
   const [appointmentDefaultSplitValue, setAppointmentDefaultSplitValue] = useState("");
   const [artistOverrideSplits, setArtistOverrideSplits] = useState({});
+  const [excludedArtistIds, setExcludedArtistIds] = useState(new Set());
   const [saveError, setSaveError] = useState("");
+  const exclusionsInitializedRef = useRef(false);
+
+  useEffect(() => {
+    exclusionsInitializedRef.current = false;
+  }, [appointmentType?.id]);
 
   const { data: reportingCategories = [] } = useQuery({
     queryKey: ["reportingCategories", currentUser?.studio_id],
@@ -100,13 +109,37 @@ export default function AppointmentTypeDialog({ open, onOpenChange, appointmentT
     enabled: open && !!currentUser?.studio_id,
   });
 
-  const activeArtists = useMemo(
+  const { data: serviceExclusions = [], isFetching: serviceExclusionsFetching } = useQuery({
+    queryKey: ["artistAppointmentTypeExclusions", currentUser?.studio_id],
+    queryFn: async () => {
+      if (!currentUser?.studio_id) return [];
+      return base44.entities.ArtistAppointmentTypeExclusion.filter({
+        studio_id: currentUser.studio_id,
+      });
+    },
+    enabled: open && !!currentUser?.studio_id,
+  });
+
+  const bookableArtists = useMemo(
     () =>
-      artists
-        .filter((a) => a.is_active)
+      filterArtistsSelectableForBooking(artists.filter((a) => a.is_active))
         .slice()
         .sort((a, b) => (a.full_name || "").localeCompare(b.full_name || "")),
     [artists]
+  );
+
+  const activeArtists = useMemo(
+    () =>
+      artists
+        .filter((a) => a.is_active && isAppointmentTypeSplitEnabled(a))
+        .slice()
+        .sort((a, b) => (a.full_name || "").localeCompare(b.full_name || "")),
+    [artists]
+  );
+
+  const enabledArtistIds = useMemo(
+    () => new Set(activeArtists.map((a) => a.id)),
+    [activeArtists]
   );
 
   useEffect(() => {
@@ -169,6 +202,21 @@ export default function AppointmentTypeDialog({ open, onOpenChange, appointmentT
     setArtistOverrideSplits(overrides);
   }, [appointmentType, open, splitRules]);
 
+  useEffect(() => {
+    if (!open || !appointmentType?.id) {
+      if (!open) exclusionsInitializedRef.current = false;
+      setExcludedArtistIds(new Set());
+      return;
+    }
+    if (serviceExclusionsFetching || exclusionsInitializedRef.current) return;
+
+    const ids = serviceExclusions
+      .filter((e) => e.appointment_type_id === appointmentType.id)
+      .map((e) => e.artist_id);
+    setExcludedArtistIds(new Set(ids));
+    exclusionsInitializedRef.current = true;
+  }, [appointmentType?.id, open, serviceExclusions, serviceExclusionsFetching]);
+
   const createMutation = useMutation({
     mutationFn: (data) => base44.entities.AppointmentType.create(data),
   });
@@ -213,6 +261,7 @@ export default function AppointmentTypeDialog({ open, onOpenChange, appointmentT
       appointmentDefaultSplitMode === "fixed_amount" ? parseFixedAmountInput : parsePercentInput;
     const desiredDefault = defaultParser(appointmentDefaultSplitValue);
     const desiredOverrides = Object.entries(artistOverrideSplits).reduce((acc, [artistId, config]) => {
+      if (!enabledArtistIds.has(artistId)) return acc;
       const mode = config?.mode === "fixed_amount" ? "fixed_amount" : "percent";
       const parser = mode === "fixed_amount" ? parseFixedAmountInput : parsePercentInput;
       const parsed = parser(config?.value);
@@ -248,7 +297,6 @@ export default function AppointmentTypeDialog({ open, onOpenChange, appointmentT
         split_mode: appointmentDefaultSplitMode,
         split_value: desiredDefault,
         split_percent: appointmentDefaultSplitMode === "percent" ? desiredDefault : 0,
-        eligible_category_ids: [],
         is_active: true,
       });
     }
@@ -280,10 +328,31 @@ export default function AppointmentTypeDialog({ open, onOpenChange, appointmentT
         split_mode: config.mode,
         split_value: config.value,
         split_percent: config.mode === "percent" ? config.value : 0,
-        eligible_category_ids: [],
         is_active: true,
       });
     }
+  };
+
+  const syncServiceExclusions = async (appointmentTypeId) => {
+    const existing = serviceExclusions.filter((e) => e.appointment_type_id === appointmentTypeId);
+    const desired = excludedArtistIds;
+
+    const toDelete = existing.filter((e) => !desired.has(e.artist_id));
+    const existingArtistIds = new Set(existing.map((e) => e.artist_id));
+    const toCreate = [...desired].filter((artistId) => !existingArtistIds.has(artistId));
+
+    await Promise.all(
+      toDelete.map((e) => base44.entities.ArtistAppointmentTypeExclusion.delete(e.id))
+    );
+    await Promise.all(
+      toCreate.map((artistId) =>
+        base44.entities.ArtistAppointmentTypeExclusion.create({
+          studio_id: currentUser?.studio_id,
+          artist_id: artistId,
+          appointment_type_id: appointmentTypeId,
+        })
+      )
+    );
   };
 
   const handleSubmit = async (e) => {
@@ -315,10 +384,12 @@ export default function AppointmentTypeDialog({ open, onOpenChange, appointmentT
 
       if (savedTypeId) {
         await syncScopedSplitRules(savedTypeId);
+        await syncServiceExclusions(savedTypeId);
       }
 
       queryClient.invalidateQueries({ queryKey: ["appointmentTypes"] });
       queryClient.invalidateQueries({ queryKey: ["artistSplitRules"] });
+      queryClient.invalidateQueries({ queryKey: ["artistAppointmentTypeExclusions"] });
       onOpenChange(false);
       resetForm();
     } catch (error) {
@@ -633,7 +704,9 @@ export default function AppointmentTypeDialog({ open, onOpenChange, appointmentT
                 </p>
               </div>
               {activeArtists.length === 0 ? (
-                <p className="text-sm text-gray-500">No active artists found.</p>
+                <p className="text-sm text-gray-500">
+                  No artists with appointment-type splits enabled. Turn this on from the Artists page.
+                </p>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {activeArtists.map((artist) => (
@@ -685,6 +758,43 @@ export default function AppointmentTypeDialog({ open, onOpenChange, appointmentT
                       />
                     </div>
                   ))}
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-3 rounded-lg border border-gray-200 p-4">
+              <div>
+                <Label>Artists who cannot perform this service</Label>
+                <p className="text-xs text-gray-500 mt-1">
+                  Excluded artists won&apos;t appear for this service in online booking or the internal calendar.
+                </p>
+              </div>
+              {bookableArtists.length === 0 ? (
+                <p className="text-sm text-gray-500">No bookable artists in this studio.</p>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {bookableArtists.map((artist) => {
+                    const checkboxId = `exclude-artist-${appointmentType?.id || "new"}-${artist.id}`;
+                    return (
+                      <div key={artist.id} className="flex items-center gap-2 text-sm">
+                        <Checkbox
+                          id={checkboxId}
+                          checked={excludedArtistIds.has(artist.id)}
+                          onCheckedChange={(checked) => {
+                            setExcludedArtistIds((prev) => {
+                              const next = new Set(prev);
+                              if (checked === true) next.add(artist.id);
+                              else next.delete(artist.id);
+                              return next;
+                            });
+                          }}
+                        />
+                        <Label htmlFor={checkboxId} className="cursor-pointer font-normal">
+                          {artist.full_name}
+                        </Label>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>

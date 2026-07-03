@@ -285,8 +285,7 @@ serve(async (req) => {
           supabase,
           appointment.id,
           spec.kind,
-          spec.sentAtField,
-          spec.kind === "reminder_primary" ? spec.minutes : undefined
+          spec.sentAtField
         );
         sentCount += 1;
       }
@@ -435,8 +434,8 @@ function resolveStudioDefaultSpecs(studio: any): NotificationSpec[] {
       kind: "reminder_tertiary",
       direction: "before",
       anchorField: "start",
-      studioMinutes: Number(studio.reminder_tertiary_minutes_before) || 120,
-      studioEnabled: Boolean(studio.reminder_tertiary_enabled),
+      studioMinutes: 120,
+      studioEnabled: false,
       sentAtField: "reminder_tertiary_sent_at",
       studioSubject: "",
       studioBody: "",
@@ -474,8 +473,8 @@ function resolveStudioDefaultSpecs(studio: any): NotificationSpec[] {
       kind: "followup_midterm",
       direction: "after",
       anchorField: "end",
-      studioMinutes: Number(studio.followup_midterm_minutes_after) || 108000,
-      studioEnabled: Boolean(studio.followup_midterm_enabled),
+      studioMinutes: 108000,
+      studioEnabled: false,
       sentAtField: "followup_midterm_sent_at",
       studioSubject: "",
       studioBody: "",
@@ -634,23 +633,13 @@ function getAppointmentTimeInUTC(date: string, time: string, timezone: string): 
 async function markNotificationProcessed(
   supabase: ReturnType<typeof createClient>,
   appointmentId: string,
-  kind: NotificationKind,
-  sentField: string,
-  reminderMinutes?: number
+  _kind: NotificationKind,
+  sentField: string
 ) {
   const nowIso = new Date().toISOString();
-  const updatePayload: Record<string, unknown> = {
-    [sentField]: nowIso,
-  };
-
-  if (kind === "reminder_primary") {
-    updatePayload.reminder_sent_at = nowIso;
-    updatePayload.reminder_minutes_before = reminderMinutes ?? null;
-  }
-
   await supabase
     .from("appointments")
-    .update(updatePayload)
+    .update({ [sentField]: nowIso })
     .eq("id", appointmentId);
 }
 

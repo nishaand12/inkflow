@@ -16,6 +16,7 @@ import {
 import {
   isAppointmentArtistSplitRule,
   isAppointmentDefaultSplitRule,
+  isAppointmentTypeSplitEnabled,
 } from "@/utils/revenueSplits";
 import AppointmentTypeDialog from "@/components/appointment-types/AppointmentTypeDialog";
 import AppointmentTypeImage from "@/components/appointment-types/AppointmentTypeImage";
@@ -71,6 +72,20 @@ export default function AppointmentTypes() {
     },
     enabled: !!user?.studio_id,
   });
+
+  const { data: artists = [] } = useQuery({
+    queryKey: ["artists", user?.studio_id],
+    queryFn: async () => {
+      if (!user?.studio_id) return [];
+      return base44.entities.Artist.filter({ studio_id: user.studio_id });
+    },
+    enabled: !!user?.studio_id,
+  });
+
+  const typeSplitEnabledArtistIds = useMemo(
+    () => new Set(artists.filter(isAppointmentTypeSplitEnabled).map((a) => a.id)),
+    [artists]
+  );
 
   const sections = useMemo(
     () => getAppointmentTypeDisplaySections(appointmentTypes, reportingCategories),
@@ -156,8 +171,10 @@ export default function AppointmentTypes() {
                   const appointmentDefaultRule = splitRules.find((rule) =>
                     isAppointmentDefaultSplitRule(rule, type.id)
                   );
-                  const overrideCount = splitRules.filter((rule) =>
-                    isAppointmentArtistSplitRule(rule, type.id)
+                  const overrideCount = splitRules.filter(
+                    (rule) =>
+                      isAppointmentArtistSplitRule(rule, type.id) &&
+                      typeSplitEnabledArtistIds.has(rule.artist_id)
                   ).length;
 
                   return (

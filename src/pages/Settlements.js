@@ -13,7 +13,7 @@ import { format } from "date-fns";
 import { normalizeUserRole } from "@/utils/roles";
 import { createPageUrl } from "@/utils/index";
 import { getCollectionBucket } from "@/utils/collectionBuckets";
-import { resolveRevenueSplitRule } from "@/utils/revenueSplits";
+import { resolveRevenueSplitRule, isAppointmentTypeSplitEnabled } from "@/utils/revenueSplits";
 import {
   allocatePaidDepositToBuckets,
   getPaidDepositRowsForAppointment,
@@ -91,6 +91,12 @@ export default function Settlements() {
   const { data: splitRules = [] } = useQuery({
     queryKey: ['artistSplitRules', user?.studio_id],
     queryFn: () => base44.entities.ArtistSplitRule.filter({ studio_id: user.studio_id }),
+    enabled: !!user?.studio_id
+  });
+
+  const { data: artists = [] } = useQuery({
+    queryKey: ['artists', user?.studio_id],
+    queryFn: () => base44.entities.Artist.filter({ studio_id: user.studio_id }),
     enabled: !!user?.studio_id
   });
 
@@ -192,9 +198,11 @@ export default function Settlements() {
         });
 
         for (const apt of locAppointments) {
+          const artist = artists.find((a) => a.id === apt.artist_id);
           const splitResolution = resolveRevenueSplitRule(splitRules, {
             appointmentTypeId: apt.appointment_type_id,
             artistId: apt.artist_id,
+            appointmentTypeSplitEnabled: isAppointmentTypeSplitEnabled(artist),
           });
           const splitPercent = splitResolution.splitPercent;
           const splitMode = splitResolution.splitMode;

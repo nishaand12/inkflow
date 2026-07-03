@@ -92,6 +92,21 @@ serve(async (req) => {
       return json({ error: "Artist is not available for online booking" }, 400);
     }
 
+    const { data: exclusionRow, error: exclusionErr } = await supabase
+      .from("artist_appointment_type_exclusions")
+      .select("id")
+      .eq("studio_id", studioId)
+      .eq("artist_id", artistId)
+      .eq("appointment_type_id", appointmentTypeId)
+      .maybeSingle();
+
+    if (exclusionErr) {
+      return json({ error: "Unable to validate booking eligibility" }, 500);
+    }
+    if (exclusionRow) {
+      return json({ error: "This artist is not available for the selected service" }, 400);
+    }
+
     // Find or create customer
     const { data: existingCustomers } = await supabase
       .from("customers")

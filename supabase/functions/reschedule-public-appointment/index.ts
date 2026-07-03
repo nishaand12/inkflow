@@ -117,6 +117,23 @@ serve(async (req) => {
       resolvedArtistId = artist.id;
     }
 
+    if (resolvedArtistId && resolvedTypeId) {
+      const { data: exclusionRow, error: exclusionErr } = await supabase
+        .from("artist_appointment_type_exclusions")
+        .select("id")
+        .eq("studio_id", studioId)
+        .eq("artist_id", resolvedArtistId)
+        .eq("appointment_type_id", resolvedTypeId)
+        .maybeSingle();
+
+      if (exclusionErr) {
+        return json({ error: "Unable to validate booking eligibility" }, 500);
+      }
+      if (exclusionRow) {
+        return json({ error: "This artist is not available for the selected service" }, 400);
+      }
+    }
+
     // Resolve the (possibly changed) location.
     let resolvedLocationId = appointment.location_id;
     if (newLocationId && newLocationId !== appointment.location_id) {
@@ -175,7 +192,6 @@ serve(async (req) => {
         followup_quick_sent_at: null,
         followup_longterm_sent_at: null,
         followup_midterm_sent_at: null,
-        reminder_sent_at: null,
         notification_anchor_at: new Date().toISOString(),
       })
       .eq("id", appointment.id);

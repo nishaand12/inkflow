@@ -25,6 +25,12 @@ import { addMinutesToTime, formatDuration, formatTime12h } from "@/utils/index";
 import { getAppointmentTypeDisplaySections } from "@/utils/reportingCategories";
 import { CHECKOUT_PAYMENT_METHOD_OPTIONS } from "@/utils/checkoutPaymentMethods";
 import { filterArtistsSelectableForBooking } from "@/utils/artistTypes";
+import {
+  buildExclusionKeySet,
+  filterArtistsForAppointmentType,
+  filterAppointmentTypesForArtist,
+  canArtistBookAppointmentType,
+} from "@/utils/artistServiceEligibility";
 
 // Stable empty array to prevent new references on each render
 const EMPTY_ARRAY = [];
@@ -349,6 +355,15 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     enabled: open && !!currentUser?.studio_id
   });
 
+  const { data: serviceExclusions = EMPTY_ARRAY } = useQuery({
+    queryKey: ['artistAppointmentTypeExclusions', currentUser?.studio_id],
+    queryFn: async () => {
+      if (!currentUser?.studio_id) return [];
+      return base44.entities.ArtistAppointmentTypeExclusion.filter({ studio_id: currentUser.studio_id });
+    },
+    enabled: !!currentUser?.studio_id
+  });
+
   const { data: studio } = useQuery({
     queryKey: ['studio', currentUser?.studio_id],
     queryFn: async () => {
@@ -544,12 +559,22 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
   };
 
   const handleArtistChange = (value) => {
-    setFormData((prev) => ({
-      ...prev,
-      artist_id: value,
-      location_id: resolveDefaultLocationId(locations, value, artists, prev.location_id),
-      work_station_id: '',
-    }));
+    setFormData((prev) => {
+      const next = {
+        ...prev,
+        artist_id: value,
+        location_id: resolveDefaultLocationId(locations, value, artists, prev.location_id),
+        work_station_id: '',
+      };
+      if (
+        prev.appointment_type_id &&
+        value &&
+        !canArtistBookAppointmentType(value, prev.appointment_type_id, buildExclusionKeySet(serviceExclusions))
+      ) {
+        next.appointment_type_id = '';
+      }
+      return next;
+    });
   };
 
   const resolveClientEmail = () => {
@@ -582,11 +607,17 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     const type = appointmentTypes.find(t => t.id === typeId);
     if (type) {
       setFormData(prev => {
+        const keys = buildExclusionKeySet(serviceExclusions);
+        const clearArtist =
+          prev.artist_id &&
+          typeId &&
+          !canArtistBookAppointmentType(prev.artist_id, typeId, keys);
         if (prev.is_all_day) {
           const svc = type.service_cost != null ? Number(type.service_cost) : NaN;
           return {
             ...prev,
             appointment_type_id: typeId,
+            ...(clearArtist ? { artist_id: '' } : {}),
             deposit_amount: type.default_deposit,
             ...(Number.isFinite(svc) && svc > 0 ? { total_estimate: svc } : {}),
           };
@@ -596,6 +627,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
         return {
           ...prev,
           appointment_type_id: typeId,
+          ...(clearArtist ? { artist_id: '' } : {}),
           end_time: newEnd,
           deposit_amount: type.default_deposit,
           ...(Number.isFinite(svc) && svc > 0 ? { total_estimate: svc } : {}),
@@ -949,9 +981,6 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
       email_send_status,
       email_send_failed_reason,
       email_sent_at,
-      reminder_sent_week,
-      reminder_sent_day,
-      reminder_sent_at,
       reminder_primary_sent_at,
       reminder_secondary_sent_at,
       reminder_tertiary_sent_at,
@@ -1240,22 +1269,57 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
 
   const hasErrors = validationErrors.artistConflict || validationErrors.stationsFull;
 
+  const exclusionKeys = useMemo(
+    () => buildExclusionKeySet(serviceExclusions),
+    [serviceExclusions]
+  );
+
   const selectableArtists = useMemo(() => {
     const fallbackId =
       appointmentForForm?.artist_id ||
       appointment?.artist_id ||
       null;
+    let base;
     if (isAdmin || userRole === "Front_Desk") {
-      const base = isAdmin ? artists : artists.filter((a) => a.is_active);
-      return filterArtistsSelectableForBooking(base, { alwaysIncludeArtistId: fallbackId });
+      const artistsBase = isAdmin ? artists : artists.filter((a) => a.is_active);
+      base = filterArtistsSelectableForBooking(artistsBase, { alwaysIncludeArtistId: fallbackId });
+    } else {
+      base = artists;
     }
-    return artists;
-  }, [isAdmin, userRole, artists, appointmentForForm?.artist_id, appointment?.artist_id]);
+    if (!formData.appointment_type_id) return base;
+    return filterArtistsForAppointmentType(
+      base,
+      formData.appointment_type_id,
+      exclusionKeys,
+      { alwaysIncludeArtistId: fallbackId }
+    );
+  }, [
+    isAdmin,
+    userRole,
+    artists,
+    appointmentForForm?.artist_id,
+    appointment?.artist_id,
+    formData.appointment_type_id,
+    exclusionKeys,
+  ]);
 
-  const activeAppointmentTypes = useMemo(
-    () => appointmentTypes.filter(t => t.is_active),
-    [appointmentTypes]
-  );
+  const activeAppointmentTypes = useMemo(() => {
+    const active = appointmentTypes.filter((t) => t.is_active);
+    const fallbackTypeId =
+      appointmentForForm?.appointment_type_id ||
+      appointment?.appointment_type_id ||
+      null;
+    if (!formData.artist_id) return active;
+    return filterAppointmentTypesForArtist(active, formData.artist_id, exclusionKeys, {
+      alwaysIncludeTypeId: fallbackTypeId,
+    });
+  }, [
+    appointmentTypes,
+    formData.artist_id,
+    exclusionKeys,
+    appointmentForForm?.appointment_type_id,
+    appointment?.appointment_type_id,
+  ]);
   const appointmentTypeSections = useMemo(() => {
     const sections = getAppointmentTypeDisplaySections(activeAppointmentTypes, reportingCategories);
     return sections

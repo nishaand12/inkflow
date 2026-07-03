@@ -1,0 +1,60 @@
+name: Deploy to Cloud Run
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  PROJECT_ID: inkflow-1
+  ARTIFACT_REGION: northamerica-northeast2
+  CLOUD_RUN_REGION: us-east1
+  SERVICE: inkflow
+  REPOSITORY: inkflow
+  IMAGE_NAME: inkflow
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.ARTIFACT_REGION }}-docker.pkg.dev --quiet
+
+      - name: Build and push container
+        env:
+          IMAGE: ${{ env.ARTIFACT_REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}
+          TAG: ${{ github.sha }}
+        run: |
+          docker build \
+            --build-arg REACT_APP_SUPABASE_URL="${{ secrets.REACT_APP_SUPABASE_URL }}" \
+            --build-arg REACT_APP_SUPABASE_PUBLISHABLE_DEFAULT_KEY="${{ secrets.REACT_APP_SUPABASE_PUBLISHABLE_DEFAULT_KEY }}" \
+            --build-arg REACT_APP_STRIPE_PUBLISHABLE_KEY="${{ secrets.REACT_APP_STRIPE_PUBLISHABLE_KEY }}" \
+            -t "${IMAGE}:${TAG}" \
+            -t "${IMAGE}:latest" \
+            .
+          docker push "${IMAGE}:${TAG}"
+          docker push "${IMAGE}:latest"
+
+      - name: Deploy to Cloud Run
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: ${{ env.SERVICE }}
+          region: ${{ env.CLOUD_RUN_REGION }}
+          image: ${{ env.ARTIFACT_REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
