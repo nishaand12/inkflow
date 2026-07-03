@@ -1,13 +1,9 @@
-name: Deploy to Cloud Run
+name: Deploy
 
 on:
   push:
     branches: [main]
   workflow_dispatch: {}
-
-permissions:
-  contents: read
-  id-token: write
 
 env:
   PROJECT_ID: inkflow-1
@@ -18,8 +14,12 @@ env:
   IMAGE_NAME: inkflow
 
 jobs:
-  deploy:
+  deploy-cloud-run:
+    name: Cloud Run
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
 
     steps:
       - name: Checkout
@@ -58,3 +58,21 @@ jobs:
           service: ${{ env.SERVICE }}
           region: ${{ env.CLOUD_RUN_REGION }}
           image: ${{ env.ARTIFACT_REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+
+  deploy-supabase-functions:
+    name: Supabase Edge Functions
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Deploy all edge functions
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: supabase functions deploy --project-ref "${{ vars.SUPABASE_PROJECT_REF }}"
