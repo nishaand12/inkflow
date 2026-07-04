@@ -1581,6 +1581,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                   id="deposit_amount"
                   type="number"
                   min="0"
+                  step="0.01"
                   value={formData.deposit_amount}
                   onChange={(e) => setFormData({ ...formData, deposit_amount: parseFloat(e.target.value) })}
                   disabled={!canEdit()}
@@ -1594,6 +1595,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                   id="total_estimate"
                   type="number"
                   min="0"
+                  step="0.01"
                   value={formData.total_estimate}
                   onChange={(e) => setFormData({ ...formData, total_estimate: parseFloat(e.target.value) })}
                   disabled={!canEdit()}
