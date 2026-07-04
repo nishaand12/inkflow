@@ -8,6 +8,8 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import TimePicker12h from "@/components/calendar/TimePicker12h";
+import { DEFAULT_BOOKING_START_TIME, DEFAULT_AVAILABILITY_END_TIME } from "@/utils/index";
 import { format } from "date-fns";
 import { Save, Trash2 } from "lucide-react";
 
@@ -18,8 +20,8 @@ export default function AvailabilityDialog({ open, onOpenChange, date, availabil
     location_id: '',
     start_date: date ? format(date, 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'),
     end_date: date ? format(date, 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'),
-    start_time: '09:00',
-    end_time: '17:00',
+    start_time: DEFAULT_BOOKING_START_TIME,
+    end_time: DEFAULT_AVAILABILITY_END_TIME,
     is_blocked: false,
     is_all_day: false,
     notes: ''
@@ -32,8 +34,8 @@ export default function AvailabilityDialog({ open, onOpenChange, date, availabil
         location_id: availability.location_id || '',
         start_date: availability.start_date,
         end_date: availability.end_date,
-        start_time: availability.start_time || '09:00',
-        end_time: availability.end_time || '17:00',
+        start_time: availability.start_time || DEFAULT_BOOKING_START_TIME,
+        end_time: availability.end_time || DEFAULT_AVAILABILITY_END_TIME,
         is_blocked: availability.is_blocked || false,
         is_all_day: availability.is_all_day || false,
         notes: availability.notes || ''
@@ -45,8 +47,8 @@ export default function AvailabilityDialog({ open, onOpenChange, date, availabil
         location_id: '',
         start_date: format(date, 'yyyy-MM-dd'),
         end_date: format(date, 'yyyy-MM-dd'),
-        start_time: '09:00',
-        end_time: '17:00',
+        start_time: DEFAULT_BOOKING_START_TIME,
+        end_time: DEFAULT_AVAILABILITY_END_TIME,
         is_blocked: false,
         is_all_day: false,
         notes: ''
@@ -110,8 +112,8 @@ export default function AvailabilityDialog({ open, onOpenChange, date, availabil
       location_id: '',
       start_date: format(new Date(), 'yyyy-MM-dd'),
       end_date: format(new Date(), 'yyyy-MM-dd'),
-      start_time: '09:00',
-      end_time: '17:00',
+      start_time: DEFAULT_BOOKING_START_TIME,
+      end_time: DEFAULT_AVAILABILITY_END_TIME,
       is_blocked: false,
       is_all_day: false,
       notes: ''
@@ -220,22 +222,20 @@ export default function AvailabilityDialog({ open, onOpenChange, date, availabil
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="start_time">Start Time *</Label>
-                <Input
+                <TimePicker12h
                   id="start_time"
-                  type="time"
                   value={formData.start_time}
-                  onChange={(e) => setFormData({ ...formData, start_time: e.target.value })}
+                  onChange={(newStart) => setFormData({ ...formData, start_time: newStart })}
                   required
                 />
               </div>
 
               <div className="space-y-2">
                 <Label htmlFor="end_time">End Time *</Label>
-                <Input
+                <TimePicker12h
                   id="end_time"
-                  type="time"
                   value={formData.end_time}
-                  onChange={(e) => setFormData({ ...formData, end_time: e.target.value })}
+                  onChange={(newEnd) => setFormData({ ...formData, end_time: newEnd })}
                   required
                 />
               </div>

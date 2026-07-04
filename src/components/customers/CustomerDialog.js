@@ -41,7 +41,7 @@ function isPastAppointment(apt) {
   return false;
 }
 
-export default function CustomerDialog({ open, onOpenChange, customer, locations, isAdmin, currentUser }) {
+export default function CustomerDialog({ open, onOpenChange, customer, locations, isAdmin, currentUser, onCreated }) {
   const queryClient = useQueryClient();
   const [formData, setFormData] = useState({
     name: '',
@@ -49,7 +49,7 @@ export default function CustomerDialog({ open, onOpenChange, customer, locations
     email: '',
     instagram_username: '',
     preferred_location_id: '',
-    send_calendar_invites: false,
+    send_calendar_invites: true,
     consent_obtained: false,
     is_active: true
   });
@@ -98,7 +98,7 @@ export default function CustomerDialog({ open, onOpenChange, customer, locations
         email: customer.email || '',
         instagram_username: customer.instagram_username || '',
         preferred_location_id: customer.preferred_location_id || '',
-        send_calendar_invites: customer.send_calendar_invites || false,
+        send_calendar_invites: customer.send_calendar_invites ?? true,
         consent_obtained: customer.consent_obtained || false,
         is_active: customer.is_active !== undefined ? customer.is_active : true
       });
@@ -109,7 +109,7 @@ export default function CustomerDialog({ open, onOpenChange, customer, locations
         email: '',
         instagram_username: '',
         preferred_location_id: '',
-        send_calendar_invites: false,
+        send_calendar_invites: true,
         consent_obtained: false,
         is_active: true
       });
@@ -119,10 +119,13 @@ export default function CustomerDialog({ open, onOpenChange, customer, locations
 
   const createMutation = useMutation({
     mutationFn: (data) => base44.entities.Customer.create(data),
-    onSuccess: () => {
+    onSuccess: (createdCustomer) => {
       queryClient.invalidateQueries({ queryKey: ['customers'] });
       onOpenChange(false);
       resetForm();
+      if (onCreated && createdCustomer) {
+        onCreated(createdCustomer);
+      }
     }
   });
 
@@ -200,7 +203,7 @@ export default function CustomerDialog({ open, onOpenChange, customer, locations
       email: '',
       instagram_username: '',
       preferred_location_id: '',
-      send_calendar_invites: false,
+      send_calendar_invites: true,
       consent_obtained: false,
       is_active: true
     });

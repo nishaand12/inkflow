@@ -127,6 +127,7 @@ serve(async (req) => {
           name: customerName,
           phone_number: customerPhone,
           email: customerEmail,
+          send_calendar_invites: true,
         })
         .select("id")
         .single();

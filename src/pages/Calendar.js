@@ -23,7 +23,7 @@ import {
 } from "@/utils/reportingCategories";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { formatTime12h, formatTimeRange12h } from "@/utils/index";
+import { formatTime12h } from "@/utils/index";
 import {
   sortAppointmentsForCalendarDay,
   sortByNameThenId,
@@ -350,7 +350,8 @@ export default function Calendar() {
     if (specificTypeFilter !== 'all' && apt.appointment_type_id !== specificTypeFilter) return false;
     if (customerSearch) {
       const name = getCustomerName(apt).toLowerCase();
-      if (!name.includes(customerSearch.toLowerCase())) return false;
+      const appointmentLabel = (apt.appointment_name || '').toLowerCase();
+      if (!name.includes(customerSearch.toLowerCase()) && !appointmentLabel.includes(customerSearch.toLowerCase())) return false;
     }
 
     return true;
@@ -828,7 +829,7 @@ export default function Calendar() {
                             const leftPct = (col / totalCols) * 100;
                             const color = getAptColor(apt);
                             const name = getCustomerName(apt);
-                            const typeName = getAptTypeName(apt);
+                            const appointmentLabel = apt.appointment_name?.trim() || '';
 
                             return (
                               <div
@@ -847,21 +848,16 @@ export default function Calendar() {
                               >
                                 <div className="p-1 h-full overflow-hidden">
                                   <div className="text-[10px] font-bold leading-none" style={{ color }}>
-                                    {formatTime12h(apt.start_time)}
+                                    {apt.is_all_day ? "All day" : formatTime12h(apt.start_time)}
                                   </div>
                                   {height >= 28 && (
                                     <div className="text-xs font-semibold text-gray-900 truncate mt-0.5 leading-tight">
                                       {name}
                                     </div>
                                   )}
-                                  {height >= 44 && typeName && (
+                                  {height >= 44 && appointmentLabel && (
                                     <div className="text-[10px] text-gray-500 truncate leading-tight">
-                                      {typeName}
-                                    </div>
-                                  )}
-                                  {height >= 58 && apt.end_time && (
-                                    <div className="text-[10px] text-gray-400 leading-tight">
-                                      {formatTimeRange12h(apt.start_time, apt.end_time)}
+                                      {appointmentLabel}
                                     </div>
                                   )}
                                 </div>
