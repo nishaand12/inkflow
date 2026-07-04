@@ -36,6 +36,8 @@ create table if not exists studios (
   stripe_onboarding_complete boolean default false,
   stripe_charges_enabled boolean default false,
   stripe_payouts_enabled boolean default false,
+  calendar_view_start_hour integer not null default 0,
+  calendar_view_end_hour integer not null default 24,
   created_at timestamptz default now(),
   updated_at timestamptz default now()
 );

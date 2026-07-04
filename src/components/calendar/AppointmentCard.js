@@ -42,7 +42,6 @@ export default function AppointmentCard({
       appointment.appointment_name,
       appointmentTypeName
     );
-    const timeText = appointment.is_all_day ? "All day" : formatTime12h(appointment.start_time);
 
     return (
       <div
@@ -55,9 +54,6 @@ export default function AppointmentCard({
       >
         <div className="font-semibold truncate text-gray-900 leading-tight">
           {title}
-        </div>
-        <div className="truncate leading-tight" style={{ color }}>
-          {timeText}
         </div>
       </div>
     );
