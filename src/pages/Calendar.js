@@ -174,6 +174,86 @@ function OverlapDayColumn({
   );
 }
 
+function ArtistSwimlaneHeader({ artist, artistColorMap }) {
+  return (
+    <div
+      className="shrink-0 flex-1 text-center py-2 px-1 border-l border-gray-100 first:border-l-0"
+      style={{ flexBasis: ARTIST_LANE_MIN_WIDTH, minWidth: ARTIST_LANE_MIN_WIDTH }}
+    >
+      <div className="flex items-center justify-center gap-1.5">
+        <span
+          className="w-2.5 h-2.5 rounded-full shrink-0"
+          style={{ backgroundColor: artistColorMap[artist.id] }}
+        />
+        <span className="text-xs font-semibold text-gray-800 truncate">
+          {artist.full_name}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function DaySwimlaneGrid({
+  artists,
+  artistColorMap,
+  grid,
+  timedApts,
+  day,
+  gridSectionRef,
+  showNowLine,
+  nowTop,
+  onNewAppointment,
+  onEditAppointment,
+  getCustomerName,
+  getAptColor,
+  getAptTypeName,
+}) {
+  const laneMinWidth = artists.length * ARTIST_LANE_MIN_WIDTH;
+
+  return (
+    <div className="min-w-0 w-full overflow-x-auto">
+      <div className="inline-flex flex-col align-top w-max min-w-full">
+        <div className="flex shrink-0 bg-white border-b border-gray-200 shadow-sm z-20">
+          <div className="sticky left-0 z-30 w-14 sm:w-16 shrink-0 bg-white border-r border-gray-100" />
+          <div className="flex flex-nowrap" style={{ minWidth: laneMinWidth }}>
+            {artists.map((artist) => (
+              <ArtistSwimlaneHeader
+                key={artist.id}
+                artist={artist}
+                artistColorMap={artistColorMap}
+              />
+            ))}
+          </div>
+        </div>
+
+        <div className="flex flex-nowrap" ref={gridSectionRef}>
+          <div className="sticky left-0 z-10 shrink-0 bg-white border-r border-gray-100">
+            <TimeGridGutter grid={grid} />
+          </div>
+          <div className="flex flex-nowrap" style={{ minWidth: laneMinWidth }}>
+            {artists.map((artist) => (
+              <ArtistSwimlaneColumn
+                key={artist.id}
+                artist={artist}
+                day={day}
+                timedApts={timedApts}
+                grid={grid}
+                isToday={isSameDay(day, new Date())}
+                nowTop={showNowLine ? nowTop : null}
+                onNewAppointment={onNewAppointment}
+                onEditAppointment={onEditAppointment}
+                getCustomerName={getCustomerName}
+                getAptColor={getAptColor}
+                getAptTypeName={getAptTypeName}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ArtistSwimlaneColumn({
   artist,
   day,
@@ -191,8 +271,8 @@ function ArtistSwimlaneColumn({
 
   return (
     <div
-      className="flex-1 min-w-[140px] relative border-l border-gray-100 first:border-l-0"
-      style={{ height: grid.totalHeight, minWidth: ARTIST_LANE_MIN_WIDTH }}
+      className="shrink-0 flex-1 relative border-l border-gray-100 first:border-l-0"
+      style={{ height: grid.totalHeight, flexBasis: ARTIST_LANE_MIN_WIDTH, minWidth: ARTIST_LANE_MIN_WIDTH }}
       onClick={(e) => {
         if (e.target === e.currentTarget) onNewAppointment(day, artist.id);
       }}
@@ -598,8 +678,8 @@ export default function Calendar() {
     format(currentDate, 'MMMM yyyy');
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-3 sm:p-6">
-      <div className="max-w-7xl mx-auto space-y-4 sm:space-y-6">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-3 sm:p-6 min-w-0 overflow-x-hidden">
+      <div className="max-w-7xl mx-auto space-y-4 sm:space-y-6 min-w-0 w-full">
 
         {/* ── Page header ── */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 sm:gap-4">
@@ -765,8 +845,8 @@ export default function Calendar() {
         </Card>
 
         {/* ── Calendar card ── */}
-        <Card className="bg-white border-none shadow-lg overflow-hidden">
-          <CardContent className="p-3 sm:p-6">
+        <Card className="bg-white border-none shadow-lg overflow-hidden min-w-0">
+          <CardContent className="p-3 sm:p-6 min-w-0">
 
             {/* Date header + legend */}
             <div className="mb-4 sm:mb-6 flex flex-col gap-3">
@@ -875,35 +955,9 @@ export default function Calendar() {
                 DESKTOP TIME GRID (all non-month views)
             ═══════════════════════════════════════════════════════════ */}
             {!isMobile && view !== 'month' && (
-              <div className="flex flex-col rounded-lg border border-gray-100">
+              <div className="flex flex-col rounded-lg border border-gray-100 min-w-0 overflow-hidden">
                 {isDaySwimlaneView ? (
                   <>
-                    {/* Day view: artist swimlane headers */}
-                    {daySwimlaneArtists.length > 0 && (
-                      <div className="flex shrink-0 bg-white border-b border-gray-200 shadow-sm z-20">
-                        <div className="w-14 sm:w-16 shrink-0 border-r border-gray-100" />
-                        <div className="flex flex-1 min-w-0 overflow-x-auto">
-                          {daySwimlaneArtists.map((artist) => (
-                            <div
-                              key={artist.id}
-                              className="flex-1 min-w-[140px] text-center py-2 px-1 border-l border-gray-100 first:border-l-0"
-                              style={{ minWidth: ARTIST_LANE_MIN_WIDTH }}
-                            >
-                              <div className="flex items-center justify-center gap-1.5">
-                                <span
-                                  className="w-2.5 h-2.5 rounded-full shrink-0"
-                                  style={{ backgroundColor: artistColorMap[artist.id] }}
-                                />
-                                <span className="text-xs font-semibold text-gray-800 truncate">
-                                  {artist.full_name}
-                                </span>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
                     <AllDayAppointmentsRow
                       days={[currentDate]}
                       getAllDayAppointmentsForDay={getAllDayAppointmentsForDay}
@@ -918,35 +972,27 @@ export default function Calendar() {
                       getAptTypeName={getAptTypeName}
                     />
 
-                    <div ref={gridSectionRef}>
-                      {daySwimlaneArtists.length === 0 ? (
+                    {daySwimlaneArtists.length === 0 ? (
                         <div className="flex items-center justify-center py-16 text-sm text-gray-500">
                           No timed appointments scheduled for this day
                         </div>
                       ) : (
-                        <div className="flex overflow-x-auto">
-                          <TimeGridGutter grid={calendarGrid} />
-                          <div className="flex flex-1 min-w-0">
-                            {daySwimlaneArtists.map((artist) => (
-                              <ArtistSwimlaneColumn
-                                key={artist.id}
-                                artist={artist}
-                                day={currentDate}
-                                timedApts={dayTimedAppointments}
-                                grid={calendarGrid}
-                                isToday={isSameDay(currentDate, new Date())}
-                                nowTop={showNowLine ? nowTop : null}
-                                onNewAppointment={handleNewAppointment}
-                                onEditAppointment={handleEditAppointment}
-                                getCustomerName={getCustomerName}
-                                getAptColor={getAptColor}
-                                getAptTypeName={getAptTypeName}
-                              />
-                            ))}
-                          </div>
-                        </div>
+                        <DaySwimlaneGrid
+                          artists={daySwimlaneArtists}
+                          artistColorMap={artistColorMap}
+                          grid={calendarGrid}
+                          timedApts={dayTimedAppointments}
+                          day={currentDate}
+                          gridSectionRef={gridSectionRef}
+                          showNowLine={showNowLine}
+                          nowTop={nowTop}
+                          onNewAppointment={handleNewAppointment}
+                          onEditAppointment={handleEditAppointment}
+                          getCustomerName={getCustomerName}
+                          getAptColor={getAptColor}
+                          getAptTypeName={getAptTypeName}
+                        />
                       )}
-                    </div>
                   </>
                 ) : (
                   <>
@@ -992,8 +1038,8 @@ export default function Calendar() {
                       getAptTypeName={getAptTypeName}
                     />
 
-                    <div ref={gridSectionRef}>
-                      <div className="flex">
+                    <div ref={gridSectionRef} className="min-w-0">
+                      <div className="flex min-w-0">
                         <TimeGridGutter grid={calendarGrid} />
                         {days.map((day, dayIdx) => {
                           const dayApts = getAppointmentsForDay(day);
