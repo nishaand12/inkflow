@@ -18,6 +18,7 @@ import {
 } from "@/utils/reportingCategories";
 import { formatTimeRange12h } from "@/utils/index";
 import { getAppointmentStatusLabel } from "@/utils/appointmentStatus";
+import LinkifiedText from "@/components/common/LinkifiedText";
 import { getArtistTypeGroupLabel } from "@/utils/artistTypes";
 import {
   appointmentMatchesArtistFilter,
@@ -425,7 +426,7 @@ export default function Appointments() {
                     </div>
                     {appointment.design_description && (
                       <p className="text-sm text-gray-500 line-clamp-2 [overflow-wrap:anywhere]">
-                        {appointment.design_description}
+                        <LinkifiedText text={appointment.design_description} />
                       </p>
                     )}
                   </div>

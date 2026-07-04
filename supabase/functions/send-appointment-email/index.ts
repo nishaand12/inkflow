@@ -3,6 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import Stripe from "npm:stripe@17";
 import { formatTime12h } from "../_shared/timeDisplay.ts";
 import { appUrl } from "../_shared/appUrl.ts";
+import { STAFF_DEPOSIT_CHECKOUT_EXPIRY_SECONDS } from "../_shared/depositCheckoutExpiry.ts";
 
 const MAILJET_API_KEY = Deno.env.get("MAILJET_API_KEY");
 const MAILJET_SECRET_KEY = Deno.env.get("MAILJET_SECRET_KEY");
@@ -735,7 +736,7 @@ async function createDepositCheckout(
 
   const currency = (studio.currency || "USD").toLowerCase();
   const unitAmount = Math.round(appointment.deposit_amount * 100);
-  const expiresAt = Math.floor(Date.now() / 1000) + 86400;
+  const expiresAt = Math.floor(Date.now() / 1000) + STAFF_DEPOSIT_CHECKOUT_EXPIRY_SECONDS;
   const idempotencyKey = `deposit-${appointment.id}-${new Date().toISOString().slice(0, 10)}`;
 
   const session = await stripe.checkout.sessions.create(

@@ -4,6 +4,7 @@ import { Clock, MapPin, User, CreditCard } from "lucide-react";
 import { hexToRgba } from "@/utils/artistColors";
 import { formatTime12h, formatTimeRange12h, formatAppointmentCardTitle } from "@/utils/index";
 import { getAppointmentStatusLabel } from "@/utils/appointmentStatus";
+import LinkifiedText from "@/components/common/LinkifiedText";
 
 export default function AppointmentCard({
   appointment,
@@ -101,8 +102,8 @@ export default function AppointmentCard({
           </div>
 
           {appointment.design_description && (
-            <p className="text-xs sm:text-sm text-gray-600 mt-2 sm:mt-3 line-clamp-2">
-              {appointment.design_description}
+            <p className="text-xs sm:text-sm text-gray-600 mt-2 sm:mt-3 line-clamp-2 [overflow-wrap:anywhere]">
+              <LinkifiedText text={appointment.design_description} />
             </p>
           )}
 
