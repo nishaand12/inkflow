@@ -12,7 +12,11 @@ import { format, startOfMonth, endOfMonth, parseISO } from "date-fns";
 import { normalizeUserRole } from "@/utils/roles";
 import { getArtistTypeLabel, isSupportStaffArtistType } from "@/utils/artistTypes";
 import { sumExplicitAvailableHoursInRange } from "@/utils/explicitAvailabilityHours";
-import { resolveRevenueSplitRule, isAppointmentTypeSplitEnabled } from "@/utils/revenueSplits";
+import {
+  resolveRevenueSplitRule,
+  isAppointmentTypeSplitEnabled,
+  computeAppointmentShares,
+} from "@/utils/revenueSplits";
 import {
   CATEGORY_ROLE_REPORTING,
   filterCategoriesByRole,
@@ -281,7 +285,11 @@ export default function Reports() {
         service = charge > 0 ? charge : deposit;
       }
       const gross = service + product;
-      const artistShare = splitResolution.computeArtistShare(service);
+      const { artistShare, shopShare } = computeAppointmentShares(
+        splitResolution,
+        { service, product },
+        apt.tax_amount || 0
+      );
 
       if (!shares[name]) {
         shares[name] = {
@@ -298,7 +306,7 @@ export default function Reports() {
       }
       shares[name].gross += gross;
       shares[name].artist_share += artistShare;
-      shares[name].shop_share += (service - artistShare) + product;
+      shares[name].shop_share += shopShare;
     }
     return Object.values(shares).map((row) => {
       const sortedLabels = row.split_labels.slice().sort((a, b) => a.localeCompare(b));

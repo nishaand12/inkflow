@@ -119,3 +119,36 @@ export function resolveRevenueSplitRule(
     displayLabel: "0%",
   };
 }
+
+/** Portion of appointment tax allocated to service lines (products are 100% shop). */
+export function allocateServiceTax({ service, product }, taxAmount) {
+  const svc = Math.max(0, Number(service) || 0);
+  const prod = Math.max(0, Number(product) || 0);
+  const tax = Math.max(0, Number(taxAmount) || 0);
+  const base = svc + prod;
+  if (base <= 0 || tax <= 0) return 0;
+  return tax * (svc / base);
+}
+
+/**
+ * Artist/shop shares for settlement and reporting.
+ * Percent splits apply to service + service tax (artists remit HST on their share).
+ * Fixed-amount splits are unchanged: exact dollar payout, capped at pre-tax service.
+ */
+export function computeAppointmentShares(splitResolution, amounts, taxAmount) {
+  const service = Math.max(0, Number(amounts?.service) || 0);
+  const product = Math.max(0, Number(amounts?.product) || 0);
+  const tax = Math.max(0, Number(taxAmount) || 0);
+  const serviceTax = allocateServiceTax({ service, product }, tax);
+  const totalCollected = service + product + tax;
+
+  let artistShare;
+  if (splitResolution.splitMode === "fixed_amount") {
+    artistShare = splitResolution.computeArtistShare(service);
+  } else {
+    artistShare = splitResolution.computeArtistShare(service + serviceTax);
+  }
+
+  const shopShare = totalCollected - artistShare;
+  return { artistShare, shopShare };
+}
