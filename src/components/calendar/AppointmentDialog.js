@@ -22,7 +22,7 @@ import CheckoutDialog from "./CheckoutDialog";
 import RefundDialog from "./RefundDialog";
 import TimePicker12h from "./TimePicker12h";
 import { normalizeUserRole } from "@/utils/roles";
-import { addMinutesToTime, formatDuration, formatTime12h } from "@/utils/index";
+import { addMinutesToTime, formatDuration, formatTime12h, DEFAULT_BOOKING_START_TIME, DEFAULT_APPOINTMENT_END_TIME } from "@/utils/index";
 import { getAppointmentTypeDisplaySections } from "@/utils/reportingCategories";
 import { CHECKOUT_PAYMENT_METHOD_OPTIONS } from "@/utils/checkoutPaymentMethods";
 import { filterArtistsSelectableForBooking } from "@/utils/artistTypes";
@@ -38,9 +38,6 @@ const EMPTY_ARRAY = [];
 
 /** Minimum span between start and end time (e.g. short piercing visits). */
 const MIN_APPOINTMENT_DURATION_MINUTES = 5;
-
-const DEFAULT_START_TIME = '12:00';
-const DEFAULT_END_TIME = '14:00';
 
 function sortLocationsByCreatedAt(locationsList) {
   return [...locationsList].sort((a, b) =>
@@ -195,8 +192,8 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     client_email: '',
     client_phone: '',
     appointment_date: defaultDate ? format(defaultDate, 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'),
-    start_time: DEFAULT_START_TIME,
-    end_time: DEFAULT_END_TIME,
+    start_time: DEFAULT_BOOKING_START_TIME,
+    end_time: DEFAULT_APPOINTMENT_END_TIME,
     is_all_day: false,
     deposit_amount: 0,
     total_estimate: 0,
@@ -405,13 +402,13 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
         client_email: src.client_email || '',
         client_phone: src.client_phone || '',
         appointment_date: src.appointment_date || format(new Date(), 'yyyy-MM-dd'),
-        start_time: src.start_time || DEFAULT_START_TIME,
+        start_time: src.start_time || DEFAULT_BOOKING_START_TIME,
         design_description: src.design_description || '',
         placement: src.placement || '',
         appointment_name: src.appointment_name || '',
         notes: src.notes || '',
         status: src.status || 'scheduled',
-        end_time: src.end_time || DEFAULT_END_TIME,
+        end_time: src.end_time || DEFAULT_APPOINTMENT_END_TIME,
         is_all_day: src.is_all_day || false,
         deposit_amount: src.deposit_amount ?? 0,
         total_estimate: src.total_estimate ?? 0,
@@ -439,8 +436,8 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
         client_email: '',
         client_phone: '',
         appointment_date: defaultDate ? format(defaultDate, 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'),
-        start_time: DEFAULT_START_TIME,
-        end_time: DEFAULT_END_TIME,
+        start_time: DEFAULT_BOOKING_START_TIME,
+        end_time: DEFAULT_APPOINTMENT_END_TIME,
         is_all_day: false,
         deposit_amount: 0,
         total_estimate: 0,
@@ -1262,8 +1259,8 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
       client_email: '',
       client_phone: '',
       appointment_date: format(new Date(), 'yyyy-MM-dd'),
-      start_time: DEFAULT_START_TIME,
-      end_time: DEFAULT_END_TIME,
+      start_time: DEFAULT_BOOKING_START_TIME,
+      end_time: DEFAULT_APPOINTMENT_END_TIME,
       is_all_day: false,
       deposit_amount: 0,
       total_estimate: 0,

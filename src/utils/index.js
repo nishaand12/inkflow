@@ -49,6 +49,15 @@ export const PIERCING_CATEGORIES = new Set([
   'Piercing Services',
 ]);
 
+/** Default start time for new appointment and availability booking forms (12:00 PM). */
+export const DEFAULT_BOOKING_START_TIME = '12:00';
+
+/** Default end time for new appointments (2 hours after default start). */
+export const DEFAULT_APPOINTMENT_END_TIME = '14:00';
+
+/** Default end time for new availability blocks (8 hours after default start). */
+export const DEFAULT_AVAILABILITY_END_TIME = '20:00';
+
 /** Format an integer number of minutes into a human-readable string. */
 export const formatDuration = (minutes) => {
   if (!minutes && minutes !== 0) return '—';

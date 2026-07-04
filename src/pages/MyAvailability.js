@@ -10,7 +10,7 @@ import AvailabilityDialog from "../components/availability/AvailabilityDialog";
 import AvailabilityCalendar from "../components/availability/AvailabilityCalendar";
 import TimePicker12h from "../components/calendar/TimePicker12h";
 import { normalizeUserRole } from "@/utils/roles";
-import { formatTimeRange12h } from "@/utils/index";
+import { formatTimeRange12h, DEFAULT_BOOKING_START_TIME, DEFAULT_AVAILABILITY_END_TIME } from "@/utils/index";
 import { sortByFullNameThenId, sortByNameThenId } from "@/utils/listSort";
 import { getArtistColor } from "@/utils/artistColors";
 import { navigateNext, navigatePrev, getViewTitle } from "@/utils/calendarViews";
@@ -94,7 +94,7 @@ export default function MyAvailability() {
   // ── Weekly schedule CRUD (single-artist mode) ──
   const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
   const [editingSchedule, setEditingSchedule] = useState(null);
-  const [scheduleForm, setScheduleForm] = useState({ day_of_week: 1, start_time: "10:00", end_time: "18:00", location_id: "" });
+  const [scheduleForm, setScheduleForm] = useState({ day_of_week: 1, start_time: DEFAULT_BOOKING_START_TIME, end_time: DEFAULT_AVAILABILITY_END_TIME, location_id: "" });
   const [showScheduleForm, setShowScheduleForm] = useState(false);
 
   const selectedSingleArtistId = artistFilter !== "all" ? artistFilter : null;
@@ -152,7 +152,7 @@ export default function MyAvailability() {
 
   const handleNewSchedule = () => {
     setEditingSchedule(null);
-    setScheduleForm({ day_of_week: 1, start_time: "10:00", end_time: "18:00", location_id: "" });
+    setScheduleForm({ day_of_week: 1, start_time: DEFAULT_BOOKING_START_TIME, end_time: DEFAULT_AVAILABILITY_END_TIME, location_id: "" });
     setShowScheduleForm(true);
   };
 
