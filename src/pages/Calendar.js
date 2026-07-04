@@ -509,6 +509,7 @@ export default function Calendar() {
                     <SelectItem value="all">All Statuses</SelectItem>
                     <SelectItem value="scheduled">Scheduled</SelectItem>
                     <SelectItem value="confirmed">Confirmed</SelectItem>
+                    <SelectItem value="pending_deposit">Pending Deposit</SelectItem>
                     <SelectItem value="deposit_paid">Deposit Paid</SelectItem>
                     <SelectItem value="completed">Completed</SelectItem>
                     <SelectItem value="cancelled">Cancelled</SelectItem>

@@ -245,7 +245,7 @@ export default function PublicBooking() {
                 <p className="text-gray-600 mb-6">
                   Paying the deposit is required to reserve your booking at {studio.name} for{" "}
                   {selectedDate} at {formatTime12h(selectedTime)}. Your appointment is not confirmed until payment
-                  completes.
+                  completes. This payment link expires in 1 hour, after which your requested time is released.
                 </p>
                 <a
                   href={bookingResult.checkout_url}

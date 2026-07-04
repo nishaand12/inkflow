@@ -1889,6 +1889,9 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                   <SelectContent>
                     <SelectItem value="scheduled">Scheduled</SelectItem>
                     <SelectItem value="confirmed">Confirmed</SelectItem>
+                    {formData.status === 'pending_deposit' && (
+                      <SelectItem value="pending_deposit">Pending Deposit</SelectItem>
+                    )}
                     <SelectItem value="deposit_paid">Deposit Paid</SelectItem>
                     <SelectItem value="cancelled">Cancelled</SelectItem>
                     <SelectItem value="no_show">No Show</SelectItem>
