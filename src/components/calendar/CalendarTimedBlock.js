@@ -3,6 +3,7 @@ import { hexToRgba } from "@/utils/artistColors";
 import { formatAppointmentCardTitle } from "@/utils/index";
 import {
   getAppointmentDurationMins,
+  getAppointmentBlockTypography,
   getAppointmentHeight,
   topFromTime,
 } from "@/utils/calendarGrid";
@@ -19,6 +20,7 @@ export default function CalendarTimedBlock({
   const top = topFromTime(apt.start_time, grid);
   const durationMins = getAppointmentDurationMins(apt);
   const height = getAppointmentHeight(durationMins, grid);
+  const typography = getAppointmentBlockTypography(height);
 
   return (
     <div
@@ -37,8 +39,21 @@ export default function CalendarTimedBlock({
       }}
       title={title}
     >
-      <div className="px-1 pt-0.5 h-full overflow-hidden">
-        <div className="text-[9px] sm:text-[10px] font-semibold text-gray-900 truncate leading-none w-full">
+      <div
+        className="h-full overflow-hidden"
+        style={{
+          paddingTop: typography.paddingTop,
+          paddingLeft: typography.paddingX,
+          paddingRight: typography.paddingX,
+        }}
+      >
+        <div
+          className="font-semibold text-gray-900 truncate w-full"
+          style={{
+            fontSize: typography.fontSize,
+            lineHeight: typography.lineHeight,
+          }}
+        >
           {title}
         </div>
       </div>

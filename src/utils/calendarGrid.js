@@ -53,6 +53,20 @@ export function getAppointmentHeight(durationMins, grid) {
   return Math.max(1, (durationMins / 60) * grid.hourHeight - 1);
 }
 
+/** Fit label typography inside the block without exceeding its proportional height. */
+export function getAppointmentBlockTypography(blockHeightPx) {
+  if (blockHeightPx < 12) {
+    return { fontSize: 7, paddingTop: 0, paddingX: 2, lineHeight: 1 };
+  }
+  if (blockHeightPx < 16) {
+    return { fontSize: 8, paddingTop: 0, paddingX: 3, lineHeight: 1 };
+  }
+  if (blockHeightPx < 22) {
+    return { fontSize: 9, paddingTop: 1, paddingX: 4, lineHeight: 1 };
+  }
+  return { fontSize: 10, paddingTop: 2, paddingX: 4, lineHeight: 1 };
+}
+
 export function getNowLineTop(now, grid) {
   const nowMinutes = now.getHours() * 60 + now.getMinutes();
   const gridStartMins = grid.startHour * 60;
