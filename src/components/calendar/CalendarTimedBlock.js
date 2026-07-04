@@ -26,7 +26,7 @@ export default function CalendarTimedBlock({
         e.stopPropagation();
         onEdit(apt);
       }}
-      className="absolute rounded-r-md overflow-hidden cursor-pointer transition-opacity hover:opacity-80"
+      className="absolute rounded-r-md overflow-hidden cursor-pointer transition-opacity hover:opacity-80 z-[1]"
       style={{
         top: top + 1,
         height,
@@ -34,7 +34,6 @@ export default function CalendarTimedBlock({
         width,
         backgroundColor: hexToRgba(color, 0.15),
         borderLeft: `3px solid ${color}`,
-        zIndex: 10,
       }}
       title={title}
     >

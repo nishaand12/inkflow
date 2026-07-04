@@ -81,10 +81,10 @@ function getArtistsWithTimedAppointments(timedApts, artists) {
   return sortByFullNameThenId(artists.filter((a) => artistIds.has(a.id)));
 }
 
-function TimeGridGutter({ grid }) {
+function TimeGridGutter({ grid, className = "" }) {
   return (
     <div
-      className="w-14 sm:w-16 shrink-0 relative select-none border-r border-gray-100"
+      className={`w-14 sm:w-16 shrink-0 relative select-none border-r border-gray-100 bg-white ${className}`}
       style={{ height: grid.totalHeight }}
     >
       {grid.hoursList.map((hour, i) => (
@@ -216,7 +216,7 @@ function DaySwimlaneGrid({
         style={{ width: `max(100%, ${laneMinWidth}px)` }}
       >
         <div className="flex shrink-0 bg-white border-b border-gray-200 shadow-sm z-20">
-          <div className="sticky left-0 z-30 w-14 sm:w-16 shrink-0 bg-white border-r border-gray-100" />
+          <div className="sticky left-0 z-30 w-14 sm:w-16 shrink-0 bg-white border-r border-gray-100 shadow-[2px_0_4px_rgba(0,0,0,0.06)]" />
           <div className="flex flex-1 flex-nowrap min-w-0">
             {artists.map((artist) => (
               <ArtistSwimlaneHeader
@@ -229,7 +229,7 @@ function DaySwimlaneGrid({
         </div>
 
         <div className="flex flex-nowrap" ref={gridSectionRef}>
-          <div className="sticky left-0 z-10 shrink-0 bg-white border-r border-gray-100">
+          <div className="sticky left-0 z-20 shrink-0 bg-white border-r border-gray-100 shadow-[2px_0_4px_rgba(0,0,0,0.06)]">
             <TimeGridGutter grid={grid} />
           </div>
           <div className="flex flex-1 flex-nowrap min-w-0">
