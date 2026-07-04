@@ -113,6 +113,8 @@ export default function PublicBooking() {
       weeklySchedules,
       appointments,
       workStations,
+      preferredWorkStationId:
+        artists.find((a) => a.id === artistId)?.preferred_work_station_id || null,
     });
   };
 
@@ -132,6 +134,7 @@ export default function PublicBooking() {
     if (selectedArtist === '__any__') {
       return computeAnyArtistSlots({
         artistIds: eligiblePiercers.map((p) => p.id),
+        artists,
         date: selectedDate,
         durationMinutes: selectedType.default_duration_minutes || 60,
         locationId: selectedLocation,

@@ -4,6 +4,8 @@
  * `PublicBooking` and `ManageAppointment` produce identical availability.
  */
 
+import { pickPreferredWorkStationId } from "./workStationSelection";
+
 export const timeToMinutes = (t) => {
   const [h, m] = String(t).split(":").map(Number);
   return h * 60 + m;
@@ -29,6 +31,8 @@ export const minutesToTime = (m) => {
  * @param {Array} params.workStations - workstations for the studio
  * @param {string|null} [params.excludeAppointmentId] - appointment to ignore for
  *        conflict checks (used when rescheduling an existing appointment).
+ * @param {string|null} [params.preferredWorkStationId] - artist's preferred work
+ *        station; selected for each slot when it is free at the location.
  * @returns {Array<{ time: string, stationId: string|null, artistId: string }>}
  */
 export function computeArtistSlots({
@@ -41,6 +45,7 @@ export function computeArtistSlots({
   appointments = [],
   workStations = [],
   excludeAppointmentId = null,
+  preferredWorkStationId = null,
 }) {
   if (!artistId || !locationId || !date || !durationMinutes) return [];
 
@@ -136,12 +141,14 @@ export function computeArtistSlots({
         .map((apt) => apt.work_station_id)
         .filter(Boolean);
 
-      const freeStation = locationStations.find((ws) => !occupiedStations.includes(ws.id));
-      if (!freeStation && locationStations.length > 0) continue;
+      const freeStations = locationStations.filter(
+        (ws) => !occupiedStations.includes(ws.id)
+      );
+      if (freeStations.length === 0 && locationStations.length > 0) continue;
 
       slots.push({
         time: minutesToTime(slotStart),
-        stationId: freeStation?.id || null,
+        stationId: pickPreferredWorkStationId(freeStations, preferredWorkStationId) || null,
         artistId,
       });
     }
@@ -153,11 +160,16 @@ export function computeArtistSlots({
  * Compute the merged set of available slots across many artists (used for the
  * "Any available artist" option). De-dupes by time, keeping the first artist
  * found for each slot.
+ *
+ * @param {Array} [params.artists] - artist rows used to resolve each artist's
+ *        `preferred_work_station_id` for the slots they own.
  */
-export function computeAnyArtistSlots({ artistIds = [], ...rest }) {
+export function computeAnyArtistSlots({ artistIds = [], artists = [], ...rest }) {
   const allSlots = new Map();
   for (const artistId of artistIds) {
-    for (const slot of computeArtistSlots({ artistId, ...rest })) {
+    const preferredWorkStationId =
+      artists.find((a) => a.id === artistId)?.preferred_work_station_id || null;
+    for (const slot of computeArtistSlots({ artistId, preferredWorkStationId, ...rest })) {
       if (!allSlots.has(slot.time)) {
         allSlots.set(slot.time, slot);
       }
