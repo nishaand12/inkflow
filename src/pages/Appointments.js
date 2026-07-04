@@ -372,7 +372,7 @@ export default function Appointments() {
                 className="p-4 rounded-xl border-2 border-gray-100 hover:border-indigo-200 hover:shadow-md transition-all duration-200 cursor-pointer"
               >
                 <div className="flex flex-col lg:flex-row justify-between gap-4">
-                  <div className="flex-1 space-y-2">
+                  <div className="flex-1 min-w-0 space-y-2">
                     <div className="flex items-center gap-3">
                       <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-600 flex items-center justify-center text-white font-bold text-lg">
                         {customerName?.charAt(0) || 'C'}
@@ -403,7 +403,9 @@ export default function Appointments() {
                       </div>
                     </div>
                     {appointment.design_description && (
-                      <p className="text-sm text-gray-500 line-clamp-2">{appointment.design_description}</p>
+                      <p className="text-sm text-gray-500 line-clamp-2 [overflow-wrap:anywhere]">
+                        {appointment.design_description}
+                      </p>
                     )}
                   </div>
                   <div className="flex flex-col items-end justify-between">

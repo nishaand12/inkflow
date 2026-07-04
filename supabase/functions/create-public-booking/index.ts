@@ -209,7 +209,7 @@ serve(async (req) => {
             customer_email: customerEmail,
             expires_at: expiresAt,
             success_url: `${APP_URL}/deposit-success?studio=${encodeURIComponent(studio.name)}`,
-            cancel_url: `${APP_URL}/deposit-cancelled?studio=${encodeURIComponent(studio.name)}`,
+            cancel_url: `${APP_URL}/deposit-cancelled?session_id={CHECKOUT_SESSION_ID}&studio=${encodeURIComponent(studio.name)}`,
             metadata: {
               appointment_id: appointment.id,
               studio_id: studioId,
