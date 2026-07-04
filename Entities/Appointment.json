@@ -38,6 +38,10 @@
         "type": "string",
         "description": "Client phone (kept for backward compatibility)"
       },
+      "appointment_name": {
+        "type": "string",
+        "description": "Optional short label shown on calendar cards"
+      },
       "appointment_date": {
         "type": "string",
         "format": "date",

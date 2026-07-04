@@ -185,6 +185,7 @@ create table if not exists appointments (
   client_name text,
   client_email text,
   client_phone text,
+  appointment_name text,
   appointment_date date not null,
   start_time text,
   end_time text,

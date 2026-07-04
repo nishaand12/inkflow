@@ -202,6 +202,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     total_estimate: 0,
     design_description: '',
     placement: '',
+    appointment_name: '',
     notes: '',
     status: 'scheduled'
   });
@@ -407,6 +408,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
         start_time: src.start_time || DEFAULT_START_TIME,
         design_description: src.design_description || '',
         placement: src.placement || '',
+        appointment_name: src.appointment_name || '',
         notes: src.notes || '',
         status: src.status || 'scheduled',
         end_time: src.end_time || DEFAULT_END_TIME,
@@ -445,6 +447,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
         tax_amount: 0,
         design_description: '',
         placement: '',
+        appointment_name: '',
         notes: '',
         status: 'scheduled'
       });
@@ -1261,6 +1264,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
       total_estimate: 0,
       design_description: '',
       placement: '',
+      appointment_name: '',
       notes: '',
       status: 'scheduled'
     });
@@ -1828,6 +1832,19 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                 </AccordionItem>
               </Accordion>
             )}
+
+            <div className="space-y-2">
+              <Label htmlFor="appointment_name" className="text-sm">Appointment Name</Label>
+              <Input
+                id="appointment_name"
+                value={formData.appointment_name}
+                onChange={(e) => setFormData({ ...formData, appointment_name: e.target.value })}
+                placeholder="e.g., Sleeve consult, Touch-up"
+                disabled={!canEdit()}
+                className="text-sm"
+              />
+              <p className="text-xs text-gray-500">Optional label shown on the calendar below the customer name</p>
+            </div>
 
             <div className="space-y-2">
               <Label htmlFor="design_description" className="text-sm">Design Description</Label>

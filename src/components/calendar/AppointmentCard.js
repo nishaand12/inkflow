@@ -59,6 +59,11 @@ export default function AppointmentCard({
         <div className="truncate text-gray-800 leading-tight">
           {appointment.client_name || 'Client'}
         </div>
+        {appointment.appointment_name?.trim() && (
+          <div className="truncate text-gray-500 leading-tight">
+            {appointment.appointment_name.trim()}
+          </div>
+        )}
       </div>
     );
   }
