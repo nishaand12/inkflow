@@ -34,9 +34,9 @@ serve(async (req) => {
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
     // Safety net: public bookings held for a deposit are normally discarded by
-    // the stripe-webhook when their checkout session expires (24h). If that
+    // the stripe-webhook when their checkout session expires (1h). If that
     // event was missed, cancel them here once the session can no longer be paid.
-    const staleCutoff = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
+    const staleCutoff = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
     const { error: staleErr } = await supabase
       .from("appointments")
       .update({ status: "cancelled", deposit_status: "none" })

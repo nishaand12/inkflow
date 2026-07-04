@@ -186,7 +186,9 @@ serve(async (req) => {
       try {
         const currency = (studio.currency || "USD").toLowerCase();
         const unitAmount = Math.round(actualDeposit * 100);
-        const expiresAt = Math.floor(Date.now() / 1000) + 86400;
+        // 1 hour: the booking holds the artist's slot while unpaid, so the
+        // checkout must expire quickly to release abandoned bookings.
+        const expiresAt = Math.floor(Date.now() / 1000) + 3600;
 
         const session = await stripe.checkout.sessions.create(
           {
