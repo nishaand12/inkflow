@@ -13,7 +13,11 @@ import { format } from "date-fns";
 import { normalizeUserRole } from "@/utils/roles";
 import { createPageUrl } from "@/utils/index";
 import { getCollectionBucket } from "@/utils/collectionBuckets";
-import { resolveRevenueSplitRule, isAppointmentTypeSplitEnabled } from "@/utils/revenueSplits";
+import {
+  resolveRevenueSplitRule,
+  isAppointmentTypeSplitEnabled,
+  computeAppointmentShares,
+} from "@/utils/revenueSplits";
 import {
   allocatePaidDepositToBuckets,
   getPaidDepositRowsForAppointment,
@@ -209,7 +213,11 @@ export default function Settlements() {
           const splitValue = splitResolution.splitValue;
           const aptCharges = charges.filter(c => c.appointment_id === apt.id);
           const amounts = getAppointmentSettlementAmounts(apt, aptCharges);
-          const artistShare = splitResolution.computeArtistShare(amounts.service);
+          const { artistShare, shopShare } = computeAppointmentShares(
+            splitResolution,
+            amounts,
+            apt.tax_amount || 0
+          );
 
           const line = await base44.entities.DailySettlementLine.create({
             studio_id: user.studio_id,
@@ -221,7 +229,7 @@ export default function Settlements() {
             product_amount: amounts.product,
             tip_amount: amounts.tip,
             artist_share: artistShare,
-            shop_share: (amounts.service - artistShare) + amounts.product,
+            shop_share: shopShare,
             split_percent: splitPercent,
             split_mode: splitMode,
             split_value: splitValue,
