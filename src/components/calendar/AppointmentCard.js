@@ -44,7 +44,11 @@ export default function AppointmentCard({
 
   // Compact chip — used in month view and mobile multi-day views
   if (compact) {
-    const title = formatAppointmentCardTitle(appointment.client_name, appointment.appointment_name);
+    const title = formatAppointmentCardTitle(
+      appointment.client_name,
+      appointment.appointment_name,
+      appointmentTypeName
+    );
     const timeText = appointment.is_all_day ? "All day" : formatTime12h(appointment.start_time);
 
     return (

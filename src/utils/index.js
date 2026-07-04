@@ -98,10 +98,17 @@ export function formatTimeRange12h(startStr, endStr) {
   return `${formatTime12h(startStr)} – ${formatTime12h(endStr)}`;
 }
 
-/** Calendar card title: "Customer Name" or "Customer Name - Appointment Name". */
-export function formatAppointmentCardTitle(customerName, appointmentName) {
+/** Resolve calendar card descriptor: custom name if set, otherwise appointment type. */
+export function resolveAppointmentCardLabel(appointmentName, appointmentTypeName) {
+  const name = (appointmentName || '').trim();
+  if (name) return name;
+  return (appointmentTypeName || '').trim();
+}
+
+/** Calendar card title: "Customer Name" or "Customer Name - [name or type]". */
+export function formatAppointmentCardTitle(customerName, appointmentName, appointmentTypeName) {
   const customer = (customerName || 'Client').trim();
-  const label = (appointmentName || '').trim();
+  const label = resolveAppointmentCardLabel(appointmentName, appointmentTypeName);
   return label ? `${customer} - ${label}` : customer;
 }
 
