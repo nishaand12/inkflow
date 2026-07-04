@@ -107,27 +107,42 @@ export default function AppointmentCard({
             </p>
           )}
 
-          {appointment.total_estimate > 0 && (
-            <div className="mt-2 sm:mt-3 pt-2 sm:pt-3 border-t border-gray-100">
-              <div className="flex justify-between items-center">
-                <span className="text-xs sm:text-sm text-gray-500">Total Estimate</span>
-                <span className="text-base sm:text-lg font-bold text-gray-900">${appointment.total_estimate}</span>
-              </div>
-            </div>
-          )}
-
-          {appointment.deposit_amount > 0 && appointment.deposit_status && appointment.deposit_status !== 'none' && (
-            <div className="mt-1.5 flex items-center gap-1.5">
-              <CreditCard className="w-3 h-3 text-purple-500" />
-              <span className="text-xs text-gray-500">Deposit ${appointment.deposit_amount}</span>
-              {appointment.deposit_status === 'paid' && (
-                <Badge className="bg-green-100 text-green-800 text-[10px] px-1.5 py-0">Paid</Badge>
-              )}
-              {appointment.deposit_status === 'pending' && (
-                <Badge className="bg-amber-100 text-amber-800 text-[10px] px-1.5 py-0">Pending</Badge>
-              )}
-            </div>
-          )}
+          <div className="mt-2 sm:mt-3 pt-2 sm:pt-3 border-t border-gray-100">
+            {appointment.status === 'completed' ? (
+              <>
+                <div className="flex justify-between items-center">
+                  <span className="text-xs sm:text-sm text-gray-500">Charge</span>
+                  <span className="text-base sm:text-lg font-bold text-gray-900">
+                    ${(appointment.charge_amount || 0).toFixed(2)}
+                  </span>
+                </div>
+                <div className="mt-1.5 text-xs text-gray-500">
+                  Tax: ${(appointment.tax_amount || 0).toFixed(2)}
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="flex justify-between items-center">
+                  <span className="text-xs sm:text-sm text-gray-500">Total Estimate</span>
+                  <span className="text-base sm:text-lg font-bold text-gray-900">
+                    ${(appointment.total_estimate || 0).toFixed(2)}
+                  </span>
+                </div>
+                <div className="mt-1.5 flex items-center gap-1.5">
+                  <CreditCard className="w-3 h-3 text-purple-500" />
+                  <span className="text-xs text-gray-500">
+                    Deposit ${(appointment.deposit_amount || 0).toFixed(2)}
+                  </span>
+                  {appointment.deposit_status === 'paid' && (
+                    <Badge className="bg-green-100 text-green-800 text-[10px] px-1.5 py-0">Paid</Badge>
+                  )}
+                  {appointment.deposit_status === 'pending' && (
+                    <Badge className="bg-amber-100 text-amber-800 text-[10px] px-1.5 py-0">Pending</Badge>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </div>
     );
