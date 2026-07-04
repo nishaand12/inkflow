@@ -140,10 +140,19 @@ export default function ManageAppointment() {
       excludeAppointmentId: apt?.id || null,
     };
     if (selectedArtist === ANY_ARTIST) {
-      return computeAnyArtistSlots({ artistIds: eligiblePiercers.map((p) => p.id), ...common });
+      return computeAnyArtistSlots({
+        artistIds: eligiblePiercers.map((p) => p.id),
+        artists: bookingData.artists,
+        ...common,
+      });
     }
     if (!selectedArtist) return [];
-    return computeArtistSlots({ artistId: selectedArtist, ...common });
+    return computeArtistSlots({
+      artistId: selectedArtist,
+      preferredWorkStationId:
+        bookingData.artists.find((a) => a.id === selectedArtist)?.preferred_work_station_id || null,
+      ...common,
+    });
   }, [bookingData, selectedType, selectedArtist, selectedLocation, selectedDate, durationMinutes, eligiblePiercers, apt]);
 
   const startReschedule = async () => {

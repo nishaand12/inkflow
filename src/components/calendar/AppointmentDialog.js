@@ -32,6 +32,7 @@ import {
   filterAppointmentTypesForArtist,
   canArtistBookAppointmentType,
 } from "@/utils/artistServiceEligibility";
+import { pickPreferredWorkStationId } from "@/utils/workStationSelection";
 
 // Stable empty array to prevent new references on each render
 const EMPTY_ARRAY = [];
@@ -110,24 +111,12 @@ function computeAvailableStations({
   );
 }
 
-function sortStationsForDefault(stations) {
-  return [...stations].sort(
-    (a, b) =>
-      String(a.created_at || "").localeCompare(String(b.created_at || "")) ||
-      String(a.name || "").localeCompare(String(b.name || ""))
-  );
-}
-
 /** Prefer artist's saved station if free for the slot; else first available by created_at/name. */
 function pickDefaultWorkStationId(availableStations, artistId, artists) {
-  const sorted = sortStationsForDefault(availableStations);
-  if (artistId) {
-    const pref = artists.find((a) => a.id === artistId)?.preferred_work_station_id;
-    if (pref && sorted.some((s) => s.id === pref)) {
-      return pref;
-    }
-  }
-  return sorted[0]?.id || "";
+  const preferred = artistId
+    ? artists.find((a) => a.id === artistId)?.preferred_work_station_id || null
+    : null;
+  return pickPreferredWorkStationId(availableStations, preferred);
 }
 
 function numSnapshot(v) {
