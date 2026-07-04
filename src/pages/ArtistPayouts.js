@@ -86,6 +86,12 @@ export default function ArtistPayouts() {
     ? normalizeUserRole(user.user_role || (user.role === "admin" ? "Admin" : "Front_Desk"))
     : null;
   const isAdmin = userRole === "Admin" || userRole === "Owner";
+  const isArtist = userRole === "Artist";
+
+  const userArtist = useMemo(
+    () => artists.find((a) => a.user_id === user?.id),
+    [artists, user]
+  );
 
   const artistById = useMemo(() => {
     const m = {};
@@ -132,6 +138,19 @@ export default function ArtistPayouts() {
     [ledgerEntries]
   );
 
+  const visibleBalances = useMemo(
+    () => (isAdmin ? balances : balances.filter((b) => b.artist_id === userArtist?.id)),
+    [isAdmin, balances, userArtist]
+  );
+
+  const visibleLedgerEntries = useMemo(
+    () =>
+      isAdmin
+        ? recentLedgerEntries
+        : recentLedgerEntries.filter((e) => e.artist_id === userArtist?.id),
+    [isAdmin, recentLedgerEntries, userArtist]
+  );
+
   const recordPayout = useMutation({
     mutationFn: async () => {
       const amount = parseFloat(form.amount);
@@ -174,14 +193,14 @@ export default function ArtistPayouts() {
     },
   });
 
-  if (!isAdmin) {
+  if (!isAdmin && !isArtist) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-6">
         <div className="max-w-4xl mx-auto">
           <Card>
             <CardContent className="p-12 text-center">
               <h2 className="text-xl font-bold text-gray-900 mb-2">Access Restricted</h2>
-              <p className="text-gray-500">Only Owners and Admins can track artist payouts.</p>
+              <p className="text-gray-500">Only Owners, Admins, and Artists can view payouts.</p>
             </CardContent>
           </Card>
         </div>
@@ -196,16 +215,20 @@ export default function ArtistPayouts() {
           <div>
             <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-2">
               <DollarSign className="w-8 h-8 text-indigo-600" />
-              Artist Payouts
+              {isAdmin ? "Artist Payouts" : "My Earnings"}
             </h1>
             <p className="text-gray-500 mt-1">
-              Track what the studio owes artists from settlements and record manual payouts.
+              {isAdmin
+                ? "Track what the studio owes artists from settlements and record manual payouts."
+                : "Your accrued earnings and payouts from daily settlements."}
             </p>
           </div>
-          <Button className="bg-indigo-600 hover:bg-indigo-700" onClick={() => setShowDialog(true)}>
-            <Plus className="w-4 h-4 mr-2" />
-            Record Payout
-          </Button>
+          {isAdmin && (
+            <Button className="bg-indigo-600 hover:bg-indigo-700" onClick={() => setShowDialog(true)}>
+              <Plus className="w-4 h-4 mr-2" />
+              Record Payout
+            </Button>
+          )}
         </div>
 
         <Card className="bg-white border-none shadow-lg">
@@ -215,7 +238,7 @@ export default function ArtistPayouts() {
           <CardContent>
             {loadingLedger ? (
               <p className="text-gray-500">Loading balances…</p>
-            ) : balances.length === 0 ? (
+            ) : visibleBalances.length === 0 ? (
               <p className="text-gray-500">No artists found.</p>
             ) : (
               <Table>
@@ -228,7 +251,7 @@ export default function ArtistPayouts() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {balances.map((row) => (
+                  {visibleBalances.map((row) => (
                     <TableRow key={row.artist_id}>
                       <TableCell className="font-medium">{row.artist_name}</TableCell>
                       <TableCell className="text-right tabular-nums">{money(row.earned)}</TableCell>
@@ -252,7 +275,7 @@ export default function ArtistPayouts() {
             </p>
           </CardHeader>
           <CardContent>
-            {recentLedgerEntries.length === 0 ? (
+            {visibleLedgerEntries.length === 0 ? (
               <p className="text-gray-500">No ledger entries yet. Generate a settlement to add earnings.</p>
             ) : (
               <Table>
@@ -266,7 +289,7 @@ export default function ArtistPayouts() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {recentLedgerEntries.map((entry) => (
+                  {visibleLedgerEntries.map((entry) => (
                     <TableRow key={entry.id}>
                       <TableCell>{entry.occurred_on || "—"}</TableCell>
                       <TableCell>{artistById[entry.artist_id]?.full_name || "Unknown"}</TableCell>
