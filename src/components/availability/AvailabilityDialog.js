@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import TimePicker12h from "@/components/calendar/TimePicker12h";
 import { format } from "date-fns";
 import { Save, Trash2 } from "lucide-react";
 
@@ -220,22 +221,20 @@ export default function AvailabilityDialog({ open, onOpenChange, date, availabil
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="start_time">Start Time *</Label>
-                <Input
+                <TimePicker12h
                   id="start_time"
-                  type="time"
                   value={formData.start_time}
-                  onChange={(e) => setFormData({ ...formData, start_time: e.target.value })}
+                  onChange={(newStart) => setFormData({ ...formData, start_time: newStart })}
                   required
                 />
               </div>
 
               <div className="space-y-2">
                 <Label htmlFor="end_time">End Time *</Label>
-                <Input
+                <TimePicker12h
                   id="end_time"
-                  type="time"
                   value={formData.end_time}
-                  onChange={(e) => setFormData({ ...formData, end_time: e.target.value })}
+                  onChange={(newEnd) => setFormData({ ...formData, end_time: newEnd })}
                   required
                 />
               </div>

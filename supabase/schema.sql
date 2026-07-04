@@ -124,7 +124,7 @@ create table if not exists customers (
   email text,
   instagram_username text,
   preferred_location_id uuid references locations (id),
-  send_calendar_invites boolean default false,
+  send_calendar_invites boolean default true,
   consent_obtained boolean default false,
   email_bounced boolean default false,
   email_bounce_reason text,

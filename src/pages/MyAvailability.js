@@ -3,12 +3,12 @@ import { base44 } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Plus, Calendar, Clock, ChevronLeft, ChevronRight, Save, Trash2 } from "lucide-react";
 import AvailabilityDialog from "../components/availability/AvailabilityDialog";
 import AvailabilityCalendar from "../components/availability/AvailabilityCalendar";
+import TimePicker12h from "../components/calendar/TimePicker12h";
 import { normalizeUserRole } from "@/utils/roles";
 import { formatTimeRange12h } from "@/utils/index";
 import { sortByFullNameThenId, sortByNameThenId } from "@/utils/listSort";
@@ -399,20 +399,18 @@ export default function MyAvailability() {
                     </div>
                     <div className="space-y-1">
                       <Label className="text-xs">Start</Label>
-                      <Input
-                        type="time"
+                      <TimePicker12h
                         value={scheduleForm.start_time}
-                        onChange={(e) => setScheduleForm({ ...scheduleForm, start_time: e.target.value })}
-                        className="text-sm"
+                        onChange={(newStart) => setScheduleForm({ ...scheduleForm, start_time: newStart })}
+                        compact
                       />
                     </div>
                     <div className="space-y-1">
                       <Label className="text-xs">End</Label>
-                      <Input
-                        type="time"
+                      <TimePicker12h
                         value={scheduleForm.end_time}
-                        onChange={(e) => setScheduleForm({ ...scheduleForm, end_time: e.target.value })}
-                        className="text-sm"
+                        onChange={(newEnd) => setScheduleForm({ ...scheduleForm, end_time: newEnd })}
+                        compact
                       />
                     </div>
                     <div className="space-y-1">

@@ -20,7 +20,7 @@
       },
       "send_calendar_invites": {
         "type": "boolean",
-        "default": false,
+        "default": true,
         "description": "Whether to send calendar invites"
       },
       "instagram_username": {

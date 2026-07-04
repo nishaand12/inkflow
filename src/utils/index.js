@@ -88,3 +88,42 @@ export function formatTimeRange12h(startStr, endStr) {
   if (!endStr) return formatTime12h(startStr);
   return `${formatTime12h(startStr)} – ${formatTime12h(endStr)}`;
 }
+
+/** Round minutes to the nearest 5-minute step (0–55). */
+export function roundMinutesToStep(minute, step = 5) {
+  const rounded = Math.round(minute / step) * step;
+  return rounded >= 60 ? 55 : rounded;
+}
+
+/** Parse stored "HH:MM" (24h) into 12h picker components. */
+export function parseTime24To12Components(time24, minuteStep = 5) {
+  if (!time24) return { hour12: 12, minute: 0, period: 'PM' };
+  const parts = String(time24).trim().split(':');
+  let h24 = parseInt(parts[0], 10);
+  let minute = parseInt(parts[1] || '0', 10);
+  if (!Number.isFinite(h24)) h24 = 12;
+  if (!Number.isFinite(minute)) minute = 0;
+  minute = roundMinutesToStep(minute, minuteStep);
+  const period = h24 >= 12 ? 'PM' : 'AM';
+  let hour12 = h24 % 12;
+  if (hour12 === 0) hour12 = 12;
+  return { hour12, minute, period };
+}
+
+/** Convert 12h picker components to stored "HH:MM" (24h). */
+export function format12ComponentsToTime24(hour12, minute, period) {
+  let h = parseInt(hour12, 10);
+  const m = parseInt(minute, 10);
+  if (!Number.isFinite(h) || h < 1 || h > 12) h = 12;
+  const p = period === 'AM' ? 'AM' : 'PM';
+  let h24 = h % 12;
+  if (p === 'PM') h24 += 12;
+  return `${String(h24).padStart(2, '0')}:${String(Number.isFinite(m) ? m : 0).padStart(2, '0')}`;
+}
+
+/** Generate minute options at a fixed step (default 5). */
+export function timeMinuteOptions(step = 5) {
+  const options = [];
+  for (let m = 0; m < 60; m += step) options.push(m);
+  return options;
+}

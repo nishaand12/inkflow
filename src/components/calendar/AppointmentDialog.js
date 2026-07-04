@@ -20,6 +20,7 @@ import CustomerDialog from "../customers/CustomerDialog";
 import AdvancedSearchDialog from "../customers/AdvancedSearchDialog";
 import CheckoutDialog from "./CheckoutDialog";
 import RefundDialog from "./RefundDialog";
+import TimePicker12h from "./TimePicker12h";
 import { normalizeUserRole } from "@/utils/roles";
 import { addMinutesToTime, formatDuration, formatTime12h } from "@/utils/index";
 import { getAppointmentTypeDisplaySections } from "@/utils/reportingCategories";
@@ -37,6 +38,9 @@ const EMPTY_ARRAY = [];
 
 /** Minimum span between start and end time (e.g. short piercing visits). */
 const MIN_APPOINTMENT_DURATION_MINUTES = 5;
+
+const DEFAULT_START_TIME = '12:00';
+const DEFAULT_END_TIME = '14:00';
 
 function sortLocationsByCreatedAt(locationsList) {
   return [...locationsList].sort((a, b) =>
@@ -191,8 +195,8 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     client_email: '',
     client_phone: '',
     appointment_date: defaultDate ? format(defaultDate, 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'),
-    start_time: '10:00',
-    end_time: '12:00',
+    start_time: DEFAULT_START_TIME,
+    end_time: DEFAULT_END_TIME,
     is_all_day: false,
     deposit_amount: 0,
     total_estimate: 0,
@@ -400,12 +404,12 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
         client_email: src.client_email || '',
         client_phone: src.client_phone || '',
         appointment_date: src.appointment_date || format(new Date(), 'yyyy-MM-dd'),
-        start_time: src.start_time || '10:00',
+        start_time: src.start_time || DEFAULT_START_TIME,
         design_description: src.design_description || '',
         placement: src.placement || '',
         notes: src.notes || '',
         status: src.status || 'scheduled',
-        end_time: src.end_time || '12:00',
+        end_time: src.end_time || DEFAULT_END_TIME,
         is_all_day: src.is_all_day || false,
         deposit_amount: src.deposit_amount ?? 0,
         total_estimate: src.total_estimate ?? 0,
@@ -433,8 +437,8 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
         client_email: '',
         client_phone: '',
         appointment_date: defaultDate ? format(defaultDate, 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'),
-        start_time: '10:00',
-        end_time: '12:00',
+        start_time: DEFAULT_START_TIME,
+        end_time: DEFAULT_END_TIME,
         is_all_day: false,
         deposit_amount: 0,
         total_estimate: 0,
@@ -578,7 +582,6 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
   };
 
   const resolveClientEmail = () => {
-    if (formData.client_email?.trim()) return formData.client_email.trim();
     if (selectedCustomer?.email?.trim()) return selectedCustomer.email.trim();
     return null;
   };
@@ -587,11 +590,8 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
 
   const getEmailWarningMessage = () => {
     if (!shouldShowEmailWarnings) return null;
-    
-    // Only show email warnings if a customer has been selected or client info is filled in
-    const hasCustomerOrClient = selectedCustomer || formData.client_name?.trim();
-    if (!hasCustomerOrClient) return null;
-    
+    if (!selectedCustomer) return null;
+
     const email = resolveClientEmail();
     if (!email) return "No email address available. Email reminders will be skipped.";
     if (selectedCustomer?.email_bounced) {
@@ -959,6 +959,11 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
       return;
     }
 
+    if (!appointment && !formData.customer_id) {
+      setSaveError('Please select a customer before creating an appointment.');
+      return;
+    }
+
     if (
       !formData.is_all_day &&
       formData.location_id &&
@@ -1249,8 +1254,8 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
       client_email: '',
       client_phone: '',
       appointment_date: format(new Date(), 'yyyy-MM-dd'),
-      start_time: '10:00',
-      end_time: '12:00',
+      start_time: DEFAULT_START_TIME,
+      end_time: DEFAULT_END_TIME,
       is_all_day: false,
       deposit_amount: 0,
       total_estimate: 0,
@@ -1399,7 +1404,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
               />
               {!selectedCustomer && formData.client_name && (
                 <p className="text-xs text-amber-600">
-                  Legacy appointment - no customer linked. Search to link a customer or leave as is.
+                  Legacy appointment — no customer linked. Search to link a customer.
                 </p>
               )}
             </div>
@@ -1519,32 +1524,27 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
 
               <div className="space-y-2">
                 <Label htmlFor="start_time" className="text-sm">Start Time *</Label>
-                <Input
+                <TimePicker12h
                   id="start_time"
-                  type="time"
                   value={formData.start_time}
-                  onChange={(e) => {
-                    const newStart = e.target.value;
+                  onChange={(newStart) => {
                     const currentDuration = timeToMinutes(formData.end_time) - timeToMinutes(formData.start_time);
                     const newEnd = addMinutesToTime(newStart, Math.max(currentDuration, MIN_APPOINTMENT_DURATION_MINUTES));
                     setFormData({ ...formData, start_time: newStart, end_time: newEnd, work_station_id: '' });
                   }}
                   required
                   disabled={!canEdit()}
-                  className="text-sm"
                 />
               </div>
 
               <div className="space-y-2">
                 <Label htmlFor="end_time" className="text-sm">End Time *</Label>
-                <Input
+                <TimePicker12h
                   id="end_time"
-                  type="time"
                   value={formData.end_time}
-                  onChange={(e) => setFormData({ ...formData, end_time: e.target.value, work_station_id: '' })}
+                  onChange={(newEnd) => setFormData({ ...formData, end_time: newEnd, work_station_id: '' })}
                   required
                   disabled={!canEdit()}
-                  className="text-sm"
                 />
               </div>
             </div>
@@ -1573,47 +1573,6 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                 <p className="text-xs text-gray-500">
                   {availableStations.length} of {workStations.filter(ws => ws.location_id === formData.location_id && ws.status === 'active').length} stations available
                 </p>
-              </div>
-            )}
-
-            {!selectedCustomer && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="client_name" className="text-sm">Client Name *</Label>
-                  <Input
-                    id="client_name"
-                    value={formData.client_name}
-                    onChange={(e) => setFormData({ ...formData, client_name: e.target.value })}
-                    required
-                    disabled={!canEdit()}
-                    className="text-sm"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="client_email" className="text-sm">Client Email</Label>
-                  <Input
-                    id="client_email"
-                    type="email"
-                    value={formData.client_email}
-                    onChange={(e) => setFormData({ ...formData, client_email: e.target.value })}
-                    disabled={!canEdit()}
-                    className="text-sm"
-                  />
-                </div>
-              </div>
-            )}
-
-            {!selectedCustomer && (
-              <div className="space-y-2">
-                <Label htmlFor="client_phone" className="text-sm">Client Phone</Label>
-                <Input
-                  id="client_phone"
-                  value={formData.client_phone}
-                  onChange={(e) => setFormData({ ...formData, client_phone: e.target.value })}
-                  disabled={!canEdit()}
-                  className="text-sm"
-                />
               </div>
             )}
 
@@ -2050,6 +2009,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
         locations={locations}
         isAdmin={isAdmin}
         currentUser={currentUser}
+        onCreated={handleCustomerSelect}
       />
 
       <AdvancedSearchDialog
