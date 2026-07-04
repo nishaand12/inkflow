@@ -37,6 +37,7 @@ import {
   SidebarFooter,
   SidebarProvider,
   SidebarTrigger,
+  SidebarSeparator,
 } from "@/components/ui/sidebar";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -130,132 +131,155 @@ export default function Layout({ children, currentPageName = null }) {
     return normalizeUserRole(user.user_role || (user.role === 'admin' ? 'Admin' : 'Front_Desk'));
   };
 
-  const getNavigationItems = () => {
+  const PRIMARY_NAV_TITLES = [
+    "Dashboard",
+    "Calendar",
+    "Appointments",
+    "Availability",
+    "Supplies",
+  ];
+
+  const getNavigationSections = () => {
     const userRole = getUserRole();
-    
-    const baseItems = [
+
+    const allItems = [
       {
         title: "Dashboard",
         url: createPageUrl("Dashboard"),
         icon: LayoutDashboard,
-        roles: ["Owner", "Admin", "Front_Desk", "Artist"]
+        roles: ["Owner", "Admin", "Front_Desk", "Artist"],
       },
       {
         title: "Calendar",
         url: createPageUrl("Calendar"),
         icon: Calendar,
-        roles: ["Owner", "Admin", "Front_Desk", "Artist"]
+        roles: ["Owner", "Admin", "Front_Desk", "Artist"],
       },
       {
         title: "Appointments",
         url: createPageUrl("Appointments"),
         icon: CalendarCheck,
-        roles: ["Owner", "Admin", "Front_Desk", "Artist"]
-      }
-    ];
-
-    const managementItems = [
-      {
-        title: "Customers",
-        url: createPageUrl("Customers"),
-        icon: UserPlus,
-        roles: ["Owner", "Admin", "Front_Desk"]
+        roles: ["Owner", "Admin", "Front_Desk", "Artist"],
       },
       {
-        title: "Artists",
-        url: createPageUrl("Artists"),
-        icon: Palette,
-        roles: ["Owner", "Admin", "Front_Desk"]
-      },
-      {
-        title: "Locations",
-        url: createPageUrl("Locations"),
-        icon: MapPin,
-        roles: ["Owner", "Admin"]
-      },
-      {
-        title: "Work Stations",
-        url: createPageUrl("WorkStations"),
-        icon: Wrench,
-        roles: ["Owner", "Admin"]
-      },
-      {
-        title: "Appointment Types",
-        url: createPageUrl("AppointmentTypes"),
-        icon: ClipboardList,
-        roles: ["Owner", "Admin"]
-      },
-      {
-        title: "Products",
-        url: createPageUrl("Products"),
-        icon: Package,
-        roles: ["Owner", "Admin"]
+        title: "Availability",
+        url: createPageUrl("MyAvailability"),
+        icon: Clock,
+        roles: ["Artist", "Owner", "Admin", "Front_Desk"],
       },
       {
         title: "Supplies",
         url: createPageUrl("Supplies"),
         icon: ClipboardCheck,
-        roles: ["Owner", "Admin", "Front_Desk", "Artist"]
+        roles: ["Owner", "Admin", "Front_Desk", "Artist"],
+      },
+      {
+        title: "Customers",
+        url: createPageUrl("Customers"),
+        icon: UserPlus,
+        roles: ["Owner", "Admin", "Front_Desk"],
+      },
+      {
+        title: "Artists",
+        url: createPageUrl("Artists"),
+        icon: Palette,
+        roles: ["Owner", "Admin", "Front_Desk"],
+      },
+      {
+        title: "Locations",
+        url: createPageUrl("Locations"),
+        icon: MapPin,
+        roles: ["Owner", "Admin"],
+      },
+      {
+        title: "Work Stations",
+        url: createPageUrl("WorkStations"),
+        icon: Wrench,
+        roles: ["Owner", "Admin"],
+      },
+      {
+        title: "Appointment Types",
+        url: createPageUrl("AppointmentTypes"),
+        icon: ClipboardList,
+        roles: ["Owner", "Admin"],
+      },
+      {
+        title: "Products",
+        url: createPageUrl("Products"),
+        icon: Package,
+        roles: ["Owner", "Admin"],
       },
       {
         title: "Categories",
         url: createPageUrl("ReportingCategories"),
         icon: Tags,
-        roles: ["Owner", "Admin"]
+        roles: ["Owner", "Admin"],
       },
       {
         title: "Reports",
         url: createPageUrl("Reports"),
         icon: BarChart3,
-        roles: ["Owner", "Admin"]
+        roles: ["Owner", "Admin"],
       },
       {
         title: "Settlements",
         url: createPageUrl("Settlements"),
         icon: Wallet,
-        roles: ["Owner", "Admin"]
+        roles: ["Owner", "Admin"],
       },
       {
         title: "Artist Payouts",
         url: createPageUrl("ArtistPayouts"),
         icon: Wallet,
-        roles: ["Owner", "Admin"]
+        roles: ["Owner", "Admin"],
       },
       {
         title: "Public Templates",
         url: createPageUrl("PublicTemplates"),
         icon: FileText,
-        roles: ["Owner", "Admin"]
+        roles: ["Owner", "Admin"],
       },
       {
         title: "Studio Settings",
         url: createPageUrl("StudioSettings"),
         icon: Settings,
-        roles: ["Owner", "Admin"]
-      }
+        roles: ["Owner", "Admin"],
+      },
     ];
 
-    const artistItems = [
-      {
-        title: "Availability",
-        url: createPageUrl("MyAvailability"),
-        icon: Clock,
-        roles: ["Artist", "Owner", "Admin", "Front_Desk"]
-      }
-    ];
+    if (!user) {
+      const fallback = allItems.filter((item) =>
+        ["Dashboard", "Calendar", "Appointments"].includes(item.title)
+      );
+      return { primary: fallback, secondary: [] };
+    }
 
-    if (!user) return baseItems;
+    const visibleItems = allItems.filter((item) => item.roles.includes(userRole));
+    const primary = PRIMARY_NAV_TITLES
+      .map((title) => visibleItems.find((item) => item.title === title))
+      .filter(Boolean);
+    const secondary = visibleItems
+      .filter((item) => !PRIMARY_NAV_TITLES.includes(item.title))
+      .sort((a, b) => a.title.localeCompare(b.title));
 
-    let items = [...baseItems];
-    
-    items = [
-      ...items,
-      ...managementItems.filter(item => item.roles.includes(userRole)),
-      ...artistItems.filter(item => item.roles.includes(userRole))
-    ];
-
-    return items;
+    return { primary, secondary };
   };
+
+  const renderNavItem = (item) => (
+    <SidebarMenuItem key={item.title}>
+      <SidebarMenuButton
+        asChild
+        className={`hover:bg-indigo-50 hover:text-indigo-700 transition-all duration-200 rounded-xl mb-1 ${
+          location.pathname === item.url ? "bg-indigo-50 text-indigo-700 font-medium" : ""
+        }`}
+      >
+        <Link to={item.url} className="flex items-center gap-3 px-4 py-3">
+          <item.icon className="w-5 h-5" />
+          <span>{item.title}</span>
+        </Link>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
+  );
 
   const getRoleDisplay = () => {
     const userRole = getUserRole();
@@ -343,21 +367,18 @@ export default function Layout({ children, currentPageName = null }) {
               </SidebarGroupLabel>
               <SidebarGroupContent>
                 <SidebarMenu>
-                  {getNavigationItems().map((item) => (
-                    <SidebarMenuItem key={item.title}>
-                      <SidebarMenuButton 
-                        asChild 
-                        className={`hover:bg-indigo-50 hover:text-indigo-700 transition-all duration-200 rounded-xl mb-1 ${
-                          location.pathname === item.url ? 'bg-indigo-50 text-indigo-700 font-medium' : ''
-                        }`}
-                      >
-                        <Link to={item.url} className="flex items-center gap-3 px-4 py-3">
-                          <item.icon className="w-5 h-5" />
-                          <span>{item.title}</span>
-                        </Link>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  ))}
+                  {(() => {
+                    const { primary, secondary } = getNavigationSections();
+                    return (
+                      <>
+                        {primary.map(renderNavItem)}
+                        {secondary.length > 0 && (
+                          <SidebarSeparator className="my-2 mx-2" />
+                        )}
+                        {secondary.map(renderNavItem)}
+                      </>
+                    );
+                  })()}
                 </SidebarMenu>
               </SidebarGroupContent>
             </SidebarGroup>

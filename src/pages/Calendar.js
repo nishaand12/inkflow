@@ -24,6 +24,12 @@ import {
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { formatTime12h, formatAppointmentCardTitle } from "@/utils/index";
+import { getAppointmentStatusLabel } from "@/utils/appointmentStatus";
+import { getArtistTypeGroupLabel } from "@/utils/artistTypes";
+import {
+  appointmentMatchesArtistFilter,
+  getDistinctArtistTypes,
+} from "@/utils/artistTypeFilter";
 import {
   sortAppointmentsForCalendarDay,
   sortByNameThenId,
@@ -310,7 +316,15 @@ export default function Calendar() {
     return map;
   }, [artists]);
 
-  const getAptColor  = (apt) => artistColorMap[apt.artist_id] || '#4f46e5';
+  const activeArtists = useMemo(
+    () => sortByFullNameThenId(artists.filter((artist) => artist.is_active)),
+    [artists]
+  );
+  const artistTypeOptions = useMemo(
+    () => getDistinctArtistTypes(activeArtists),
+    [activeArtists]
+  );
+  const getAptColor = (apt) => artistColorMap[apt.artist_id] || '#4f46e5';
   const getAptTypeName = (apt) => appointmentTypes.find(t => t.id === apt.appointment_type_id)?.name || '';
 
   const getCustomerName = useCallback((apt) => {
@@ -342,7 +356,7 @@ export default function Calendar() {
       if (!appointmentTypeMatchesFilter(reportingCategories, aptType, selectedTypeCategory)) return false;
     }
     if (statusFilter !== 'all' && apt.status !== statusFilter) return false;
-    if ((isAdmin || userRole === 'Front_Desk') && selectedArtist !== 'all' && apt.artist_id !== selectedArtist) return false;
+    if ((isAdmin || userRole === 'Front_Desk') && !appointmentMatchesArtistFilter(apt, selectedArtist, activeArtists)) return false;
 
     // Advanced filters
     if (selectedLocation !== 'all' && apt.location_id !== selectedLocation) return false;
@@ -366,6 +380,7 @@ export default function Calendar() {
     statusFilter,
     userRole,
     selectedArtist,
+    activeArtists,
     selectedLocation,
     workStationFilter,
     specificTypeFilter,
@@ -508,7 +523,7 @@ export default function Calendar() {
                   <SelectContent>
                     <SelectItem value="all">All Statuses</SelectItem>
                     <SelectItem value="scheduled">Scheduled</SelectItem>
-                    <SelectItem value="confirmed">Confirmed</SelectItem>
+                    <SelectItem value="confirmed">{getAppointmentStatusLabel("confirmed")}</SelectItem>
                     <SelectItem value="pending_deposit">Pending Deposit</SelectItem>
                     <SelectItem value="deposit_paid">Deposit Paid</SelectItem>
                     <SelectItem value="completed">Completed</SelectItem>
@@ -522,7 +537,13 @@ export default function Calendar() {
                     <SelectTrigger className="text-sm"><SelectValue placeholder="All Artists" /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Artists</SelectItem>
-                      {sortByFullNameThenId(artists.filter(a => a.is_active)).map(a => (
+                      {artistTypeOptions.length > 1 &&
+                        artistTypeOptions.map((type) => (
+                          <SelectItem key={`type:${type}`} value={`type:${type}`}>
+                            {getArtistTypeGroupLabel(type)}
+                          </SelectItem>
+                        ))}
+                      {activeArtists.map(a => (
                         <SelectItem key={a.id} value={a.id}>
                           <span className="flex items-center gap-2">
                             <span
@@ -628,7 +649,7 @@ export default function Calendar() {
                   <span className="font-semibold text-gray-700">Legend:</span>
                   {[
                     ['bg-gray-400', 'Scheduled'],
-                    ['bg-blue-500', 'Confirmed'],
+                    ['bg-blue-500', getAppointmentStatusLabel('confirmed')],
                     ['bg-green-500', 'Checked Out'],
                     ['bg-red-500', 'Cancelled/No-Show'],
                   ].map(([cls, label]) => (
