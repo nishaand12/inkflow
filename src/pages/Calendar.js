@@ -388,6 +388,8 @@ export default function Calendar() {
     }
   };
 
+  const getEarliestVisibleDay = () => getDaysToShow()[0];
+
   const getAppointmentsForDay = (day) =>
     sortAppointmentsForCalendarDay(
       filteredAppointments.filter(apt =>
@@ -453,7 +455,7 @@ export default function Calendar() {
             </p>
           </div>
           <Button
-            onClick={() => handleNewAppointment()}
+            onClick={() => handleNewAppointment(getEarliestVisibleDay())}
             className="bg-indigo-600 hover:bg-indigo-700 shadow-lg shadow-indigo-200 w-full sm:w-auto"
           >
             <Plus className="w-4 h-4 mr-2" />
