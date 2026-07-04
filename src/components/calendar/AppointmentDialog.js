@@ -26,6 +26,7 @@ import { addMinutesToTime, formatDuration, formatTime12h, DEFAULT_BOOKING_START_
 import { getAppointmentTypeDisplaySections } from "@/utils/reportingCategories";
 import { CHECKOUT_PAYMENT_METHOD_OPTIONS } from "@/utils/checkoutPaymentMethods";
 import { filterArtistsSelectableForBooking } from "@/utils/artistTypes";
+import { getAppointmentStatusLabel } from "@/utils/appointmentStatus";
 import {
   buildExclusionKeySet,
   filterArtistsForAppointmentType,
@@ -169,7 +170,7 @@ async function persistAppointmentDepositSnapshotIfStale(appointment, formData, q
   }
 }
 
-export default function AppointmentDialog({ open, onOpenChange, appointment, defaultDate, artists, locations, currentUser, userArtist }) {
+export default function AppointmentDialog({ open, onOpenChange, appointment, defaultDate, defaultArtistId, artists, locations, currentUser, userArtist }) {
   const queryClient = useQueryClient();
   const [formData, setFormData] = useState({
     artist_id: '',
@@ -216,6 +217,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
 
   const [emailSendWarning, setEmailSendWarning] = useState(null);
   const [saveError, setSaveError] = useState(null);
+  const [savingHealthNotes, setSavingHealthNotes] = useState(false);
 
   const userRole = useMemo(() => {
     if (!currentUser) return null;
@@ -246,6 +248,17 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
       if (!appointment) return true; // Can create new
       if (appointment.artist_id === userArtist.id) return true; // Can edit own
     }
+    return false;
+  };
+
+  // Health Notes are often filled in at the end of the day/week, after checkout.
+  // Allow any studio user to update just the Health Notes on a checked-out
+  // (completed) appointment without unlocking it — unlocking would delete the
+  // checkout line items (products/discounts) and clear sale totals.
+  const canEditHealthNotes = () => {
+    if (!currentUser) return false;
+    if (canEdit()) return true; // full editors can already edit everything
+    if (appointment && appointment.status === 'completed') return true;
     return false;
   };
 
@@ -412,7 +425,8 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
       }
     } else {
       // For new appointments, auto-assign artist if user is an artist
-      const initialArtistId = (isArtist && !isAdmin && userArtistId) ? userArtistId : '';
+      const initialArtistId = defaultArtistId
+        || ((isArtist && !isAdmin && userArtistId) ? userArtistId : '');
       const defaultLocationId = resolveDefaultLocationId(locations, initialArtistId, artists, "");
 
       setFormData({
@@ -449,7 +463,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     setInPersonDepositAmountInput("");
     setRecordInPersonLoading(false);
     setSaveError(null);
-  }, [appointment, appointmentForForm, defaultDate, open, isArtist, isAdmin, userArtistId, customers, artists, locations]);
+  }, [appointment, appointmentForForm, defaultDate, defaultArtistId, open, isArtist, isAdmin, userArtistId, customers, artists, locations]);
 
   useEffect(() => {
     const canValidateTimed =
@@ -1237,6 +1251,26 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     }
   };
 
+  /**
+   * Save only the Health Notes on a checked-out appointment. This updates the
+   * single `notes` column and never touches status, totals, or appointment_charges,
+   * so products/discounts captured at checkout are preserved (no unlock required).
+   */
+  const handleSaveHealthNotes = async () => {
+    if (!appointment) return;
+    setSaveError(null);
+    setSavingHealthNotes(true);
+    try {
+      await base44.entities.Appointment.update(appointment.id, { notes: formData.notes });
+      queryClient.invalidateQueries({ queryKey: ["appointments"] });
+      onOpenChange(false);
+    } catch (e) {
+      setSaveError(e?.message || "Could not save Health Notes.");
+    } finally {
+      setSavingHealthNotes(false);
+    }
+  };
+
   const resetForm = () => {
     setFormData({
       artist_id: '',
@@ -1581,6 +1615,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                   id="deposit_amount"
                   type="number"
                   min="0"
+                  step="0.01"
                   value={formData.deposit_amount}
                   onChange={(e) => setFormData({ ...formData, deposit_amount: parseFloat(e.target.value) })}
                   disabled={!canEdit()}
@@ -1594,6 +1629,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                   id="total_estimate"
                   type="number"
                   min="0"
+                  step="0.01"
                   value={formData.total_estimate}
                   onChange={(e) => setFormData({ ...formData, total_estimate: parseFloat(e.target.value) })}
                   disabled={!canEdit()}
@@ -1871,7 +1907,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                 value={formData.notes}
                 onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
                 rows={2}
-                disabled={!canEdit()}
+                disabled={!canEditHealthNotes()}
                 className="text-sm"
               />
             </div>
@@ -1888,7 +1924,10 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="scheduled">Scheduled</SelectItem>
-                    <SelectItem value="confirmed">Confirmed</SelectItem>
+                    <SelectItem value="confirmed">{getAppointmentStatusLabel("confirmed")}</SelectItem>
+                    {formData.status === 'pending_deposit' && (
+                      <SelectItem value="pending_deposit">Pending Deposit</SelectItem>
+                    )}
                     <SelectItem value="deposit_paid">Deposit Paid</SelectItem>
                     <SelectItem value="cancelled">Cancelled</SelectItem>
                     <SelectItem value="no_show">No Show</SelectItem>
@@ -1946,7 +1985,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
             {!canEdit() && appointment && appointment.status === 'completed' && !isAdmin && (
               <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4">
                 <p className="text-sm text-emerald-800">
-                  This appointment has been checked out and is now locked. Contact an admin to make changes.
+                  This appointment has been checked out and is now locked. You can still update the Health Notes above; contact an admin for any other changes.
                 </p>
               </div>
             )}
@@ -1987,6 +2026,17 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                   >
                     <CheckCircle className="w-4 h-4 mr-2" />
                     Check Out
+                  </Button>
+                )}
+                {appointment && !canEdit() && canEditHealthNotes() && (
+                  <Button
+                    type="button"
+                    className="bg-indigo-600 hover:bg-indigo-700 w-full sm:w-auto text-sm"
+                    onClick={handleSaveHealthNotes}
+                    disabled={savingHealthNotes}
+                  >
+                    <Save className="w-4 h-4 mr-2" />
+                    Save Health Notes
                   </Button>
                 )}
                 <Button

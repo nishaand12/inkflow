@@ -160,7 +160,7 @@ serve(async (req) => {
       .eq("artist_id", resolvedArtistId)
       .eq("appointment_date", newDate)
       .neq("id", appointment.id)
-      .in("status", ["scheduled", "confirmed", "deposit_paid", "completed"]);
+      .in("status", ["scheduled", "confirmed", "deposit_paid", "pending_deposit", "completed"]);
 
     if (conflicts && conflicts.length > 0) {
       for (const existing of conflicts) {

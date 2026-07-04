@@ -17,6 +17,12 @@ import {
   appointmentTypeMatchesFilter,
 } from "@/utils/reportingCategories";
 import { formatTimeRange12h } from "@/utils/index";
+import { getAppointmentStatusLabel } from "@/utils/appointmentStatus";
+import { getArtistTypeGroupLabel } from "@/utils/artistTypes";
+import {
+  appointmentMatchesArtistFilter,
+  getDistinctArtistTypes,
+} from "@/utils/artistTypeFilter";
 import {
   compareAppointmentsByDateTimeAsc,
   compareAppointmentsByDateTimeDesc,
@@ -27,6 +33,7 @@ import {
 const statusColors = {
   scheduled:     "bg-blue-100 text-blue-800 border-blue-200",
   confirmed:     "bg-green-100 text-green-800 border-green-200",
+  pending_deposit: "bg-yellow-100 text-yellow-800 border-yellow-200",
   deposit_paid:  "bg-purple-100 text-purple-800 border-purple-200",
   completed:     "bg-gray-100 text-gray-800 border-gray-200",
   cancelled:     "bg-red-100 text-red-800 border-red-200",
@@ -156,6 +163,14 @@ export default function Appointments() {
   const userRole = getUserRole();
   const isArtist = userRole === 'Artist';
   const isAdmin = userRole === 'Admin' || userRole === 'Owner';
+  const activeArtists = useMemo(
+    () => sortByFullNameThenId(artists.filter((artist) => artist.is_active)),
+    [artists]
+  );
+  const artistTypeOptions = useMemo(
+    () => getDistinctArtistTypes(activeArtists),
+    [activeArtists]
+  );
 
   const getCustomerName = useCallback((appointment) => {
     if (appointment.customer_id) {
@@ -185,7 +200,7 @@ export default function Appointments() {
       if (!appointmentTypeMatchesFilter(reportingCategories, aptType, typeFilter)) return false;
     }
     if (statusFilter !== 'all' && apt.status !== statusFilter) return false;
-    if (artistFilter !== 'all' && apt.artist_id !== artistFilter) return false;
+    if (!appointmentMatchesArtistFilter(apt, artistFilter, activeArtists)) return false;
 
     // Advanced filters
     if (locationFilter !== 'all' && apt.location_id !== locationFilter) return false;
@@ -209,6 +224,7 @@ export default function Appointments() {
     reportingCategories,
     statusFilter,
     artistFilter,
+    activeArtists,
     locationFilter,
     workStationFilter,
     specificTypeFilter,
@@ -267,7 +283,8 @@ export default function Appointments() {
                   <SelectContent>
                     <SelectItem value="all">All Statuses</SelectItem>
                     <SelectItem value="scheduled">Scheduled</SelectItem>
-                    <SelectItem value="confirmed">Confirmed</SelectItem>
+                    <SelectItem value="confirmed">{getAppointmentStatusLabel("confirmed")}</SelectItem>
+                    <SelectItem value="pending_deposit">Pending Deposit</SelectItem>
                     <SelectItem value="deposit_paid">Deposit Paid</SelectItem>
                     <SelectItem value="completed">Completed</SelectItem>
                     <SelectItem value="cancelled">Cancelled</SelectItem>
@@ -280,7 +297,13 @@ export default function Appointments() {
                     <SelectTrigger className="text-sm"><SelectValue placeholder="All Artists" /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Artists</SelectItem>
-                      {sortByFullNameThenId(artists.filter(a => a.is_active)).map(a => (
+                      {artistTypeOptions.length > 1 &&
+                        artistTypeOptions.map((type) => (
+                          <SelectItem key={`type:${type}`} value={`type:${type}`}>
+                            {getArtistTypeGroupLabel(type)}
+                          </SelectItem>
+                        ))}
+                      {activeArtists.map(a => (
                         <SelectItem key={a.id} value={a.id}>{a.full_name}</SelectItem>
                       ))}
                     </SelectContent>
@@ -370,7 +393,7 @@ export default function Appointments() {
                 className="p-4 rounded-xl border-2 border-gray-100 hover:border-indigo-200 hover:shadow-md transition-all duration-200 cursor-pointer"
               >
                 <div className="flex flex-col lg:flex-row justify-between gap-4">
-                  <div className="flex-1 space-y-2">
+                  <div className="flex-1 min-w-0 space-y-2">
                     <div className="flex items-center gap-3">
                       <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-600 flex items-center justify-center text-white font-bold text-lg">
                         {customerName?.charAt(0) || 'C'}
@@ -401,12 +424,14 @@ export default function Appointments() {
                       </div>
                     </div>
                     {appointment.design_description && (
-                      <p className="text-sm text-gray-500 line-clamp-2">{appointment.design_description}</p>
+                      <p className="text-sm text-gray-500 line-clamp-2 [overflow-wrap:anywhere]">
+                        {appointment.design_description}
+                      </p>
                     )}
                   </div>
                   <div className="flex flex-col items-end justify-between">
                     <Badge className={`${statusColors[appointment.status] || 'bg-gray-100 text-gray-800 border-gray-200'} border`}>
-                      {appointment.status?.replace('_', ' ')}
+                      {getAppointmentStatusLabel(appointment.status)}
                     </Badge>
                     {appointment.total_estimate > 0 && (
                       <div className="text-right mt-2">

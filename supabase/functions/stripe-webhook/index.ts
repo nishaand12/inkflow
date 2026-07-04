@@ -6,8 +6,40 @@ const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY")!;
 const STRIPE_WEBHOOK_SECRET = Deno.env.get("STRIPE_WEBHOOK_SECRET")!;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY");
 
 const stripe = new Stripe(STRIPE_SECRET_KEY, { apiVersion: "2024-06-20" });
+
+/**
+ * Fire the appointment confirmation email. send-appointment-email skips
+ * duplicates via email_send_status, so this is safe to call on every deposit
+ * payment. Failures are logged but never fail the webhook: returning non-2xx
+ * would make Stripe retry the whole event just to resend an email.
+ */
+async function triggerConfirmationEmail(appointmentId: string) {
+  try {
+    const key = SUPABASE_ANON_KEY || SUPABASE_SERVICE_ROLE_KEY;
+    const response = await fetch(`${SUPABASE_URL}/functions/v1/send-appointment-email`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        apikey: key,
+        authorization: `Bearer ${key}`,
+      },
+      body: JSON.stringify({
+        appointmentId,
+        eventType: "created",
+        source: "public_booking",
+      }),
+    });
+    if (!response.ok) {
+      const details = await response.text().catch(() => "");
+      console.error("Confirmation email trigger failed:", response.status, details);
+    }
+  } catch (emailErr) {
+    console.error("Failed to trigger confirmation email:", emailErr);
+  }
+}
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -56,7 +88,7 @@ serve(async (req) => {
           .eq("stripe_checkout_session_id", session.id)
           .maybeSingle();
 
-        await supabase
+        const { error: payUpdateErr } = await supabase
           .from("payments")
           .update({
             status: "paid",
@@ -67,6 +99,13 @@ serve(async (req) => {
             paid_at: new Date().toISOString(),
           })
           .eq("stripe_checkout_session_id", session.id);
+
+        // Surface DB failures as 500 so Stripe retries the event instead of
+        // silently dropping the payment.
+        if (payUpdateErr) {
+          console.error("payments paid update failed:", payUpdateErr);
+          throw new Error(`payments update failed: ${payUpdateErr.message}`);
+        }
 
         if (appointmentId) {
           if (paymentType === "checkout") {
@@ -172,10 +211,22 @@ serve(async (req) => {
               .update(aptPatch)
               .eq("id", appointmentId);
           } else {
-            await supabase
+            const { error: aptUpdateErr } = await supabase
               .from("appointments")
               .update({ status: "deposit_paid", deposit_status: "paid" })
               .eq("id", appointmentId);
+
+            if (aptUpdateErr) {
+              console.error("appointment deposit_paid update failed:", aptUpdateErr);
+              throw new Error(
+                `appointment update failed: ${aptUpdateErr.message}`,
+              );
+            }
+
+            // Public bookings are held unconfirmed (pending_deposit) and only
+            // emailed once the deposit is paid. Staff-created appointments were
+            // already emailed at creation; the email function dedupes those.
+            await triggerConfirmationEmail(appointmentId);
           }
         }
         break;
@@ -214,10 +265,45 @@ serve(async (req) => {
           .limit(1);
 
         if (!paidDepositRows?.length) {
-          await supabase
-            .from("appointments")
-            .update({ deposit_status: "none" })
-            .eq("id", appointmentId);
+          // Duplicate-session cleanup expires sessions for appointments that
+          // still have another live checkout; those must not be touched.
+          const { data: otherPendingRows } = await supabase
+            .from("payments")
+            .select("id")
+            .eq("appointment_id", appointmentId)
+            .eq("payment_type", "deposit")
+            .eq("status", "pending")
+            .neq("stripe_checkout_session_id", session.id)
+            .gt("expires_at", new Date().toISOString())
+            .limit(1);
+
+          if (!otherPendingRows?.length) {
+            const { data: apt } = await supabase
+              .from("appointments")
+              .select("status")
+              .eq("id", appointmentId)
+              .maybeSingle();
+
+            // Public bookings awaiting their deposit are discarded when the
+            // checkout expires unpaid; confirmed bookings just lose the
+            // pending deposit flag.
+            const patch =
+              apt?.status === "pending_deposit"
+                ? { status: "cancelled", deposit_status: "none" }
+                : { deposit_status: "none" };
+
+            const { error: expireAptErr } = await supabase
+              .from("appointments")
+              .update(patch)
+              .eq("id", appointmentId);
+
+            if (expireAptErr) {
+              console.error("appointment expiry update failed:", expireAptErr);
+              throw new Error(
+                `appointment expiry update failed: ${expireAptErr.message}`,
+              );
+            }
+          }
         }
         break;
       }

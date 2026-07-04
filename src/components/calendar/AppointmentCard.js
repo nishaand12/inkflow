@@ -3,6 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { Clock, MapPin, User, CreditCard } from "lucide-react";
 import { hexToRgba } from "@/utils/artistColors";
 import { formatTime12h, formatTimeRange12h, formatAppointmentCardTitle } from "@/utils/index";
+import { getAppointmentStatusLabel } from "@/utils/appointmentStatus";
 
 export default function AppointmentCard({
   appointment,
@@ -23,19 +24,11 @@ export default function AppointmentCard({
   const statusColors = {
     scheduled: "bg-gray-100 text-gray-800 border-gray-200",
     confirmed: "bg-blue-100 text-blue-800 border-blue-200",
+    pending_deposit: "bg-yellow-100 text-yellow-800 border-yellow-200",
     deposit_paid: "bg-purple-100 text-purple-800 border-purple-200",
     completed: "bg-green-100 text-green-800 border-green-200",
     cancelled: "bg-red-100 text-red-800 border-red-200",
     no_show: "bg-red-100 text-red-800 border-red-200"
-  };
-
-  const statusLabels = {
-    scheduled: "Scheduled",
-    confirmed: "Confirmed",
-    deposit_paid: "Deposit Paid",
-    completed: "Completed",
-    cancelled: "Cancelled",
-    no_show: "No Show"
   };
 
   const timeLabel = appointment.is_all_day
@@ -49,7 +42,6 @@ export default function AppointmentCard({
       appointment.appointment_name,
       appointmentTypeName
     );
-    const timeText = appointment.is_all_day ? "All day" : formatTime12h(appointment.start_time);
 
     return (
       <div
@@ -62,9 +54,6 @@ export default function AppointmentCard({
       >
         <div className="font-semibold truncate text-gray-900 leading-tight">
           {title}
-        </div>
-        <div className="truncate leading-tight" style={{ color }}>
-          {timeText}
         </div>
       </div>
     );
@@ -96,7 +85,7 @@ export default function AppointmentCard({
               </div>
             </div>
             <Badge className={`${statusColors[appointment.status]} border text-[10px] sm:text-xs shrink-0`}>
-              {statusLabels[appointment.status] ?? appointment.status}
+              {getAppointmentStatusLabel(appointment.status)}
             </Badge>
           </div>
 
@@ -158,7 +147,7 @@ export default function AppointmentCard({
           </span>
         </div>
         <Badge className={`${statusColors[appointment.status]} border text-xs shrink-0`}>
-          {statusLabels[appointment.status] ?? appointment.status}
+          {getAppointmentStatusLabel(appointment.status)}
         </Badge>
       </div>
       <div className="flex items-center gap-2 mt-1 text-xs text-gray-500">

@@ -26,6 +26,9 @@ verify_jwt = false
 [functions.get-appointment-by-token]
 verify_jwt = false
 
+[functions.get-checkout-link]
+verify_jwt = false
+
 [functions.reschedule-public-appointment]
 verify_jwt = false
 

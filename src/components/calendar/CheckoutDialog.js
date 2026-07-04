@@ -59,6 +59,16 @@ function isNegativeRevenueLine(li) {
   return li._revenue_sign === 'negative';
 }
 
+/** +1 for normal lines, -1 for negative-revenue lines (coupons/discounts). */
+function lineSign(li) {
+  return isNegativeRevenueLine(li) ? -1 : 1;
+}
+
+/** Signed line amount after discount: negative-revenue lines subtract from totals. */
+function signedLineAmountAfterDiscount(li) {
+  return lineSign(li) * lineAmountAfterDiscount(li);
+}
+
 function resolveLineTaxRate(li) {
   let rate = li.tax_rate;
   if (rate == null || Number.isNaN(Number(rate))) {
@@ -67,21 +77,21 @@ function resolveLineTaxRate(li) {
   return Number(rate);
 }
 
-/** Pre-tax net (appointment charge_amount is sum of these). */
+/** Pre-tax net (appointment charge_amount is sum of these). Signed: negative-revenue lines subtract. */
 function linePreTaxNet(li) {
   const gross = lineAmountAfterDiscount(li);
   const rate = resolveLineTaxRate(li);
-  if (rate <= 0) return gross;
-  if (li.tax_inclusive) return gross / (1 + rate);
-  return gross;
+  let net = gross;
+  if (rate > 0 && li.tax_inclusive) net = gross / (1 + rate);
+  return lineSign(li) * net;
 }
 
 function lineTaxAmount(li) {
   const gross = lineAmountAfterDiscount(li);
   const rate = resolveLineTaxRate(li);
   if (rate <= 0) return 0;
-  if (li.tax_inclusive) return gross - gross / (1 + rate);
-  return gross * rate;
+  const tax = li.tax_inclusive ? gross - gross / (1 + rate) : gross * rate;
+  return lineSign(li) * tax;
 }
 
 function parseMoneyInput(value) {
@@ -196,8 +206,9 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
           updated[existingIdx] = {
             ...updated[existingIdx],
             quantity: updated[existingIdx].quantity + 1,
-            tax_rate: getProductTaxRate(product),
+            tax_rate: revSign === 'negative' ? 0 : getProductTaxRate(product),
             tax_inclusive: productPriceIncludesTax(product),
+            _revenue_sign: revSign,
           };
           setLineItems(updated);
         } else {
@@ -265,8 +276,9 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
       updated[existingIdx] = {
         ...updated[existingIdx],
         quantity: updated[existingIdx].quantity + 1,
-        tax_rate: getProductTaxRate(product),
+        tax_rate: revSign === 'negative' ? 0 : getProductTaxRate(product),
         tax_inclusive: productPriceIncludesTax(product),
+        _revenue_sign: revSign,
       };
       setLineItems(updated);
     } else {
@@ -311,7 +323,7 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
   const lineSubtotal = lineItems.reduce((sum, li) => sum + linePreTaxNet(li), 0);
 
   const grossBeforeLineDiscounts = lineItems.reduce(
-    (sum, li) => sum + li.quantity * li.unit_price,
+    (sum, li) => sum + lineSign(li) * li.quantity * li.unit_price,
     0
   );
 
@@ -587,7 +599,7 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {lineItems.map(li => {
-                    const lineAfterDisc = lineAmountAfterDiscount(li);
+                    const lineAfterDisc = signedLineAmountAfterDiscount(li);
                     const rate = resolveLineTaxRate(li);
                     return (
                       <tr key={li._key}>

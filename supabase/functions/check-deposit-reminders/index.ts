@@ -33,6 +33,19 @@ serve(async (req) => {
 
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
+    // Safety net: public bookings held for a deposit are normally discarded by
+    // the stripe-webhook when their checkout session expires (1h). If that
+    // event was missed, cancel them here once the session can no longer be paid.
+    const staleCutoff = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+    const { error: staleErr } = await supabase
+      .from("appointments")
+      .update({ status: "cancelled", deposit_status: "none" })
+      .eq("status", "pending_deposit")
+      .lt("created_at", staleCutoff);
+    if (staleErr) {
+      console.error("Failed to cancel stale pending_deposit bookings:", staleErr);
+    }
+
     // Find appointments created ~48h ago that have deposit_amount > 0,
     // deposit_status is still 'none' or 'pending', and haven't been cancelled
     const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
@@ -45,7 +58,7 @@ serve(async (req) => {
       .select("*, studio:studios(*), customer:customers(*)")
       .gt("deposit_amount", 0)
       .in("deposit_status", ["none", "pending"])
-      .not("status", "in", '("cancelled","no_show","completed")')
+      .not("status", "in", '("cancelled","no_show","completed","pending_deposit")')
       .gte("created_at", cutoff)
       .lt("created_at", cutoffUpper);
 

@@ -44,6 +44,24 @@ export function getArtistTypeLabel(artistType) {
   }
 }
 
+/** Group label for filtering by type, e.g. "All Piercers". */
+export function getArtistTypeGroupLabel(artistType) {
+  switch (artistType) {
+    case ARTIST_TYPES.PIERCER:
+      return "All Piercers";
+    case ARTIST_TYPES.TATTOO:
+      return "All Tattoo Artists";
+    default:
+      return `All ${getArtistTypeLabel(artistType)}s`;
+  }
+}
+
+/** Normalized type for grouping; null/legacy values fold into tattoo. */
+export function normalizeArtistType(artistType) {
+  const t = artistType || ARTIST_TYPES.TATTOO;
+  return t === LEGACY_BOTH ? ARTIST_TYPES.TATTOO : t;
+}
+
 /**
  * @param {Array<{ id?: string, artist_type?: string }>} artists
  * @param {{ alwaysIncludeArtistId?: string | null }} [opts]

@@ -122,6 +122,8 @@
         "enum": [
           "scheduled",
           "confirmed",
+          "pending_deposit",
+          "deposit_paid",
           "cancelled",
           "no_show",
           "completed"

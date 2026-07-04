@@ -134,6 +134,16 @@
       "owner_id": {
         "type": "string",
         "description": "Studio owner user ID"
+      },
+      "calendar_view_start_hour": {
+        "type": "number",
+        "default": 0,
+        "description": "First hour shown on the internal calendar (0-23)"
+      },
+      "calendar_view_end_hour": {
+        "type": "number",
+        "default": 24,
+        "description": "Last hour shown on the internal calendar (1-24, exclusive end)"
       }
     },
     "required": [

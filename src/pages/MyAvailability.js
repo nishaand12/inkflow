@@ -12,6 +12,12 @@ import TimePicker12h from "../components/calendar/TimePicker12h";
 import { normalizeUserRole } from "@/utils/roles";
 import { formatTimeRange12h, DEFAULT_BOOKING_START_TIME, DEFAULT_AVAILABILITY_END_TIME } from "@/utils/index";
 import { sortByFullNameThenId, sortByNameThenId } from "@/utils/listSort";
+import { getArtistTypeGroupLabel } from "@/utils/artistTypes";
+import {
+  getArtistIdsForFilter,
+  getDistinctArtistTypes,
+  isArtistTypeFilter,
+} from "@/utils/artistTypeFilter";
 import { getArtistColor } from "@/utils/artistColors";
 import { navigateNext, navigatePrev, getViewTitle } from "@/utils/calendarViews";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -97,7 +103,20 @@ export default function MyAvailability() {
   const [scheduleForm, setScheduleForm] = useState({ day_of_week: 1, start_time: DEFAULT_BOOKING_START_TIME, end_time: DEFAULT_AVAILABILITY_END_TIME, location_id: "" });
   const [showScheduleForm, setShowScheduleForm] = useState(false);
 
-  const selectedSingleArtistId = artistFilter !== "all" ? artistFilter : null;
+  const isTypeFilter = artistFilter.startsWith("type:");
+  const selectedSingleArtistId =
+    artistFilter !== "all" && !isTypeFilter ? artistFilter : null;
+
+  const artistTypeOptions = useMemo(
+    () => getDistinctArtistTypes(activeArtists),
+    [activeArtists]
+  );
+
+  // Resolves the current filter to the artists it covers (null = everyone).
+  const filteredArtistIds = useMemo(
+    () => getArtistIdsForFilter(artistFilter, activeArtists),
+    [artistFilter, activeArtists]
+  );
 
   const createScheduleMutation = useMutation({
     mutationFn: (data) => base44.entities.ArtistWeeklySchedule.create(data),
@@ -203,6 +222,20 @@ export default function MyAvailability() {
 
   const canEditSelectedArtist = selectedSingleArtistId && canEditArtist(selectedSingleArtistId);
 
+  // Pre-filter data for type filters so the calendar's single-artist filter
+  // logic stays untouched ("all" + pre-filtered rows).
+  const visibleAvailabilities = useMemo(() => {
+    if (!isTypeFilter) return availabilities;
+    return availabilities.filter((a) => filteredArtistIds.has(a.artist_id));
+  }, [availabilities, isTypeFilter, filteredArtistIds]);
+
+  const visibleWeeklySchedules = useMemo(() => {
+    if (!isTypeFilter) return weeklySchedules;
+    return weeklySchedules.filter((ws) => filteredArtistIds.has(ws.artist_id));
+  }, [weeklySchedules, isTypeFilter, filteredArtistIds]);
+
+  const calendarArtistFilter = isTypeFilter ? "all" : artistFilter;
+
   // ── Dialog artist context: when "All Artists", admin picks from dialog; else preset ──
   const dialogArtistId = selectedAvailability
     ? selectedAvailability.artist_id
@@ -306,6 +339,12 @@ export default function MyAvailability() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Artists</SelectItem>
+                      {artistTypeOptions.length > 1 &&
+                        artistTypeOptions.map((t) => (
+                          <SelectItem key={`type:${t}`} value={`type:${t}`}>
+                            {getArtistTypeGroupLabel(t)}
+                          </SelectItem>
+                        ))}
                       {activeArtists.map((a) => (
                         <SelectItem key={a.id} value={a.id}>
                           <span className="flex items-center gap-2">
@@ -469,10 +508,10 @@ export default function MyAvailability() {
               currentDate={currentDate}
               isMobile={isMobile}
               artists={activeArtists}
-              availabilities={availabilities}
-              weeklySchedules={weeklySchedules}
+              availabilities={visibleAvailabilities}
+              weeklySchedules={visibleWeeklySchedules}
               locations={sortedLocations}
-              artistFilter={artistFilter}
+              artistFilter={calendarArtistFilter}
               artistColorMap={artistColorMap}
               canEditArtist={canEditArtist}
               onAddAvailability={handleAddAvailability}

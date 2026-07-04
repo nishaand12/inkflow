@@ -21,10 +21,12 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { parseISO, startOfDay, isBefore, isSameDay } from "date-fns";
 import { formatTimeRange12h } from "@/utils/index";
+import { getAppointmentStatusLabel } from "@/utils/appointmentStatus";
 
 const appointmentStatusStyles = {
   scheduled: "bg-blue-100 text-blue-800 border-blue-200",
   confirmed: "bg-green-100 text-green-800 border-green-200",
+  pending_deposit: "bg-yellow-100 text-yellow-800 border-yellow-200",
   deposit_paid: "bg-purple-100 text-purple-800 border-purple-200",
   completed: "bg-gray-100 text-gray-800 border-gray-200",
   cancelled: "bg-red-100 text-red-800 border-red-200",
@@ -378,7 +380,7 @@ export default function CustomerDialog({ open, onOpenChange, customer, locations
                             variant="outline"
                             className={`text-xs capitalize shrink-0 ${appointmentStatusStyles[status] || "bg-gray-50 text-gray-700"}`}
                           >
-                            {status.replace(/_/g, " ")}
+                            {getAppointmentStatusLabel(status)}
                           </Badge>
                         </li>
                       );

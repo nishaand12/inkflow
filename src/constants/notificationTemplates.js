@@ -3,7 +3,7 @@ export const DEFAULT_CONFIRMATION_BODY_TEMPLATE = `Hi {{customer_name}},
 
 Your appointment is confirmed for {{appointment_date_time}} at {{location_name}} with {{artist_name}}.
 
-If a deposit is required, you can use this link: {{deposit_link}}
+If a deposit is required, pay your deposit here: {{deposit_link}}
 
 If you need to change your appointment: {{manage_appointment_link}}
 Changes are only allowed up to 24 hours before your appointment.
