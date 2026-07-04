@@ -177,8 +177,7 @@ function OverlapDayColumn({
 function ArtistSwimlaneHeader({ artist, artistColorMap }) {
   return (
     <div
-      className="shrink-0 flex-1 text-center py-2 px-1 border-l border-gray-100 first:border-l-0"
-      style={{ flexBasis: ARTIST_LANE_MIN_WIDTH, minWidth: ARTIST_LANE_MIN_WIDTH }}
+      className="flex-1 min-w-[140px] text-center py-2 px-1 border-l border-gray-100 first:border-l-0"
     >
       <div className="flex items-center justify-center gap-1.5">
         <span
@@ -212,10 +211,13 @@ function DaySwimlaneGrid({
 
   return (
     <div className="min-w-0 w-full overflow-x-auto">
-      <div className="inline-flex flex-col align-top w-max min-w-full">
+      <div
+        className="flex flex-col"
+        style={{ width: `max(100%, ${laneMinWidth}px)` }}
+      >
         <div className="flex shrink-0 bg-white border-b border-gray-200 shadow-sm z-20">
           <div className="sticky left-0 z-30 w-14 sm:w-16 shrink-0 bg-white border-r border-gray-100" />
-          <div className="flex flex-nowrap" style={{ minWidth: laneMinWidth }}>
+          <div className="flex flex-1 flex-nowrap min-w-0">
             {artists.map((artist) => (
               <ArtistSwimlaneHeader
                 key={artist.id}
@@ -230,7 +232,7 @@ function DaySwimlaneGrid({
           <div className="sticky left-0 z-10 shrink-0 bg-white border-r border-gray-100">
             <TimeGridGutter grid={grid} />
           </div>
-          <div className="flex flex-nowrap" style={{ minWidth: laneMinWidth }}>
+          <div className="flex flex-1 flex-nowrap min-w-0">
             {artists.map((artist) => (
               <ArtistSwimlaneColumn
                 key={artist.id}
@@ -271,8 +273,8 @@ function ArtistSwimlaneColumn({
 
   return (
     <div
-      className="shrink-0 flex-1 relative border-l border-gray-100 first:border-l-0"
-      style={{ height: grid.totalHeight, flexBasis: ARTIST_LANE_MIN_WIDTH, minWidth: ARTIST_LANE_MIN_WIDTH }}
+      className="flex-1 min-w-[140px] relative border-l border-gray-100 first:border-l-0"
+      style={{ height: grid.totalHeight }}
       onClick={(e) => {
         if (e.target === e.currentTarget) onNewAppointment(day, artist.id);
       }}
