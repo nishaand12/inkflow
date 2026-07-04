@@ -23,7 +23,7 @@ import {
 } from "@/utils/reportingCategories";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { formatTime12h } from "@/utils/index";
+import { formatTime12h, formatAppointmentCardTitle } from "@/utils/index";
 import {
   sortAppointmentsForCalendarDay,
   sortByNameThenId,
@@ -828,8 +828,8 @@ export default function Calendar() {
                             const widthPct = 100 / totalCols;
                             const leftPct = (col / totalCols) * 100;
                             const color = getAptColor(apt);
-                            const name = getCustomerName(apt);
-                            const appointmentLabel = apt.appointment_name?.trim() || '';
+                            const title = formatAppointmentCardTitle(getCustomerName(apt), apt.appointment_name);
+                            const timeText = apt.is_all_day ? "All day" : formatTime12h(apt.start_time);
 
                             return (
                               <div
@@ -847,17 +847,12 @@ export default function Calendar() {
                                 }}
                               >
                                 <div className="p-1 h-full overflow-hidden">
-                                  <div className="text-[10px] font-bold leading-none" style={{ color }}>
-                                    {apt.is_all_day ? "All day" : formatTime12h(apt.start_time)}
+                                  <div className="text-xs font-semibold text-gray-900 truncate leading-tight">
+                                    {title}
                                   </div>
                                   {height >= 28 && (
-                                    <div className="text-xs font-semibold text-gray-900 truncate mt-0.5 leading-tight">
-                                      {name}
-                                    </div>
-                                  )}
-                                  {height >= 44 && appointmentLabel && (
-                                    <div className="text-[10px] text-gray-500 truncate leading-tight">
-                                      {appointmentLabel}
+                                    <div className="text-[10px] font-bold truncate mt-0.5 leading-tight" style={{ color }}>
+                                      {timeText}
                                     </div>
                                   )}
                                 </div>

@@ -13,8 +13,12 @@ import { DEFAULT_BOOKING_START_TIME, DEFAULT_AVAILABILITY_END_TIME } from "@/uti
 import { format } from "date-fns";
 import { Save, Trash2 } from "lucide-react";
 
+/** Sentinel value for bulk-creating availability for every active artist. */
+const ALL_ARTISTS_VALUE = "__all_artists__";
+
 export default function AvailabilityDialog({ open, onOpenChange, date, availability, artistId, artists, locations, currentUser, isAdmin }) {
   const queryClient = useQueryClient();
+  const [saveError, setSaveError] = useState(null);
   const [formData, setFormData] = useState({
     artist_id: artistId || '',
     location_id: '',
@@ -28,6 +32,7 @@ export default function AvailabilityDialog({ open, onOpenChange, date, availabil
   });
 
   useEffect(() => {
+    setSaveError(null);
     if (availability) {
       setFormData({
         artist_id: availability.artist_id || artistId || '',
@@ -62,7 +67,26 @@ export default function AvailabilityDialog({ open, onOpenChange, date, availabil
       queryClient.invalidateQueries({ queryKey: ['availabilities'] });
       onOpenChange(false);
       resetForm();
-    }
+    },
+    onError: (error) => {
+      setSaveError(error?.message || 'Failed to save availability.');
+    },
+  });
+
+  const bulkCreateMutation = useMutation({
+    mutationFn: async (rows) => {
+      await Promise.all(rows.map((row) => base44.entities.Availability.create(row)));
+      return rows.length;
+    },
+    onSuccess: (count) => {
+      queryClient.invalidateQueries({ queryKey: ['availabilities'] });
+      onOpenChange(false);
+      resetForm();
+      window.alert(`Availability saved for ${count} artist${count === 1 ? '' : 's'}.`);
+    },
+    onError: (error) => {
+      setSaveError(error?.message || 'Failed to save availability for all artists.');
+    },
   });
 
   const updateMutation = useMutation({
@@ -81,22 +105,39 @@ export default function AvailabilityDialog({ open, onOpenChange, date, availabil
     }
   });
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    
-    const { location_id, artist_id, ...restFormData } = formData;
-    const submitData = {
+  const buildSubmitData = (artistIdValue) => {
+    const { location_id, artist_id: _artistId, ...restFormData } = formData;
+    return {
       studio_id: currentUser?.studio_id,
-      artist_id: artist_id || artistId,
+      artist_id: artistIdValue,
       ...restFormData,
       ...(location_id ? { location_id } : { location_id: null }),
       ...(formData.is_all_day ? { start_time: null, end_time: null } : {}),
     };
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    setSaveError(null);
+
+    const resolvedArtistId = formData.artist_id || artistId;
+    const isBulkAllArtists =
+      !availability && isAdmin && resolvedArtistId === ALL_ARTISTS_VALUE;
+
+    if (isBulkAllArtists) {
+      const targetArtists = (artists || []).filter((a) => a.is_active);
+      if (targetArtists.length === 0) {
+        setSaveError('No active artists found.');
+        return;
+      }
+      bulkCreateMutation.mutate(targetArtists.map((a) => buildSubmitData(a.id)));
+      return;
+    }
 
     if (availability) {
-      updateMutation.mutate({ id: availability.id, data: submitData });
+      updateMutation.mutate({ id: availability.id, data: buildSubmitData(resolvedArtistId) });
     } else {
-      createMutation.mutate(submitData);
+      createMutation.mutate(buildSubmitData(resolvedArtistId));
     }
   };
 
@@ -121,6 +162,8 @@ export default function AvailabilityDialog({ open, onOpenChange, date, availabil
   };
 
   const showArtistPicker = isAdmin && artists && artists.length > 0 && !artistId;
+  const isSaving = createMutation.isPending || updateMutation.isPending || bulkCreateMutation.isPending;
+  const isAllArtistsSelected = formData.artist_id === ALL_ARTISTS_VALUE;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -135,6 +178,10 @@ export default function AvailabilityDialog({ open, onOpenChange, date, availabil
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-6">
+          {saveError && (
+            <p className="text-sm text-red-600">{saveError}</p>
+          )}
+
           {showArtistPicker && (
             <div className="space-y-2">
               <Label htmlFor="artist_id">Artist *</Label>
@@ -146,6 +193,9 @@ export default function AvailabilityDialog({ open, onOpenChange, date, availabil
                   <SelectValue placeholder="Select artist" />
                 </SelectTrigger>
                 <SelectContent>
+                  {!availability && (
+                    <SelectItem value={ALL_ARTISTS_VALUE}>All Artists</SelectItem>
+                  )}
                   {artists.map(a => (
                     <SelectItem key={a.id} value={a.id}>
                       {a.full_name}
@@ -153,6 +203,11 @@ export default function AvailabilityDialog({ open, onOpenChange, date, availabil
                   ))}
                 </SelectContent>
               </Select>
+              {isAllArtistsSelected && (
+                <p className="text-xs text-gray-500">
+                  Creates the same availability block for every active artist — useful for shop holidays.
+                </p>
+              )}
             </div>
           )}
 
@@ -288,10 +343,10 @@ export default function AvailabilityDialog({ open, onOpenChange, date, availabil
               <Button
                 type="submit"
                 className="bg-indigo-600 hover:bg-indigo-700"
-                disabled={createMutation.isPending || updateMutation.isPending || (showArtistPicker && !formData.artist_id)}
+                disabled={isSaving || (showArtistPicker && !formData.artist_id)}
               >
                 <Save className="w-4 h-4 mr-2" />
-                {availability ? 'Update' : 'Save'}
+                {availability ? 'Update' : isAllArtistsSelected ? 'Save for All Artists' : 'Save'}
               </Button>
             </div>
           </DialogFooter>
