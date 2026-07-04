@@ -259,7 +259,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
 
   const [emailSendWarning, setEmailSendWarning] = useState(null);
   const [saveError, setSaveError] = useState(null);
-  const [savingHealthNotes, setSavingHealthNotes] = useState(false);
+  const [savingLockedFields, setSavingLockedFields] = useState(false);
 
   const userRole = useMemo(() => {
     if (!currentUser) return null;
@@ -298,6 +298,17 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
   // (completed) appointment without unlocking it — unlocking would delete the
   // checkout line items (products/discounts) and clear sale totals.
   const canEditHealthNotes = () => {
+    if (!currentUser) return false;
+    if (canEdit()) return true; // full editors can already edit everything
+    if (appointment && appointment.status === 'completed') return true;
+    return false;
+  };
+
+  // Payment method is sometimes recorded inaccurately at checkout and needs a
+  // retroactive fix. Allow any studio user to correct just the payment method on
+  // a checked-out (completed) appointment without unlocking it — unlocking would
+  // delete the checkout line items (products/discounts) and clear sale totals.
+  const canEditPaymentMethod = () => {
     if (!currentUser) return false;
     if (canEdit()) return true; // full editors can already edit everything
     if (appointment && appointment.status === 'completed') return true;
@@ -1308,22 +1319,26 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
   };
 
   /**
-   * Save only the Health Notes on a checked-out appointment. This updates the
-   * single `notes` column and never touches status, totals, or appointment_charges,
-   * so products/discounts captured at checkout are preserved (no unlock required).
+   * Save the fields that stay editable on a checked-out appointment (Health Notes
+   * and payment method) without unlocking it. This updates only those columns and
+   * never touches status, totals, or appointment_charges, so products/discounts
+   * captured at checkout are preserved (no unlock required).
    */
-  const handleSaveHealthNotes = async () => {
+  const handleSaveLockedFields = async () => {
     if (!appointment) return;
     setSaveError(null);
-    setSavingHealthNotes(true);
+    setSavingLockedFields(true);
     try {
-      await base44.entities.Appointment.update(appointment.id, { notes: formData.notes });
+      const patch = {};
+      if (canEditHealthNotes()) patch.notes = formData.notes;
+      if (canEditPaymentMethod()) patch.payment_method = formData.payment_method || null;
+      await base44.entities.Appointment.update(appointment.id, patch);
       queryClient.invalidateQueries({ queryKey: ["appointments"] });
       onOpenChange(false);
     } catch (e) {
-      setSaveError(e?.message || "Could not save Health Notes.");
+      setSaveError(e?.message || "Could not save changes.");
     } finally {
-      setSavingHealthNotes(false);
+      setSavingLockedFields(false);
     }
   };
 
@@ -2032,7 +2047,26 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                   </div>
                   <div>
                     <span className="text-emerald-600">Payment:</span>
-                    <p className="font-medium text-emerald-900">{appointment.payment_method || 'N/A'}</p>
+                    {canEditPaymentMethod() ? (
+                      <Select
+                        value={formData.payment_method || ''}
+                        onValueChange={(value) => setFormData({ ...formData, payment_method: value })}
+                      >
+                        <SelectTrigger className="mt-1 h-8 bg-white text-sm">
+                          <SelectValue placeholder="Select method" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {(CHECKOUT_PAYMENT_METHOD_OPTIONS.some((o) => o.value === formData.payment_method)
+                            ? CHECKOUT_PAYMENT_METHOD_OPTIONS
+                            : [...(formData.payment_method ? [{ value: formData.payment_method, label: formData.payment_method }] : []), ...CHECKOUT_PAYMENT_METHOD_OPTIONS]
+                          ).map(({ value, label }) => (
+                            <SelectItem key={value} value={value}>{label}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <p className="font-medium text-emerald-900">{appointment.payment_method || 'N/A'}</p>
+                    )}
                   </div>
                 </div>
 
@@ -2153,7 +2187,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
             {!canEdit() && appointment && appointment.status === 'completed' && !isAdmin && (
               <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4">
                 <p className="text-sm text-emerald-800">
-                  This appointment has been checked out and is now locked. You can still update the Health Notes above; contact an admin for any other changes.
+                  This appointment has been checked out and is now locked. You can still update the Health Notes and payment method above; contact an admin for any other changes.
                 </p>
               </div>
             )}
@@ -2196,15 +2230,15 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                     Check Out
                   </Button>
                 )}
-                {appointment && !canEdit() && canEditHealthNotes() && (
+                {appointment && !canEdit() && (canEditHealthNotes() || canEditPaymentMethod()) && (
                   <Button
                     type="button"
                     className="bg-indigo-600 hover:bg-indigo-700 w-full sm:w-auto text-sm"
-                    onClick={handleSaveHealthNotes}
-                    disabled={savingHealthNotes}
+                    onClick={handleSaveLockedFields}
+                    disabled={savingLockedFields}
                   >
                     <Save className="w-4 h-4 mr-2" />
-                    Save Health Notes
+                    Save Changes
                   </Button>
                 )}
                 <Button

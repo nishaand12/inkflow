@@ -1,5 +1,7 @@
 import { normalizeArtistType } from "./artistTypes";
 
+export const UNASSIGNED_ARTIST_FILTER = "unassigned";
+
 export function isArtistTypeFilter(filter) {
   return filter.startsWith("type:");
 }
@@ -27,6 +29,7 @@ export function getArtistIdsForFilter(filter, activeArtists) {
 }
 
 export function appointmentMatchesArtistFilter(appointment, filter, activeArtists) {
+  if (filter === UNASSIGNED_ARTIST_FILTER) return !appointment.artist_id;
   const ids = getArtistIdsForFilter(filter, activeArtists);
   if (!ids) return true;
   return ids.has(appointment.artist_id);
