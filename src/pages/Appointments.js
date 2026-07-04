@@ -17,6 +17,12 @@ import {
   appointmentTypeMatchesFilter,
 } from "@/utils/reportingCategories";
 import { formatTimeRange12h } from "@/utils/index";
+import { getAppointmentStatusLabel } from "@/utils/appointmentStatus";
+import { getArtistTypeGroupLabel } from "@/utils/artistTypes";
+import {
+  appointmentMatchesArtistFilter,
+  getDistinctArtistTypes,
+} from "@/utils/artistTypeFilter";
 import {
   compareAppointmentsByDateTimeAsc,
   compareAppointmentsByDateTimeDesc,
@@ -157,6 +163,14 @@ export default function Appointments() {
   const userRole = getUserRole();
   const isArtist = userRole === 'Artist';
   const isAdmin = userRole === 'Admin' || userRole === 'Owner';
+  const activeArtists = useMemo(
+    () => sortByFullNameThenId(artists.filter((artist) => artist.is_active)),
+    [artists]
+  );
+  const artistTypeOptions = useMemo(
+    () => getDistinctArtistTypes(activeArtists),
+    [activeArtists]
+  );
 
   const getCustomerName = useCallback((appointment) => {
     if (appointment.customer_id) {
@@ -186,7 +200,7 @@ export default function Appointments() {
       if (!appointmentTypeMatchesFilter(reportingCategories, aptType, typeFilter)) return false;
     }
     if (statusFilter !== 'all' && apt.status !== statusFilter) return false;
-    if (artistFilter !== 'all' && apt.artist_id !== artistFilter) return false;
+    if (!appointmentMatchesArtistFilter(apt, artistFilter, activeArtists)) return false;
 
     // Advanced filters
     if (locationFilter !== 'all' && apt.location_id !== locationFilter) return false;
@@ -210,6 +224,7 @@ export default function Appointments() {
     reportingCategories,
     statusFilter,
     artistFilter,
+    activeArtists,
     locationFilter,
     workStationFilter,
     specificTypeFilter,
@@ -268,7 +283,7 @@ export default function Appointments() {
                   <SelectContent>
                     <SelectItem value="all">All Statuses</SelectItem>
                     <SelectItem value="scheduled">Scheduled</SelectItem>
-                    <SelectItem value="confirmed">Confirmed</SelectItem>
+                    <SelectItem value="confirmed">{getAppointmentStatusLabel("confirmed")}</SelectItem>
                     <SelectItem value="pending_deposit">Pending Deposit</SelectItem>
                     <SelectItem value="deposit_paid">Deposit Paid</SelectItem>
                     <SelectItem value="completed">Completed</SelectItem>
@@ -282,7 +297,13 @@ export default function Appointments() {
                     <SelectTrigger className="text-sm"><SelectValue placeholder="All Artists" /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Artists</SelectItem>
-                      {sortByFullNameThenId(artists.filter(a => a.is_active)).map(a => (
+                      {artistTypeOptions.length > 1 &&
+                        artistTypeOptions.map((type) => (
+                          <SelectItem key={`type:${type}`} value={`type:${type}`}>
+                            {getArtistTypeGroupLabel(type)}
+                          </SelectItem>
+                        ))}
+                      {activeArtists.map(a => (
                         <SelectItem key={a.id} value={a.id}>{a.full_name}</SelectItem>
                       ))}
                     </SelectContent>
@@ -410,7 +431,7 @@ export default function Appointments() {
                   </div>
                   <div className="flex flex-col items-end justify-between">
                     <Badge className={`${statusColors[appointment.status] || 'bg-gray-100 text-gray-800 border-gray-200'} border`}>
-                      {appointment.status?.replace('_', ' ')}
+                      {getAppointmentStatusLabel(appointment.status)}
                     </Badge>
                     {appointment.total_estimate > 0 && (
                       <div className="text-right mt-2">

@@ -11,6 +11,7 @@ import { Calendar, Clock, MapPin, User, AlertCircle, AlertTriangle, Loader2, Che
 import { supabase } from "@/utils/supabase";
 import { formatTimeRange12h, formatTime12h, formatDuration, addMinutesToTime } from "@/utils";
 import { isPublicPiercingBookableArtistType } from "@/utils/artistTypes";
+import { getAppointmentStatusLabel } from "@/utils/appointmentStatus";
 import {
   buildExclusionKeySet,
   filterArtistsForAppointmentType,
@@ -280,15 +281,7 @@ export default function ManageAppointment() {
       completed: "bg-gray-100 text-gray-800",
       cancelled: "bg-red-100 text-red-800",
     };
-    const labels = {
-      scheduled: "Scheduled",
-      confirmed: "Confirmed",
-      pending_deposit: "Pending Deposit",
-      deposit_paid: "Deposit Paid",
-      completed: "Completed",
-      cancelled: "Cancelled",
-    };
-    return <Badge className={styles[status] || "bg-gray-100 text-gray-800"}>{labels[status] || status}</Badge>;
+    return <Badge className={styles[status] || "bg-gray-100 text-gray-800"}>{getAppointmentStatusLabel(status) || status}</Badge>;
   };
 
   const minDate = format(addDays(new Date(), 1), "yyyy-MM-dd");

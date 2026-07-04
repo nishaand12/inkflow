@@ -26,6 +26,7 @@ import { addMinutesToTime, formatDuration, formatTime12h, DEFAULT_BOOKING_START_
 import { getAppointmentTypeDisplaySections } from "@/utils/reportingCategories";
 import { CHECKOUT_PAYMENT_METHOD_OPTIONS } from "@/utils/checkoutPaymentMethods";
 import { filterArtistsSelectableForBooking } from "@/utils/artistTypes";
+import { getAppointmentStatusLabel } from "@/utils/appointmentStatus";
 import {
   buildExclusionKeySet,
   filterArtistsForAppointmentType,
@@ -1890,7 +1891,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="scheduled">Scheduled</SelectItem>
-                    <SelectItem value="confirmed">Confirmed</SelectItem>
+                    <SelectItem value="confirmed">{getAppointmentStatusLabel("confirmed")}</SelectItem>
                     {formData.status === 'pending_deposit' && (
                       <SelectItem value="pending_deposit">Pending Deposit</SelectItem>
                     )}

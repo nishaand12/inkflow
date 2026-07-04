@@ -3,6 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { Clock, MapPin, User, CreditCard } from "lucide-react";
 import { hexToRgba } from "@/utils/artistColors";
 import { formatTime12h, formatTimeRange12h, formatAppointmentCardTitle } from "@/utils/index";
+import { getAppointmentStatusLabel } from "@/utils/appointmentStatus";
 
 export default function AppointmentCard({
   appointment,
@@ -28,16 +29,6 @@ export default function AppointmentCard({
     completed: "bg-green-100 text-green-800 border-green-200",
     cancelled: "bg-red-100 text-red-800 border-red-200",
     no_show: "bg-red-100 text-red-800 border-red-200"
-  };
-
-  const statusLabels = {
-    scheduled: "Scheduled",
-    confirmed: "Confirmed",
-    pending_deposit: "Pending Deposit",
-    deposit_paid: "Deposit Paid",
-    completed: "Completed",
-    cancelled: "Cancelled",
-    no_show: "No Show"
   };
 
   const timeLabel = appointment.is_all_day
@@ -98,7 +89,7 @@ export default function AppointmentCard({
               </div>
             </div>
             <Badge className={`${statusColors[appointment.status]} border text-[10px] sm:text-xs shrink-0`}>
-              {statusLabels[appointment.status] ?? appointment.status}
+              {getAppointmentStatusLabel(appointment.status)}
             </Badge>
           </div>
 
@@ -160,7 +151,7 @@ export default function AppointmentCard({
           </span>
         </div>
         <Badge className={`${statusColors[appointment.status]} border text-xs shrink-0`}>
-          {statusLabels[appointment.status] ?? appointment.status}
+          {getAppointmentStatusLabel(appointment.status)}
         </Badge>
       </div>
       <div className="flex items-center gap-2 mt-1 text-xs text-gray-500">

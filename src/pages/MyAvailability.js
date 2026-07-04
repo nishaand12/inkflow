@@ -12,7 +12,12 @@ import TimePicker12h from "../components/calendar/TimePicker12h";
 import { normalizeUserRole } from "@/utils/roles";
 import { formatTimeRange12h, DEFAULT_BOOKING_START_TIME, DEFAULT_AVAILABILITY_END_TIME } from "@/utils/index";
 import { sortByFullNameThenId, sortByNameThenId } from "@/utils/listSort";
-import { getArtistTypeGroupLabel, normalizeArtistType } from "@/utils/artistTypes";
+import { getArtistTypeGroupLabel } from "@/utils/artistTypes";
+import {
+  getArtistIdsForFilter,
+  getDistinctArtistTypes,
+  isArtistTypeFilter,
+} from "@/utils/artistTypeFilter";
 import { getArtistColor } from "@/utils/artistColors";
 import { navigateNext, navigatePrev, getViewTitle } from "@/utils/calendarViews";
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -102,29 +107,16 @@ export default function MyAvailability() {
   const selectedSingleArtistId =
     artistFilter !== "all" && !isTypeFilter ? artistFilter : null;
 
-  // Distinct artist types present on the team, in first-seen (name-sorted) order.
-  const artistTypeOptions = useMemo(() => {
-    const seen = [];
-    for (const a of activeArtists) {
-      const t = normalizeArtistType(a.artist_type);
-      if (!seen.includes(t)) seen.push(t);
-    }
-    return seen;
-  }, [activeArtists]);
+  const artistTypeOptions = useMemo(
+    () => getDistinctArtistTypes(activeArtists),
+    [activeArtists]
+  );
 
   // Resolves the current filter to the artists it covers (null = everyone).
-  const filteredArtistIds = useMemo(() => {
-    if (artistFilter === "all") return null;
-    if (isTypeFilter) {
-      const type = artistFilter.slice("type:".length);
-      return new Set(
-        activeArtists
-          .filter((a) => normalizeArtistType(a.artist_type) === type)
-          .map((a) => a.id)
-      );
-    }
-    return new Set([artistFilter]);
-  }, [artistFilter, isTypeFilter, activeArtists]);
+  const filteredArtistIds = useMemo(
+    () => getArtistIdsForFilter(artistFilter, activeArtists),
+    [artistFilter, activeArtists]
+  );
 
   const createScheduleMutation = useMutation({
     mutationFn: (data) => base44.entities.ArtistWeeklySchedule.create(data),

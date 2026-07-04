@@ -21,6 +21,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { parseISO, startOfDay, isBefore, isSameDay } from "date-fns";
 import { formatTimeRange12h } from "@/utils/index";
+import { getAppointmentStatusLabel } from "@/utils/appointmentStatus";
 
 const appointmentStatusStyles = {
   scheduled: "bg-blue-100 text-blue-800 border-blue-200",
@@ -379,7 +380,7 @@ export default function CustomerDialog({ open, onOpenChange, customer, locations
                             variant="outline"
                             className={`text-xs capitalize shrink-0 ${appointmentStatusStyles[status] || "bg-gray-50 text-gray-700"}`}
                           >
-                            {status.replace(/_/g, " ")}
+                            {getAppointmentStatusLabel(status)}
                           </Badge>
                         </li>
                       );

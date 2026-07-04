@@ -19,7 +19,7 @@ const DEFAULT_CONFIRMATION_BODY_TEMPLATE = `Hi {{customer_name}},
 
 Your appointment is confirmed for {{appointment_date_time}} at {{location_name}} with {{artist_name}}.
 
-If a deposit is required, you can use this link: {{deposit_link}}
+If a deposit is required, pay your deposit here: {{deposit_link}}
 
 If you need to change your appointment: {{manage_appointment_link}}
 Changes are only allowed up to 24 hours before your appointment.
@@ -810,7 +810,10 @@ function textToHtml(body: string) {
     .replace(/'/g, "&#39;");
   const withLinks = escaped.replace(
     /(https?:\/\/[^\s<]+)/g,
-    '<a href="$1">$1</a>'
+    (url) =>
+      `<a href="${url}">${
+        url.includes("checkout.stripe.com") ? "Stripe Deposit Link" : url
+      }</a>`
   );
   return `<!doctype html><html><body style="font-family:Arial,sans-serif;line-height:1.5;color:#111827;white-space:pre-wrap;">${withLinks}</body></html>`;
 }
