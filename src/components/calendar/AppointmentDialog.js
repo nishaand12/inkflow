@@ -34,6 +34,7 @@ import {
   canArtistBookAppointmentType,
 } from "@/utils/artistServiceEligibility";
 import { pickPreferredWorkStationId } from "@/utils/workStationSelection";
+import LinkifiedText, { textContainsUrl } from "@/components/common/LinkifiedText";
 
 // Stable empty array to prevent new references on each render
 const EMPTY_ARRAY = [];
@@ -1736,7 +1737,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                           <div className="space-y-2">
                             <p className="text-xs font-medium text-gray-700">Pay online (Stripe)</p>
                             <p className="text-xs text-gray-600">
-                              Create or retrieve a checkout link to send or show the client. Links expire after 24 hours.
+                              Create or retrieve a checkout link to send or show the client. Links expire after 12 hours.
                             </p>
                             {canEdit() && (
                               <Button
@@ -1878,14 +1879,33 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
 
             <div className="space-y-2">
               <Label htmlFor="design_description" className="text-sm">Design Description</Label>
-              <Textarea
-                id="design_description"
-                value={formData.design_description}
-                onChange={(e) => setFormData({ ...formData, design_description: e.target.value })}
-                rows={2}
-                disabled={!canEdit()}
-                className="text-sm"
-              />
+              {canEdit() ? (
+                <>
+                  <Textarea
+                    id="design_description"
+                    value={formData.design_description}
+                    onChange={(e) => setFormData({ ...formData, design_description: e.target.value })}
+                    rows={2}
+                    className="text-sm"
+                  />
+                  {textContainsUrl(formData.design_description) && (
+                    <div className="rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-sm text-gray-700 [overflow-wrap:anywhere]">
+                      <LinkifiedText text={formData.design_description} />
+                    </div>
+                  )}
+                </>
+              ) : (
+                <div
+                  id="design_description"
+                  className="min-h-[60px] rounded-md border border-input bg-muted/40 px-3 py-2 text-sm text-gray-700 [overflow-wrap:anywhere]"
+                >
+                  {formData.design_description ? (
+                    <LinkifiedText text={formData.design_description} />
+                  ) : (
+                    <span className="text-gray-400">—</span>
+                  )}
+                </div>
+              )}
             </div>
 
             <div className="space-y-2">

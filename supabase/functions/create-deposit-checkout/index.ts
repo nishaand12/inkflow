@@ -3,6 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import Stripe from "npm:stripe@17";
 import { formatTime12h } from "../_shared/timeDisplay.ts";
 import { requireStaffStudio } from "../_shared/staffStudioAuth.ts";
+import { STAFF_DEPOSIT_CHECKOUT_EXPIRY_SECONDS } from "../_shared/depositCheckoutExpiry.ts";
 
 const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY")!;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -195,7 +196,7 @@ serve(async (req) => {
     const currency = (studio.currency || "USD").toLowerCase();
     const unitAmount = Math.round(depositAmount * 100);
 
-    const expiresAt = Math.floor(Date.now() / 1000) + 86400; // 24 hours from now
+    const expiresAt = Math.floor(Date.now() / 1000) + STAFF_DEPOSIT_CHECKOUT_EXPIRY_SECONDS;
     const idempotencyKey = `deposit-${appointmentId}-${new Date().toISOString().slice(0, 10)}`;
 
     // Direct charge: create session on the connected account

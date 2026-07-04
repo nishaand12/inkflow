@@ -3,6 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import Stripe from "npm:stripe@17";
 import { formatTime12h } from "../_shared/timeDisplay.ts";
 import { resolvePublicBookingDeposit } from "../_shared/publicBookingDeposit.ts";
+import { PUBLIC_BOOKING_DEPOSIT_CHECKOUT_EXPIRY_SECONDS } from "../_shared/depositCheckoutExpiry.ts";
 
 const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY")!;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -186,9 +187,10 @@ serve(async (req) => {
       try {
         const currency = (studio.currency || "USD").toLowerCase();
         const unitAmount = Math.round(actualDeposit * 100);
-        // 1 hour: the booking holds the artist's slot while unpaid, so the
-        // checkout must expire quickly to release abandoned bookings.
-        const expiresAt = Math.floor(Date.now() / 1000) + 3600;
+        // Public booking holds the artist's slot while unpaid, so checkout
+        // must expire quickly to release abandoned bookings.
+        const expiresAt =
+          Math.floor(Date.now() / 1000) + PUBLIC_BOOKING_DEPOSIT_CHECKOUT_EXPIRY_SECONDS;
 
         const session = await stripe.checkout.sessions.create(
           {
