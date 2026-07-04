@@ -65,6 +65,15 @@ export default function Dashboard() {
     enabled: !!user?.studio_id
   });
 
+  const { data: ledgerEntries = [] } = useQuery({
+    queryKey: ['artistLedgerEntries', user?.studio_id],
+    queryFn: async () => {
+      if (!user?.studio_id) return [];
+      return base44.entities.ArtistLedgerEntry.filter({ studio_id: user.studio_id });
+    },
+    enabled: !!user?.studio_id
+  });
+
   useEffect(() => {
     if (user && artists.length > 0) {
       const artist = artists.find(a => a.user_id === user.id);
@@ -101,6 +110,12 @@ export default function Dashboard() {
   const totalRevenue = filteredAppointments
     .filter(apt => apt.status === 'completed')
     .reduce((sum, apt) => sum + (apt.total_estimate || 0), 0);
+
+  const balanceOwed = (isArtist && userArtist)
+    ? ledgerEntries
+        .filter(e => e.artist_id === userArtist.id)
+        .reduce((sum, e) => sum + (Number(e.amount) || 0), 0)
+    : 0;
 
   const getCustomerName = (appointment) => {
     if (appointment.customer_id) {
@@ -184,7 +199,7 @@ export default function Dashboard() {
           <Card className="bg-white border-none shadow-lg hover:shadow-xl transition-all duration-300">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium text-gray-600">
-                {isArtist ? 'My Revenue' : 'Revenue'}
+                {isArtist ? 'Balance Owed' : 'Revenue'}
               </CardTitle>
               <div className="w-10 h-10 rounded-xl bg-purple-50 flex items-center justify-center">
                 <TrendingUp className="w-5 h-5 text-purple-600" />
@@ -192,9 +207,11 @@ export default function Dashboard() {
             </CardHeader>
             <CardContent>
               <div className="text-3xl font-bold text-gray-900">
-                ${totalRevenue.toLocaleString()}
+                ${(isArtist ? balanceOwed : totalRevenue).toLocaleString(undefined, isArtist ? { minimumFractionDigits: 2, maximumFractionDigits: 2 } : undefined)}
               </div>
-              <p className="text-xs text-gray-500 mt-1">Completed bookings</p>
+              <p className="text-xs text-gray-500 mt-1">
+                {isArtist ? 'From settlements, after payouts' : 'Completed bookings'}
+              </p>
             </CardContent>
           </Card>
         </div>
