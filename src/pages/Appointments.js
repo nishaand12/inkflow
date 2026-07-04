@@ -434,14 +434,27 @@ export default function Appointments() {
                     <Badge className={`${statusColors[appointment.status] || 'bg-gray-100 text-gray-800 border-gray-200'} border`}>
                       {getAppointmentStatusLabel(appointment.status)}
                     </Badge>
-                    {appointment.total_estimate > 0 && (
-                      <div className="text-right mt-2">
-                        <div className="text-lg font-bold text-gray-900">${appointment.total_estimate}</div>
-                        {appointment.deposit_amount > 0 && (
-                          <div className="text-xs text-gray-500">Deposit: ${appointment.deposit_amount}</div>
-                        )}
-                      </div>
-                    )}
+                    <div className="text-right mt-2">
+                      {appointment.status === 'completed' ? (
+                        <>
+                          <div className="text-lg font-bold text-gray-900">
+                            ${(appointment.charge_amount || 0).toFixed(2)}
+                          </div>
+                          <div className="text-xs text-gray-500">
+                            Tax: ${(appointment.tax_amount || 0).toFixed(2)}
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="text-lg font-bold text-gray-900">
+                            ${(appointment.total_estimate || 0).toFixed(2)}
+                          </div>
+                          <div className="text-xs text-gray-500">
+                            Deposit: ${(appointment.deposit_amount || 0).toFixed(2)}
+                          </div>
+                        </>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>

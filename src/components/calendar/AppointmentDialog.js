@@ -171,6 +171,47 @@ async function persistAppointmentDepositSnapshotIfStale(appointment, formData, q
   }
 }
 
+function chargeGrossBeforeDiscount(charge) {
+  const qty = Number(charge.quantity) || 0;
+  const price = Number(charge.unit_price) || 0;
+  const lineTotal = Number(charge.line_total) || 0;
+  const sign = lineTotal < 0 ? -1 : 1;
+  return sign * qty * price;
+}
+
+function buildCheckoutSummary(charges, appointment) {
+  const lines = [...charges].sort((a, b) =>
+    String(a.created_at || "").localeCompare(String(b.created_at || ""))
+  );
+
+  const grossBeforeDiscounts = lines.reduce(
+    (sum, charge) => sum + chargeGrossBeforeDiscount(charge),
+    0
+  );
+  const lineDiscountsTotal = lines.reduce(
+    (sum, charge) => sum + (Number(charge.discount_amount) || 0),
+    0
+  );
+  const netPreTax = lines.reduce(
+    (sum, charge) => sum + (Number(charge.line_total) || 0),
+    0
+  );
+  const tax = Number(appointment?.tax_amount) || 0;
+  const tip = Number(appointment?.tip_amount) || 0;
+  const totalBeforeTip = netPreTax + tax;
+
+  return {
+    lines,
+    grossBeforeDiscounts,
+    lineDiscountsTotal,
+    netPreTax,
+    tax,
+    tip,
+    totalBeforeTip,
+    grandTotal: totalBeforeTip + tip,
+  };
+}
+
 export default function AppointmentDialog({ open, onOpenChange, appointment, defaultDate, defaultArtistId, artists, locations, currentUser, userArtist }) {
   const queryClient = useQueryClient();
   const [formData, setFormData] = useState({
@@ -378,6 +419,20 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     },
     enabled: !!currentUser?.studio_id
   });
+
+  const { data: checkoutCharges = EMPTY_ARRAY, isLoading: checkoutChargesLoading } = useQuery({
+    queryKey: ['appointmentCharges', appointment?.id],
+    queryFn: async () => {
+      if (!appointment?.id) return [];
+      return base44.entities.AppointmentCharge.filter({ appointment_id: appointment.id });
+    },
+    enabled: open && !!appointment?.id && appointment.status === 'completed',
+  });
+
+  const checkoutSummary = useMemo(() => {
+    if (!checkoutCharges.length || !appointment) return null;
+    return buildCheckoutSummary(checkoutCharges, appointment);
+  }, [checkoutCharges, appointment]);
 
   // Use userArtist?.id for stable dependency instead of the full object
   const userArtistId = userArtist?.id;
@@ -1980,6 +2035,99 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                     <p className="font-medium text-emerald-900">{appointment.payment_method || 'N/A'}</p>
                   </div>
                 </div>
+
+                <div className="mt-4 pt-4 border-t border-emerald-200">
+                  <p className="text-sm font-semibold text-emerald-800 mb-3">Checkout Summary</p>
+                  {checkoutChargesLoading ? (
+                    <div className="flex items-center gap-2 text-sm text-emerald-700">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Loading line items…
+                    </div>
+                  ) : checkoutSummary ? (
+                    <>
+                      <div className="rounded-lg border border-emerald-200 bg-white/70 overflow-hidden">
+                        <table className="w-full text-sm">
+                          <thead className="bg-emerald-100/60">
+                            <tr>
+                              <th className="px-3 py-2 text-left font-medium text-emerald-900">Item</th>
+                              <th className="px-3 py-2 text-right font-medium text-emerald-900 w-12">Qty</th>
+                              <th className="px-3 py-2 text-right font-medium text-emerald-900 w-16">Price</th>
+                              <th className="px-3 py-2 text-right font-medium text-emerald-900 w-16">Disc</th>
+                              <th className="px-3 py-2 text-right font-medium text-emerald-900 w-16">Total</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-emerald-100">
+                            {checkoutSummary.lines.map((charge) => {
+                              const lineTotal = Number(charge.line_total) || 0;
+                              const discount = Number(charge.discount_amount) || 0;
+                              return (
+                                <tr key={charge.id}>
+                                  <td className="px-3 py-2">
+                                    <div className="font-medium text-emerald-950 text-xs">{charge.description}</div>
+                                    {lineTotal < 0 && (
+                                      <span className="text-[10px] text-red-600 font-medium">Negative revenue</span>
+                                    )}
+                                    {charge.reporting_category_name && (
+                                      <div className="text-[10px] text-emerald-600">{charge.reporting_category_name}</div>
+                                    )}
+                                  </td>
+                                  <td className="px-3 py-2 text-right text-xs tabular-nums text-emerald-900">
+                                    {charge.quantity}
+                                  </td>
+                                  <td className="px-3 py-2 text-right text-xs tabular-nums text-emerald-900">
+                                    ${(Number(charge.unit_price) || 0).toFixed(2)}
+                                  </td>
+                                  <td className="px-3 py-2 text-right text-xs tabular-nums text-emerald-900">
+                                    {discount > 0 ? `-$${discount.toFixed(2)}` : "$0.00"}
+                                  </td>
+                                  <td className="px-3 py-2 text-right text-xs font-medium tabular-nums text-emerald-900">
+                                    ${lineTotal.toFixed(2)}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      <div className="mt-3 rounded-lg bg-white/70 border border-emerald-200 p-3 space-y-1 text-sm">
+                        <div className="flex justify-between text-emerald-800">
+                          <span className="text-emerald-600">Subtotal (before discounts):</span>
+                          <span className="tabular-nums">${checkoutSummary.grossBeforeDiscounts.toFixed(2)}</span>
+                        </div>
+                        {checkoutSummary.lineDiscountsTotal > 0 && (
+                          <div className="flex justify-between text-red-600">
+                            <span>Line discounts:</span>
+                            <span className="tabular-nums">-${checkoutSummary.lineDiscountsTotal.toFixed(2)}</span>
+                          </div>
+                        )}
+                        <div className="flex justify-between font-medium text-emerald-900">
+                          <span className="text-emerald-600">Net (pre-tax):</span>
+                          <span className="tabular-nums">${checkoutSummary.netPreTax.toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between text-emerald-800">
+                          <span className="text-emerald-600">Tax:</span>
+                          <span className="tabular-nums">${checkoutSummary.tax.toFixed(2)}</span>
+                        </div>
+                        {checkoutSummary.tip > 0 && (
+                          <div className="flex justify-between text-emerald-800">
+                            <span className="text-emerald-600">Tip to artist:</span>
+                            <span className="tabular-nums">${checkoutSummary.tip.toFixed(2)}</span>
+                          </div>
+                        )}
+                        <div className="flex justify-between font-semibold border-t border-emerald-200 pt-1 mt-1 text-emerald-900">
+                          <span>Total{checkoutSummary.tip > 0 ? " (incl. tip)" : ""}:</span>
+                          <span className="tabular-nums">${checkoutSummary.grandTotal.toFixed(2)}</span>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <p className="text-sm text-emerald-700">
+                      No line item details recorded for this checkout.
+                    </p>
+                  )}
+                </div>
+
                 {canRecordRefund() && studio && (
                   <Button
                     type="button"
