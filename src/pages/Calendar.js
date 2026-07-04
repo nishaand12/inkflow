@@ -828,7 +828,11 @@ export default function Calendar() {
                             const widthPct = 100 / totalCols;
                             const leftPct = (col / totalCols) * 100;
                             const color = getAptColor(apt);
-                            const title = formatAppointmentCardTitle(getCustomerName(apt), apt.appointment_name);
+                            const title = formatAppointmentCardTitle(
+                              getCustomerName(apt),
+                              apt.appointment_name,
+                              getAptTypeName(apt)
+                            );
                             const timeText = apt.is_all_day ? "All day" : formatTime12h(apt.start_time);
 
                             return (

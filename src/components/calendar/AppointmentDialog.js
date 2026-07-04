@@ -1837,7 +1837,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                 disabled={!canEdit()}
                 className="text-sm"
               />
-              <p className="text-xs text-gray-500">Optional label shown on the calendar beside the customer name (e.g. Jane Doe - Sleeve consult)</p>
+              <p className="text-xs text-gray-500">Optional label on the calendar beside the customer name. If left blank, the appointment type is shown instead.</p>
             </div>
 
             <div className="space-y-2">
