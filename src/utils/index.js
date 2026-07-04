@@ -98,6 +98,13 @@ export function formatTimeRange12h(startStr, endStr) {
   return `${formatTime12h(startStr)} – ${formatTime12h(endStr)}`;
 }
 
+/** Calendar card title: "Customer Name" or "Customer Name - Appointment Name". */
+export function formatAppointmentCardTitle(customerName, appointmentName) {
+  const customer = (customerName || 'Client').trim();
+  const label = (appointmentName || '').trim();
+  return label ? `${customer} - ${label}` : customer;
+}
+
 /** Round minutes to the nearest 5-minute step (0–55). */
 export function roundMinutesToStep(minute, step = 5) {
   const rounded = Math.round(minute / step) * step;

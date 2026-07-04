@@ -2,7 +2,7 @@ import React from "react";
 import { Badge } from "@/components/ui/badge";
 import { Clock, MapPin, User, CreditCard } from "lucide-react";
 import { hexToRgba } from "@/utils/artistColors";
-import { formatTime12h, formatTimeRange12h } from "@/utils/index";
+import { formatTime12h, formatTimeRange12h, formatAppointmentCardTitle } from "@/utils/index";
 
 export default function AppointmentCard({
   appointment,
@@ -44,6 +44,9 @@ export default function AppointmentCard({
 
   // Compact chip — used in month view and mobile multi-day views
   if (compact) {
+    const title = formatAppointmentCardTitle(appointment.client_name, appointment.appointment_name);
+    const timeText = appointment.is_all_day ? "All day" : formatTime12h(appointment.start_time);
+
     return (
       <div
         onClick={onClick}
@@ -53,17 +56,12 @@ export default function AppointmentCard({
           borderLeft: `3px solid ${color}`,
         }}
       >
-        <div className="font-semibold truncate" style={{ color }}>
-          {appointment.is_all_day ? "All day" : formatTime12h(appointment.start_time)}
+        <div className="font-semibold truncate text-gray-900 leading-tight">
+          {title}
         </div>
-        <div className="truncate text-gray-800 leading-tight">
-          {appointment.client_name || 'Client'}
+        <div className="truncate leading-tight" style={{ color }}>
+          {timeText}
         </div>
-        {appointment.appointment_name?.trim() && (
-          <div className="truncate text-gray-500 leading-tight">
-            {appointment.appointment_name.trim()}
-          </div>
-        )}
       </div>
     );
   }
