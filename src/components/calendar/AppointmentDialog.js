@@ -967,6 +967,11 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
       return;
     }
 
+    if (!appointment && !formData.appointment_type_id && appointmentTypes.some((t) => t.is_active)) {
+      setSaveError('Please select an appointment type.');
+      return;
+    }
+
     if (
       !formData.is_all_day &&
       formData.location_id &&
@@ -1415,18 +1420,21 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
 
             {activeAppointmentTypes.length > 0 && (
               <div className="space-y-2">
-                <Label htmlFor="appointment_type_id">Appointment Type</Label>
+                <Label htmlFor="appointment_type_id">
+                  Appointment Type{!appointment ? ' *' : ''}
+                </Label>
                 <Select
                   value={formData.appointment_type_id}
                   onValueChange={handleAppointmentTypeSelect}
                   disabled={!canEdit()}
+                  required={!appointment}
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Select type (optional)" />
+                    <SelectValue placeholder={appointment ? 'Select type (optional)' : 'Select type'} />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value={null}>No Type</SelectItem>
-                    <SelectSeparator />
+                    {appointment && <SelectItem value={null}>No Type</SelectItem>}
+                    {appointment && <SelectSeparator />}
                     {appointmentTypeSections.map((section) => (
                       <React.Fragment key={section.key}>
                         <SelectGroup>
