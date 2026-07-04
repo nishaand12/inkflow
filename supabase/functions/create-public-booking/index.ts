@@ -145,6 +145,13 @@ serve(async (req) => {
 
     const actualDeposit = resolvePublicBookingDeposit(aptType);
 
+    // Deposit-required bookings are held in "pending_deposit" until the Stripe
+    // webhook confirms payment; only then are they confirmed and emailed.
+    const requiresDeposit =
+      actualDeposit > 0 &&
+      Boolean(studio.stripe_account_id) &&
+      Boolean(studio.stripe_charges_enabled);
+
     const { data: appointment, error: aptErr } = await supabase
       .from("appointments")
       .insert({
@@ -162,7 +169,7 @@ serve(async (req) => {
         end_time: endTime,
         deposit_amount: actualDeposit,
         total_estimate: svcCost,
-        status: "scheduled",
+        status: requiresDeposit ? "pending_deposit" : "scheduled",
         booking_source: "public",
         notification_anchor_at: new Date().toISOString(),
       })
@@ -175,7 +182,7 @@ serve(async (req) => {
 
     let checkoutUrl: string | null = null;
 
-    if (actualDeposit > 0 && studio.stripe_account_id && studio.stripe_charges_enabled) {
+    if (requiresDeposit) {
       try {
         const currency = (studio.currency || "USD").toLowerCase();
         const unitAmount = Math.round(actualDeposit * 100);
@@ -234,6 +241,15 @@ serve(async (req) => {
       } catch (stripeErr) {
         console.error("Stripe deposit creation failed:", stripeErr);
       }
+
+      // If the checkout session could not be created, fall back to the legacy
+      // behavior: book immediately and collect the deposit later.
+      if (!checkoutUrl) {
+        await supabase
+          .from("appointments")
+          .update({ status: "scheduled" })
+          .eq("id", appointment.id);
+      }
     }
 
     // Generate a manage token for customer self-service reschedule/cancel
@@ -245,7 +261,11 @@ serve(async (req) => {
       expires_at: tokenExpiresAt.toISOString(),
     });
 
-    await triggerConfirmationEmail(appointment.id);
+    // Bookings held for a deposit are confirmed (and emailed) by the Stripe
+    // webhook once the deposit is paid.
+    if (!checkoutUrl) {
+      await triggerConfirmationEmail(appointment.id);
+    }
 
     return json({
       appointment_id: appointment.id,
