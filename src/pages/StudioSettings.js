@@ -4,10 +4,12 @@ import { base44 } from "@/api/base44Client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Building2, Key, Copy, Check, BookOpen, MapPin, Wrench, ClipboardList, Palette, UserPlus, BarChart3, Bell, ChevronDown, ChevronUp, CreditCard, ExternalLink, AlertCircle, Loader2, Layers, CalendarDays } from "lucide-react";
+import { Building2, Key, Copy, Check, BookOpen, MapPin, Wrench, ClipboardList, Palette, UserPlus, BarChart3, Bell, ChevronDown, ChevronUp, CreditCard, ExternalLink, AlertCircle, Loader2, Layers, CalendarDays, CalendarClock } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { supabase } from "@/utils/supabase";
 import { normalizeUserRole } from "@/utils/roles";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { CALENDAR_HOUR_OPTIONS, formatHourLabel } from "@/utils/calendarGrid";
 
 export default function StudioSettings() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -26,6 +28,12 @@ export default function StudioSettings() {
   });
   const [stripeConnecting, setStripeConnecting] = useState(false);
   const [stripeMessage, setStripeMessage] = useState(null);
+
+  const [calendarStartHour, setCalendarStartHour] = useState(0);
+  const [calendarEndHour, setCalendarEndHour] = useState(24);
+  const [calendarHoursSaving, setCalendarHoursSaving] = useState(false);
+  const [calendarHoursSaved, setCalendarHoursSaved] = useState(false);
+  const [calendarHoursError, setCalendarHoursError] = useState(null);
 
   useEffect(() => {
     loadUserAndStudio();
@@ -54,6 +62,8 @@ export default function StudioSettings() {
         if (studios.length > 0) {
           const loadedStudio = studios[0];
           setStudio(loadedStudio);
+          setCalendarStartHour(loadedStudio.calendar_view_start_hour ?? 0);
+          setCalendarEndHour(loadedStudio.calendar_view_end_hour ?? 24);
           loadStripeStatus(loadedStudio.id);
         }
       }
@@ -125,6 +135,33 @@ export default function StudioSettings() {
       navigator.clipboard.writeText(url);
       setCopiedBookingLink(true);
       setTimeout(() => setCopiedBookingLink(false), 2000);
+    }
+  };
+
+  const calendarHourOptions = CALENDAR_HOUR_OPTIONS.filter((o) => o.value <= 23);
+  const calendarEndHourOptions = CALENDAR_HOUR_OPTIONS.filter((o) => o.value >= 1);
+
+  const handleSaveCalendarHours = async () => {
+    if (!studio) return;
+    if (calendarEndHour <= calendarStartHour) {
+      setCalendarHoursError("End hour must be after start hour.");
+      return;
+    }
+    setCalendarHoursSaving(true);
+    setCalendarHoursError(null);
+    try {
+      const updated = await base44.entities.Studio.update(studio.id, {
+        calendar_view_start_hour: calendarStartHour,
+        calendar_view_end_hour: calendarEndHour,
+      });
+      setStudio(updated);
+      setCalendarHoursSaved(true);
+      setTimeout(() => setCalendarHoursSaved(false), 2000);
+    } catch (error) {
+      console.error("Error saving calendar hours:", error);
+      setCalendarHoursError("Could not save calendar hours. Please try again.");
+    } finally {
+      setCalendarHoursSaving(false);
     }
   };
 
@@ -269,6 +306,94 @@ export default function StudioSettings() {
                 <div className="mt-4 bg-white/70 rounded-lg p-4 text-sm text-gray-600">
                   Share this link on your website or social media. Clients can browse your services and book directly without creating an account.
                 </div>
+              </CardContent>
+            </Card>
+
+            <Card className="bg-white border-none shadow-lg">
+              <CardHeader className="border-b border-gray-100">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 bg-sky-100 rounded-xl flex items-center justify-center">
+                    <CalendarClock className="w-6 h-6 text-sky-600" />
+                  </div>
+                  <div>
+                    <CardTitle className="text-xl text-gray-900">Calendar View Hours</CardTitle>
+                    <p className="text-sm text-gray-600">
+                      Set the time range shown on the internal calendar for your studio
+                    </p>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="p-6 space-y-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-gray-700">Start hour</label>
+                    <Select
+                      value={String(calendarStartHour)}
+                      onValueChange={(v) => setCalendarStartHour(parseInt(v, 10))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {calendarHourOptions.map((o) => (
+                          <SelectItem key={o.value} value={String(o.value)}>
+                            {formatHourLabel(o.value)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-semibold text-gray-700">End hour</label>
+                    <Select
+                      value={String(calendarEndHour)}
+                      onValueChange={(v) => setCalendarEndHour(parseInt(v, 10))}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {calendarEndHourOptions.map((o) => (
+                          <SelectItem key={o.value} value={String(o.value)}>
+                            {o.value === 24 ? "12 AM (midnight)" : formatHourLabel(o.value)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <p className="text-sm text-gray-600">
+                  Preview: {formatHourLabel(calendarStartHour)} –{" "}
+                  {calendarEndHour === 24 ? "12 AM (midnight)" : formatHourLabel(calendarEndHour)}
+                </p>
+
+                {calendarHoursError && (
+                  <Alert className="border-red-200 bg-red-50">
+                    <AlertCircle className="h-4 w-4 text-red-600" />
+                    <AlertDescription className="text-red-800">{calendarHoursError}</AlertDescription>
+                  </Alert>
+                )}
+
+                <Button
+                  onClick={handleSaveCalendarHours}
+                  disabled={calendarHoursSaving}
+                  className="bg-sky-600 hover:bg-sky-700"
+                >
+                  {calendarHoursSaving ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Saving...
+                    </>
+                  ) : calendarHoursSaved ? (
+                    <>
+                      <Check className="w-4 h-4 mr-2" />
+                      Saved!
+                    </>
+                  ) : (
+                    "Save Calendar Hours"
+                  )}
+                </Button>
               </CardContent>
             </Card>
 

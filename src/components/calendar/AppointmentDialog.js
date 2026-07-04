@@ -170,7 +170,7 @@ async function persistAppointmentDepositSnapshotIfStale(appointment, formData, q
   }
 }
 
-export default function AppointmentDialog({ open, onOpenChange, appointment, defaultDate, artists, locations, currentUser, userArtist }) {
+export default function AppointmentDialog({ open, onOpenChange, appointment, defaultDate, defaultArtistId, artists, locations, currentUser, userArtist }) {
   const queryClient = useQueryClient();
   const [formData, setFormData] = useState({
     artist_id: '',
@@ -425,7 +425,8 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
       }
     } else {
       // For new appointments, auto-assign artist if user is an artist
-      const initialArtistId = (isArtist && !isAdmin && userArtistId) ? userArtistId : '';
+      const initialArtistId = defaultArtistId
+        || ((isArtist && !isAdmin && userArtistId) ? userArtistId : '');
       const defaultLocationId = resolveDefaultLocationId(locations, initialArtistId, artists, "");
 
       setFormData({
@@ -462,7 +463,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     setInPersonDepositAmountInput("");
     setRecordInPersonLoading(false);
     setSaveError(null);
-  }, [appointment, appointmentForForm, defaultDate, open, isArtist, isAdmin, userArtistId, customers, artists, locations]);
+  }, [appointment, appointmentForForm, defaultDate, defaultArtistId, open, isArtist, isAdmin, userArtistId, customers, artists, locations]);
 
   useEffect(() => {
     const canValidateTimed =

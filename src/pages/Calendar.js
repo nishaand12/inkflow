@@ -15,7 +15,7 @@ import AppointmentDialog from "../components/calendar/AppointmentDialog";
 import AppointmentCard from "../components/calendar/AppointmentCard";
 import { normalizeUserRole } from "@/utils/roles";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { ARTIST_PALETTE, hexToRgba } from "@/utils/artistColors";
+import { ARTIST_PALETTE } from "@/utils/artistColors";
 import {
   CATEGORY_ROLE_APPOINTMENT_KIND,
   filterCategoriesByRole,
@@ -23,7 +23,6 @@ import {
 } from "@/utils/reportingCategories";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { formatTime12h, formatAppointmentCardTitle } from "@/utils/index";
 import { getAppointmentStatusLabel } from "@/utils/appointmentStatus";
 import { getArtistTypeGroupLabel } from "@/utils/artistTypes";
 import {
@@ -35,40 +34,16 @@ import {
   sortByNameThenId,
   sortByFullNameThenId,
 } from "@/utils/listSort";
+import {
+  createCalendarGrid,
+  formatHourLabel,
+  getNowLineTop,
+  parseTimeToMinutes,
+  scrollMainContentToGridTime,
+} from "@/utils/calendarGrid";
+import CalendarTimedBlock, { buildCalendarBlockTitle } from "../components/calendar/CalendarTimedBlock";
 
-// ─── Time grid constants ───────────────────────────────────────────────────
-const HOUR_HEIGHT = 64;   // px per hour
-const START_HOUR  = 0;    // midnight
-const END_HOUR    = 24;   // end of day (hour rows 0–23)
-const GRID_HOURS  = END_HOUR - START_HOUR;
-const TOTAL_HEIGHT = GRID_HOURS * HOUR_HEIGHT;
-const NOON_OFFSET = 12 * HOUR_HEIGHT;
-
-const HOURS_LIST = Array.from({ length: GRID_HOURS }, (_, i) => START_HOUR + i);
-
-function formatHourLabel(h) {
-  if (h === 0 || h === 24) return '12 AM';
-  if (h === 12) return '12 PM';
-  return h < 12 ? `${h} AM` : `${h - 12} PM`;
-}
-
-// ─── Time helpers ──────────────────────────────────────────────────────────
-function parseTimeToMinutes(timeStr) {
-  if (!timeStr) return 0;
-  const match = timeStr.match(/(\d+):(\d+)\s*(AM|PM)?/i);
-  if (!match) return 0;
-  let hours = parseInt(match[1], 10);
-  const minutes = parseInt(match[2], 10);
-  const period = match[3]?.toUpperCase();
-  if (period === 'PM' && hours !== 12) hours += 12;
-  if (period === 'AM' && hours === 12) hours = 0;
-  return hours * 60 + minutes;
-}
-
-function topFromTime(timeStr) {
-  const mins = parseTimeToMinutes(timeStr);
-  return Math.max(0, (mins - START_HOUR * 60) / 60 * HOUR_HEIGHT);
-}
+const ARTIST_LANE_MIN_WIDTH = 140;
 
 // ─── Overlap layout ────────────────────────────────────────────────────────
 function layoutDayAppointments(apts) {
@@ -100,6 +75,232 @@ function layoutDayAppointments(apts) {
 }
 
 const ALL_DAY_COLLAPSED_LIMIT = 1;
+
+function getArtistsWithTimedAppointments(timedApts, artists) {
+  const artistIds = new Set(timedApts.map((a) => a.artist_id).filter(Boolean));
+  return sortByFullNameThenId(artists.filter((a) => artistIds.has(a.id)));
+}
+
+function TimeGridGutter({ grid, className = "" }) {
+  return (
+    <div
+      className={`w-14 sm:w-16 shrink-0 relative select-none border-r border-gray-100 bg-white ${className}`}
+      style={{ height: grid.totalHeight }}
+    >
+      {grid.hoursList.map((hour, i) => (
+        <div
+          key={hour}
+          className="absolute right-2 text-[11px] text-gray-400 font-medium leading-none"
+          style={{ top: i * grid.hourHeight - 7 }}
+        >
+          {formatHourLabel(hour)}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function TimeGridLines({ grid }) {
+  return grid.hoursList.map((_, i) => (
+    <React.Fragment key={i}>
+      <div
+        className="absolute w-full border-t border-gray-100 pointer-events-none"
+        style={{ top: i * grid.hourHeight }}
+      />
+      <div
+        className="absolute w-full border-t border-gray-50 pointer-events-none"
+        style={{ top: i * grid.hourHeight + grid.hourHeight / 2 }}
+      />
+    </React.Fragment>
+  ));
+}
+
+function NowLine({ grid, nowTop }) {
+  if (nowTop == null) return null;
+  return (
+    <div className="absolute w-full z-20 pointer-events-none" style={{ top: nowTop }}>
+      <div className="flex items-center">
+        <div className="w-2 h-2 rounded-full bg-red-500 -ml-1 shrink-0" />
+        <div className="flex-1 border-t-2 border-red-500" />
+      </div>
+    </div>
+  );
+}
+
+function OverlapDayColumn({
+  day,
+  timedApts,
+  grid,
+  isToday,
+  nowTop,
+  onNewAppointment,
+  onEditAppointment,
+  getCustomerName,
+  getAptColor,
+  getAptTypeName,
+}) {
+  const laid = layoutDayAppointments(timedApts);
+
+  return (
+    <div
+      className="flex-1 min-w-0 relative border-l border-gray-100 first:border-l-0"
+      style={{ height: grid.totalHeight }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onNewAppointment(day);
+      }}
+    >
+      <TimeGridLines grid={grid} />
+      {isToday && <NowLine grid={grid} nowTop={nowTop} />}
+      {laid.map(({ apt, col, totalCols }) => {
+        const widthPct = 100 / totalCols;
+        const leftPct = (col / totalCols) * 100;
+        const color = getAptColor(apt);
+        const title = buildCalendarBlockTitle(getCustomerName, getAptTypeName, apt);
+
+        return (
+          <CalendarTimedBlock
+            key={apt.id}
+            apt={apt}
+            grid={grid}
+            color={color}
+            title={title}
+            onEdit={onEditAppointment}
+            left={`calc(${leftPct}% + 1px)`}
+            width={`calc(${widthPct}% - 2px)`}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+function ArtistSwimlaneHeader({ artist, artistColorMap }) {
+  return (
+    <div
+      className="flex-1 min-w-[140px] text-center py-2 px-1 border-l border-gray-100 first:border-l-0"
+    >
+      <div className="flex items-center justify-center gap-1.5">
+        <span
+          className="w-2.5 h-2.5 rounded-full shrink-0"
+          style={{ backgroundColor: artistColorMap[artist.id] }}
+        />
+        <span className="text-xs font-semibold text-gray-800 truncate">
+          {artist.full_name}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function DaySwimlaneGrid({
+  artists,
+  artistColorMap,
+  grid,
+  timedApts,
+  day,
+  gridSectionRef,
+  showNowLine,
+  nowTop,
+  onNewAppointment,
+  onEditAppointment,
+  getCustomerName,
+  getAptColor,
+  getAptTypeName,
+}) {
+  const laneMinWidth = artists.length * ARTIST_LANE_MIN_WIDTH;
+
+  return (
+    <div className="min-w-0 w-full overflow-x-auto">
+      <div
+        className="flex flex-col"
+        style={{ width: `max(100%, ${laneMinWidth}px)` }}
+      >
+        <div className="flex shrink-0 bg-white border-b border-gray-200 shadow-sm z-20">
+          <div className="sticky left-0 z-30 w-14 sm:w-16 shrink-0 bg-white border-r border-gray-100 shadow-[2px_0_4px_rgba(0,0,0,0.06)]" />
+          <div className="flex flex-1 flex-nowrap min-w-0">
+            {artists.map((artist) => (
+              <ArtistSwimlaneHeader
+                key={artist.id}
+                artist={artist}
+                artistColorMap={artistColorMap}
+              />
+            ))}
+          </div>
+        </div>
+
+        <div className="flex flex-nowrap" ref={gridSectionRef}>
+          <div className="sticky left-0 z-20 shrink-0 bg-white border-r border-gray-100 shadow-[2px_0_4px_rgba(0,0,0,0.06)]">
+            <TimeGridGutter grid={grid} />
+          </div>
+          <div className="flex flex-1 flex-nowrap min-w-0">
+            {artists.map((artist) => (
+              <ArtistSwimlaneColumn
+                key={artist.id}
+                artist={artist}
+                day={day}
+                timedApts={timedApts}
+                grid={grid}
+                isToday={isSameDay(day, new Date())}
+                nowTop={showNowLine ? nowTop : null}
+                onNewAppointment={onNewAppointment}
+                onEditAppointment={onEditAppointment}
+                getCustomerName={getCustomerName}
+                getAptColor={getAptColor}
+                getAptTypeName={getAptTypeName}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ArtistSwimlaneColumn({
+  artist,
+  day,
+  timedApts,
+  grid,
+  isToday,
+  nowTop,
+  onNewAppointment,
+  onEditAppointment,
+  getCustomerName,
+  getAptColor,
+  getAptTypeName,
+}) {
+  const laneApts = timedApts.filter((a) => a.artist_id === artist.id);
+
+  return (
+    <div
+      className="flex-1 min-w-[140px] relative border-l border-gray-100 first:border-l-0"
+      style={{ height: grid.totalHeight }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onNewAppointment(day, artist.id);
+      }}
+    >
+      <TimeGridLines grid={grid} />
+      {isToday && <NowLine grid={grid} nowTop={nowTop} />}
+      {laneApts.map((apt) => {
+        const color = getAptColor(apt);
+        const title = buildCalendarBlockTitle(getCustomerName, getAptTypeName, apt);
+
+        return (
+          <CalendarTimedBlock
+            key={apt.id}
+            apt={apt}
+            grid={grid}
+            color={color}
+            title={title}
+            onEdit={onEditAppointment}
+            left="1px"
+            width="calc(100% - 2px)"
+          />
+        );
+      })}
+    </div>
+  );
+}
 
 function AllDayAppointmentsRow({
   days,
@@ -179,7 +380,7 @@ function AllDayAppointmentsRow({
 // ─── Component ────────────────────────────────────────────────────────────
 export default function Calendar() {
   const isMobile = useIsMobile();
-  const scrollRef = useRef(null);
+  const gridSectionRef = useRef(null);
   const [currentDate, setCurrentDate]             = useState(new Date());
   const [view, setView]                           = useState('day');
   // Standard filters
@@ -196,6 +397,7 @@ export default function Calendar() {
   const [showAppointmentDialog, setShowAppointmentDialog] = useState(false);
   const [selectedAppointment, setSelectedAppointment]     = useState(null);
   const [selectedDate, setSelectedDate]           = useState(null);
+  const [selectedDefaultArtistId, setSelectedDefaultArtistId] = useState(null);
   const [user, setUser]                           = useState(null);
   const [userArtist, setUserArtist]               = useState(null);
   const [expandedAllDayDays, setExpandedAllDayDays] = useState(() => new Set());
@@ -208,17 +410,6 @@ export default function Calendar() {
     if (isMobile && view === 'month') setView('day');
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isMobile]);
-
-  // Scroll time grid to center on 12 noon on mount / view / date change
-  useEffect(() => {
-    if (scrollRef.current && !isMobile && view !== 'month') {
-      const el = scrollRef.current;
-      el.scrollTop = Math.max(
-        0,
-        Math.min(NOON_OFFSET - el.clientHeight / 2, el.scrollHeight - el.clientHeight)
-      );
-    }
-  }, [view, isMobile, currentDate]);
 
   useEffect(() => {
     setExpandedAllDayDays(new Set());
@@ -300,6 +491,32 @@ export default function Calendar() {
     queryFn: () => base44.entities.WorkStation.filter({ studio_id: user.studio_id }),
     enabled: !!user?.studio_id
   });
+
+  const { data: studio } = useQuery({
+    queryKey: ['studio', user?.studio_id],
+    queryFn: async () => {
+      const studios = await base44.entities.Studio.filter({ id: user.studio_id });
+      return studios[0] ?? null;
+    },
+    enabled: !!user?.studio_id,
+  });
+
+  const calendarGrid = useMemo(
+    () => createCalendarGrid(
+      studio?.calendar_view_start_hour,
+      studio?.calendar_view_end_hour
+    ),
+    [studio?.calendar_view_start_hour, studio?.calendar_view_end_hour]
+  );
+
+  // Scroll page to current time within the grid on mount / view / date change
+  useEffect(() => {
+    if (gridSectionRef.current && !isMobile && view !== 'month') {
+      requestAnimationFrame(() => {
+        scrollMainContentToGridTime(gridSectionRef.current, calendarGrid);
+      });
+    }
+  }, [view, isMobile, currentDate, calendarGrid]);
 
   useEffect(() => {
     if (user && artists.length > 0) {
@@ -428,34 +645,43 @@ export default function Calendar() {
   };
   const handleToday = () => setCurrentDate(new Date());
 
-  const handleNewAppointment = (date = null) => {
+  const handleNewAppointment = (date = null, artistId = null) => {
     setSelectedAppointment(null);
-    setSelectedDate(date);
+    setSelectedDate(date ?? (view === 'day' ? currentDate : null));
+    setSelectedDefaultArtistId(artistId);
     setShowAppointmentDialog(true);
   };
   const handleEditAppointment = (apt) => {
     setSelectedAppointment(apt);
     setSelectedDate(null);
+    setSelectedDefaultArtistId(null);
     setShowAppointmentDialog(true);
   };
 
   const days = getDaysToShow();
+  const isDaySwimlaneView = view === 'day';
+  const dayTimedAppointments = isDaySwimlaneView
+    ? getAppointmentsForDay(currentDate).filter((a) => !a.is_all_day && a.start_time)
+    : [];
+  const daySwimlaneArtists = isDaySwimlaneView
+    ? getArtistsWithTimedAppointments(dayTimedAppointments, artists)
+    : [];
 
   // ── Current time offset ─────────────────────────────────────────────────
   const now = new Date();
-  const nowMinutes = now.getHours() * 60 + now.getMinutes();
-  const nowTop = ((nowMinutes - START_HOUR * 60) / 60) * HOUR_HEIGHT;
-  const showNowLine = true;
+  const nowTop = getNowLineTop(now, calendarGrid);
+  const showNowLine = nowTop != null;
 
   // ── Date header label ───────────────────────────────────────────────────
   const headerLabel =
+    view === 'day' ? format(currentDate, 'EEEE, MMMM d, yyyy') :
     view === '3day' ? `${format(currentDate, 'MMM d')} – ${format(addDays(currentDate, 2), 'MMM d, yyyy')}` :
     view === '4day' ? `${format(currentDate, 'MMM d')} – ${format(addDays(currentDate, 3), 'MMM d, yyyy')}` :
     format(currentDate, 'MMMM yyyy');
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-3 sm:p-6">
-      <div className="max-w-7xl mx-auto space-y-4 sm:space-y-6">
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-3 sm:p-6 min-w-0 overflow-x-hidden">
+      <div className="max-w-7xl mx-auto space-y-4 sm:space-y-6 min-w-0 w-full">
 
         {/* ── Page header ── */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 sm:gap-4">
@@ -621,8 +847,8 @@ export default function Calendar() {
         </Card>
 
         {/* ── Calendar card ── */}
-        <Card className="bg-white border-none shadow-lg overflow-hidden">
-          <CardContent className="p-3 sm:p-6">
+        <Card className="bg-white border-none shadow-lg overflow-hidden min-w-0">
+          <CardContent className="p-3 sm:p-6 min-w-0">
 
             {/* Date header + legend */}
             <div className="mb-4 sm:mb-6 flex flex-col gap-3">
@@ -630,8 +856,8 @@ export default function Calendar() {
                 <h2 className="text-xl sm:text-2xl font-bold text-gray-900">{headerLabel}</h2>
               </div>
 
-              {/* Artist color legend (desktop, non-month) */}
-              {!isMobile && view !== 'month' && artists.filter(a => a.is_active).length > 0 && (
+              {/* Artist color legend (desktop, non-month, non-day-swimlane) */}
+              {!isMobile && view !== 'month' && !(isDaySwimlaneView && daySwimlaneArtists.length > 0) && artists.filter(a => a.is_active).length > 0 && (
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-600">
                   <span className="font-semibold text-gray-700">Artists:</span>
                   {sortByFullNameThenId(artists.filter(a => a.is_active)).map(a => (
@@ -731,165 +957,118 @@ export default function Calendar() {
                 DESKTOP TIME GRID (all non-month views)
             ═══════════════════════════════════════════════════════════ */}
             {!isMobile && view !== 'month' && (
-              <div
-                className="flex flex-col rounded-lg border border-gray-100"
-                style={{ maxHeight: 'calc(100vh - 340px)', minHeight: 400 }}
-              >
-                {/* Fixed day headers */}
-                <div className="flex shrink-0 bg-white border-b border-gray-200 shadow-sm z-20">
-                  <div className="w-14 sm:w-16 shrink-0 border-r border-gray-100" />
-                  {days.map((day, idx) => {
-                    const isToday = isSameDay(day, new Date());
-                    return (
-                      <div
-                        key={idx}
-                        className={`flex-1 min-w-0 text-center py-2 px-1 border-l border-gray-100 first:border-l-0 ${
-                          isToday ? 'bg-indigo-50' : ''
-                        }`}
-                      >
-                        <div className="text-[11px] font-medium text-gray-500 uppercase tracking-wide">
-                          {format(day, 'EEE')}
-                        </div>
-                        <div className={`text-lg font-bold leading-none mt-0.5 ${
-                          isToday ? 'text-indigo-600' : 'text-gray-900'
-                        }`}>
-                          {format(day, 'd')}
-                        </div>
-                        {isToday && (
-                          <div className="text-[10px] text-indigo-500 font-medium mt-0.5">Today</div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
+              <div className="flex flex-col rounded-lg border border-gray-100 min-w-0 overflow-hidden">
+                {isDaySwimlaneView ? (
+                  <>
+                    <AllDayAppointmentsRow
+                      days={[currentDate]}
+                      getAllDayAppointmentsForDay={getAllDayAppointmentsForDay}
+                      expandedDays={expandedAllDayDays}
+                      onToggleExpand={toggleAllDayExpand}
+                      onEditAppointment={handleEditAppointment}
+                      artists={artists}
+                      locations={locations}
+                      getCustomerName={getCustomerName}
+                      isOwnAppointment={isOwnAppointment}
+                      getAptColor={getAptColor}
+                      getAptTypeName={getAptTypeName}
+                    />
 
-                {/* Fixed all-day row — outside scroll so it stays visible */}
-                <AllDayAppointmentsRow
-                  days={days}
-                  getAllDayAppointmentsForDay={getAllDayAppointmentsForDay}
-                  expandedDays={expandedAllDayDays}
-                  onToggleExpand={toggleAllDayExpand}
-                  onEditAppointment={handleEditAppointment}
-                  artists={artists}
-                  locations={locations}
-                  getCustomerName={getCustomerName}
-                  isOwnAppointment={isOwnAppointment}
-                  getAptColor={getAptColor}
-                  getAptTypeName={getAptTypeName}
-                />
-
-                {/* Scrollable time grid only */}
-                <div ref={scrollRef} className="overflow-y-auto flex-1 min-h-0">
-                  <div className="flex">
-                    {/* Time gutter */}
-                    <div
-                      className="w-14 sm:w-16 shrink-0 relative select-none border-r border-gray-100"
-                      style={{ height: TOTAL_HEIGHT }}
-                    >
-                      {HOURS_LIST.map((hour, i) => (
-                        <div
-                          key={hour}
-                          className="absolute right-2 text-[11px] text-gray-400 font-medium leading-none"
-                          style={{ top: i * HOUR_HEIGHT - 7 }}
-                        >
-                          {formatHourLabel(hour)}
+                    {daySwimlaneArtists.length === 0 ? (
+                        <div className="flex items-center justify-center py-16 text-sm text-gray-500">
+                          No timed appointments scheduled for this day
                         </div>
-                      ))}
+                      ) : (
+                        <DaySwimlaneGrid
+                          artists={daySwimlaneArtists}
+                          artistColorMap={artistColorMap}
+                          grid={calendarGrid}
+                          timedApts={dayTimedAppointments}
+                          day={currentDate}
+                          gridSectionRef={gridSectionRef}
+                          showNowLine={showNowLine}
+                          nowTop={nowTop}
+                          onNewAppointment={handleNewAppointment}
+                          onEditAppointment={handleEditAppointment}
+                          getCustomerName={getCustomerName}
+                          getAptColor={getAptColor}
+                          getAptTypeName={getAptTypeName}
+                        />
+                      )}
+                  </>
+                ) : (
+                  <>
+                    {/* Multi-day views: day columns with overlap layout */}
+                    <div className="flex shrink-0 bg-white border-b border-gray-200 shadow-sm z-20">
+                      <div className="w-14 sm:w-16 shrink-0 border-r border-gray-100" />
+                      {days.map((day, idx) => {
+                        const isToday = isSameDay(day, new Date());
+                        return (
+                          <div
+                            key={idx}
+                            className={`flex-1 min-w-0 text-center py-2 px-1 border-l border-gray-100 first:border-l-0 ${
+                              isToday ? 'bg-indigo-50' : ''
+                            }`}
+                          >
+                            <div className="text-[11px] font-medium text-gray-500 uppercase tracking-wide">
+                              {format(day, 'EEE')}
+                            </div>
+                            <div className={`text-lg font-bold leading-none mt-0.5 ${
+                              isToday ? 'text-indigo-600' : 'text-gray-900'
+                            }`}>
+                              {format(day, 'd')}
+                            </div>
+                            {isToday && (
+                              <div className="text-[10px] text-indigo-500 font-medium mt-0.5">Today</div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
 
-                    {/* Day columns */}
-                    {days.map((day, dayIdx) => {
-                      const dayApts = getAppointmentsForDay(day);
-                      const timedApts = dayApts.filter((a) => !a.is_all_day && a.start_time);
-                      const laid = layoutDayAppointments(timedApts);
-                      const isToday = isSameDay(day, new Date());
+                    <AllDayAppointmentsRow
+                      days={days}
+                      getAllDayAppointmentsForDay={getAllDayAppointmentsForDay}
+                      expandedDays={expandedAllDayDays}
+                      onToggleExpand={toggleAllDayExpand}
+                      onEditAppointment={handleEditAppointment}
+                      artists={artists}
+                      locations={locations}
+                      getCustomerName={getCustomerName}
+                      isOwnAppointment={isOwnAppointment}
+                      getAptColor={getAptColor}
+                      getAptTypeName={getAptTypeName}
+                    />
 
-                      return (
-                        <div
-                          key={dayIdx}
-                          className="flex-1 min-w-0 relative border-l border-gray-100 first:border-l-0"
-                          style={{ height: TOTAL_HEIGHT }}
-                          onClick={(e) => {
-                            if (e.target === e.currentTarget) handleNewAppointment(day);
-                          }}
-                        >
-                          {/* Hour grid lines */}
-                          {HOURS_LIST.map((_, i) => (
-                            <React.Fragment key={i}>
-                              <div
-                                className="absolute w-full border-t border-gray-100 pointer-events-none"
-                                style={{ top: i * HOUR_HEIGHT }}
-                              />
-                              <div
-                                className="absolute w-full border-t border-gray-50 pointer-events-none"
-                                style={{ top: i * HOUR_HEIGHT + HOUR_HEIGHT / 2 }}
-                              />
-                            </React.Fragment>
-                          ))}
+                    <div ref={gridSectionRef} className="min-w-0">
+                      <div className="flex min-w-0">
+                        <TimeGridGutter grid={calendarGrid} />
+                        {days.map((day, dayIdx) => {
+                          const dayApts = getAppointmentsForDay(day);
+                          const timedApts = dayApts.filter((a) => !a.is_all_day && a.start_time);
+                          const isToday = isSameDay(day, new Date());
 
-                          {/* Current-time indicator */}
-                          {isToday && showNowLine && (
-                            <div
-                              className="absolute w-full z-20 pointer-events-none"
-                              style={{ top: nowTop }}
-                            >
-                              <div className="flex items-center">
-                                <div className="w-2 h-2 rounded-full bg-red-500 -ml-1 shrink-0" />
-                                <div className="flex-1 border-t-2 border-red-500" />
-                              </div>
-                            </div>
-                          )}
-
-                          {/* Appointment blocks */}
-                          {laid.map(({ apt, col, totalCols }) => {
-                            const top = topFromTime(apt.start_time);
-                            const durationMins = apt.end_time
-                              ? parseTimeToMinutes(apt.end_time) - parseTimeToMinutes(apt.start_time)
-                              : 60;
-                            const height = Math.max(HOUR_HEIGHT * 0.45, (durationMins / 60) * HOUR_HEIGHT - 2);
-                            const widthPct = 100 / totalCols;
-                            const leftPct = (col / totalCols) * 100;
-                            const color = getAptColor(apt);
-                            const title = formatAppointmentCardTitle(
-                              getCustomerName(apt),
-                              apt.appointment_name,
-                              getAptTypeName(apt)
-                            );
-                            const timeText = apt.is_all_day ? "All day" : formatTime12h(apt.start_time);
-
-                            return (
-                              <div
-                                key={apt.id}
-                                onClick={(e) => { e.stopPropagation(); handleEditAppointment(apt); }}
-                                className="absolute rounded-r-md overflow-hidden cursor-pointer transition-opacity hover:opacity-80 group"
-                                style={{
-                                  top: top + 1,
-                                  height,
-                                  left: `calc(${leftPct}% + 1px)`,
-                                  width: `calc(${widthPct}% - 2px)`,
-                                  backgroundColor: hexToRgba(color, 0.15),
-                                  borderLeft: `3px solid ${color}`,
-                                  zIndex: 10,
-                                }}
-                              >
-                                <div className="p-1 h-full overflow-hidden">
-                                  <div className="text-xs font-semibold text-gray-900 truncate leading-tight">
-                                    {title}
-                                  </div>
-                                  {height >= 28 && (
-                                    <div className="text-[10px] font-bold truncate mt-0.5 leading-tight" style={{ color }}>
-                                      {timeText}
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
+                          return (
+                            <OverlapDayColumn
+                              key={dayIdx}
+                              day={day}
+                              timedApts={timedApts}
+                              grid={calendarGrid}
+                              isToday={isToday}
+                              nowTop={showNowLine ? nowTop : null}
+                              onNewAppointment={handleNewAppointment}
+                              onEditAppointment={handleEditAppointment}
+                              getCustomerName={getCustomerName}
+                              getAptColor={getAptColor}
+                              getAptTypeName={getAptTypeName}
+                            />
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </>
+                )}
+                <div className="h-[50vh] shrink-0" aria-hidden="true" />
               </div>
             )}
 
@@ -1023,6 +1202,7 @@ export default function Calendar() {
         onOpenChange={setShowAppointmentDialog}
         appointment={selectedAppointment}
         defaultDate={selectedDate}
+        defaultArtistId={selectedDefaultArtistId}
         artists={artists}
         locations={locations}
         currentUser={user}
