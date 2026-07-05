@@ -1,6 +1,11 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { Link, useParams } from "react-router-dom";
 import { base44 } from "@/api/base44Client";
+import {
+  fetchPaymentsForReconciliationDay,
+  fetchReconciliationDetailSnapshot,
+  fetchSalesForReconciliationDay,
+} from "@/api/reports";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -59,6 +64,7 @@ export default function ReconciliationDetail() {
 
   const businessDate = reconciliation?.business_date;
   const locationId = reconciliation?.location_id;
+  const isClosed = reconciliation?.status === "closed";
 
   const { data: locations = [] } = useQuery({
     queryKey: ["locations", studioId],
@@ -75,21 +81,24 @@ export default function ReconciliationDetail() {
   const { data: reportingCategories = [] } = useQuery({
     queryKey: ["reportingCategories", studioId],
     queryFn: () => base44.entities.ReportingCategory.filter({ studio_id: studioId }),
-    enabled: !!studioId,
+    enabled: !!studioId && !isClosed,
+  });
+
+  const { data: snapshot, isLoading: loadingSnapshot } = useQuery({
+    queryKey: ["reconDetailSnapshot", reconciliationId],
+    queryFn: () => fetchReconciliationDetailSnapshot(reconciliationId),
+    enabled: !!reconciliationId && !!reconciliation && isClosed,
   });
 
   const { data: dayPayments = [], isLoading: loadingPayments } = useQuery({
     queryKey: ["reconDetailPayments", studioId, businessDate, locationId],
-    queryFn: async () => {
-      const all = await base44.entities.Payment.filter({ studio_id: studioId });
-      return all.filter(
-        (p) =>
-          p.business_date === businessDate &&
-          p.location_id === locationId &&
-          p.status === "paid"
-      );
-    },
-    enabled: !!studioId && !!businessDate && !!locationId,
+    queryFn: () =>
+      fetchPaymentsForReconciliationDay({
+        studioId,
+        businessDate,
+        locationId,
+      }),
+    enabled: !!studioId && !!businessDate && !!locationId && !!reconciliation && !isClosed,
   });
 
   const saleIds = useMemo(
@@ -98,25 +107,20 @@ export default function ReconciliationDetail() {
   );
   const saleIdsKey = useMemo(() => [...saleIds].sort().join(","), [saleIds]);
 
-  const { data: sales = [], isLoading: loadingSales } = useQuery({
+  const { data: openDaySalesData, isLoading: loadingOpenSales } = useQuery({
     queryKey: ["reconDetailSales", studioId, saleIdsKey],
-    queryFn: async () => {
-      const all = await base44.entities.Sale.filter({ studio_id: studioId });
-      const idSet = new Set(saleIds);
-      return all.filter((s) => idSet.has(s.id));
-    },
-    enabled: !!studioId && saleIds.length > 0,
+    queryFn: () => fetchSalesForReconciliationDay({ studioId, saleIds }),
+    enabled: !!studioId && !!reconciliation && !isClosed && saleIds.length > 0,
   });
 
-  const { data: lineItems = [], isLoading: loadingLines } = useQuery({
-    queryKey: ["reconDetailLineItems", studioId, saleIdsKey],
-    queryFn: async () => {
-      const all = await base44.entities.SaleLineItem.filter({ studio_id: studioId });
-      const idSet = new Set(saleIds);
-      return all.filter((li) => idSet.has(li.sale_id));
-    },
-    enabled: !!studioId && saleIds.length > 0,
-  });
+  const sales = useMemo(
+    () => openDaySalesData?.sales ?? [],
+    [openDaySalesData]
+  );
+  const lineItems = useMemo(
+    () => openDaySalesData?.lineItems ?? [],
+    [openDaySalesData]
+  );
 
   const getUserRole = () =>
     user ? normalizeUserRole(user.user_role || (user.role === "admin" ? "Admin" : "Front_Desk")) : null;
@@ -138,6 +142,18 @@ export default function ReconciliationDetail() {
 
   // --- Cash: totals by tender, split by channel (ties to reconciliation) ---
   const tenderBreakdown = useMemo(() => {
+    if (isClosed && snapshot) {
+      const inPerson = (snapshot.tenders ?? [])
+        .map((t) => ({
+          tender_type: t.tender_type,
+          amount: Number(t.system_amount) || 0,
+        }))
+        .sort((a, b) => b.amount - a.amount);
+      const onlineTotal = Number(reconciliation?.online_total) || 0;
+      const online =
+        onlineTotal > 0 ? [{ tender_type: "Stripe", amount: onlineTotal }] : [];
+      return { inPerson, online };
+    }
     const inPerson = {};
     const online = {};
     for (const p of dayPayments) {
@@ -150,18 +166,29 @@ export default function ReconciliationDetail() {
         .map(([tender_type, amount]) => ({ tender_type, amount }))
         .sort((a, b) => b.amount - a.amount);
     return { inPerson: toRows(inPerson), online: toRows(online) };
-  }, [dayPayments]);
+  }, [isClosed, snapshot, dayPayments, reconciliation?.online_total]);
 
-  const futureDepositTotal = useMemo(
-    () =>
-      dayPayments
-        .filter((p) => p.purpose === "deposit" && !p.sale_id)
-        .reduce((s, p) => s + (Number(p.amount) || 0), 0),
-    [dayPayments]
-  );
+  const futureDepositTotal = useMemo(() => {
+    if (isClosed && snapshot?.summary) {
+      return Number(snapshot.summary.future_deposits_total) || 0;
+    }
+    return dayPayments
+      .filter((p) => p.purpose === "deposit" && !p.sale_id)
+      .reduce((s, p) => s + (Number(p.amount) || 0), 0);
+  }, [isClosed, snapshot, dayPayments]);
 
   // --- Revenue: sales whose cash landed on this business date ---
   const revenueTotals = useMemo(() => {
+    if (isClosed && snapshot?.summary) {
+      const s = snapshot.summary;
+      return {
+        subtotal: Number(s.subtotal) || 0,
+        tax: Number(s.tax_total) || 0,
+        discount: Number(s.discount_total) || 0,
+        tip: Number(s.tip_total) || 0,
+        total: Number(s.total) || 0,
+      };
+    }
     return sales.reduce(
       (acc, s) => {
         acc.subtotal += Number(s.subtotal) || 0;
@@ -173,7 +200,7 @@ export default function ReconciliationDetail() {
       },
       { subtotal: 0, tax: 0, discount: 0, tip: 0, total: 0 }
     );
-  }, [sales]);
+  }, [isClosed, snapshot, sales]);
 
   const categoryFor = (li) => {
     if (li.reporting_category_id) {
@@ -190,6 +217,15 @@ export default function ReconciliationDetail() {
   };
 
   const totalsByCategory = useMemo(() => {
+    if (isClosed && snapshot?.categories) {
+      return snapshot.categories
+        .map((c) => ({
+          label: c.category_name,
+          gross: Number(c.gross_total) || 0,
+          count: Number(c.item_count) || 0,
+        }))
+        .sort((a, b) => b.gross - a.gross);
+    }
     const map = {};
     for (const li of lineItems) {
       const { key, label } = categoryFor(li);
@@ -199,9 +235,24 @@ export default function ReconciliationDetail() {
     }
     return Object.values(map).sort((a, b) => b.gross - a.gross);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lineItems, reportingOnly]);
+  }, [isClosed, snapshot, lineItems, reportingOnly]);
 
   const perSaleRows = useMemo(() => {
+    if (isClosed && snapshot?.sales) {
+      return snapshot.sales
+        .map((s) => ({
+          id: s.id,
+          sale_date: s.sale_date,
+          artist_id: s.artist_id,
+          service: Number(s.service) || 0,
+          tax: Number(s.tax) || 0,
+          product: Number(s.product) || 0,
+          tips: Number(s.tips) || 0,
+          artistOwed: Number(s.artist_owed) || 0,
+          shopRevenue: Number(s.shop_revenue) || 0,
+        }))
+        .sort((a, b) => String(a.sale_date).localeCompare(String(b.sale_date)));
+    }
     return sales
       .map((s) => {
         const lis = lineItemsBySale[s.id] || [];
@@ -211,6 +262,8 @@ export default function ReconciliationDetail() {
         const product = lis
           .filter((li) => li.line_type !== "service")
           .reduce((sum, li) => sum + (Number(li.net_amount) || 0), 0);
+        const lineTax = lis.reduce((sum, li) => sum + (Number(li.tax_amount) || 0), 0);
+        const tax = Math.max(Number(s.tax_total) || 0, lineTax);
         const settlementShare = Number(s.artist_share) || 0;
         const tips = Number(s.tip_total) || 0;
         const artistOwed = settlementShare + tips;
@@ -220,6 +273,7 @@ export default function ReconciliationDetail() {
           sale_date: s.sale_date,
           artist_id: s.artist_id,
           service,
+          tax,
           product,
           tips,
           artistOwed,
@@ -227,16 +281,31 @@ export default function ReconciliationDetail() {
         };
       })
       .sort((a, b) => String(a.sale_date).localeCompare(String(b.sale_date)));
-  }, [sales, lineItemsBySale]);
+  }, [isClosed, snapshot, sales, lineItemsBySale]);
 
   const byArtist = useMemo(() => {
+    if (isClosed && snapshot?.artists) {
+      return snapshot.artists
+        .map((a) => ({
+          artist_id: a.artist_id,
+          service: Number(a.service_total) || 0,
+          tax: Number(a.tax_total) || 0,
+          product: Number(a.product_total) || 0,
+          tips: Number(a.tip_total) || 0,
+          artistOwed: Number(a.artist_owed) || 0,
+          shopRevenue: Number(a.shop_revenue) || 0,
+          count: Number(a.sale_count) || 0,
+        }))
+        .sort((a, b) => b.shopRevenue - a.shopRevenue);
+    }
     const map = {};
     for (const row of perSaleRows) {
       const aid = row.artist_id || "unknown";
       if (!map[aid]) {
-        map[aid] = { artist_id: aid, service: 0, product: 0, tips: 0, artistOwed: 0, shopRevenue: 0, count: 0 };
+        map[aid] = { artist_id: aid, service: 0, tax: 0, product: 0, tips: 0, artistOwed: 0, shopRevenue: 0, count: 0 };
       }
       map[aid].service += row.service;
+      map[aid].tax += row.tax;
       map[aid].product += row.product;
       map[aid].tips += row.tips;
       map[aid].artistOwed += row.artistOwed;
@@ -244,9 +313,11 @@ export default function ReconciliationDetail() {
       map[aid].count += 1;
     }
     return Object.values(map).sort((a, b) => b.shopRevenue - a.shopRevenue);
-  }, [perSaleRows]);
+  }, [isClosed, snapshot, perSaleRows]);
 
-  const loadingBreakdowns = loadingPayments || loadingSales || loadingLines;
+  const loadingBreakdowns = isClosed
+    ? loadingSnapshot
+    : loadingPayments || loadingOpenSales;
 
   if (!isAdmin) {
     return (
@@ -281,6 +352,11 @@ export default function ReconciliationDetail() {
               Cash and revenue breakdown for this business day. Payment-method totals tie directly to
               the day&apos;s reconciliation; category, artist, and per-sale views cover the sales whose
               money landed on this date.
+              {isClosed && (
+                <span className="block mt-1 text-indigo-600">
+                  Closed day — breakdown is frozen from the reconciliation snapshot and matches Reports.
+                </span>
+              )}
             </p>
           </div>
         </div>
@@ -467,6 +543,7 @@ export default function ReconciliationDetail() {
                           <TableHead>Artist</TableHead>
                           <TableHead className="text-right">Sales</TableHead>
                           <TableHead className="text-right">Service</TableHead>
+                          <TableHead className="text-right">Tax</TableHead>
                           <TableHead className="text-right">Products</TableHead>
                           <TableHead className="text-right">Tips</TableHead>
                           <TableHead className="text-right">Artist owed</TableHead>
@@ -481,6 +558,7 @@ export default function ReconciliationDetail() {
                             </TableCell>
                             <TableCell className="text-right">{row.count}</TableCell>
                             <TableCell className="text-right tabular-nums">{money(row.service)}</TableCell>
+                            <TableCell className="text-right tabular-nums">{money(row.tax)}</TableCell>
                             <TableCell className="text-right tabular-nums">{money(row.product)}</TableCell>
                             <TableCell className="text-right tabular-nums text-green-800">{money(row.tips)}</TableCell>
                             <TableCell className="text-right tabular-nums text-green-800">{money(row.artistOwed)}</TableCell>
