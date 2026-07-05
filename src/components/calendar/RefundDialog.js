@@ -1,5 +1,6 @@
 import React, { useMemo, useState, useEffect } from "react";
 import { base44 } from "@/api/base44Client";
+import { supabase } from "@/utils/supabase";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Dialog,
@@ -49,7 +50,16 @@ export default function RefundDialog({ open, onOpenChange, appointment, studio }
   const maxRefund = Math.max(0, round2(saleTotal - refundedSoFar));
 
   const refundMutation = useMutation({
-    mutationFn: async (payload) => base44.entities.AppointmentRefund.create(payload),
+    mutationFn: async ({ amount, refundMethod, notes }) => {
+      const { data, error } = await supabase.rpc("record_refund_payment", {
+        p_appointment_id: appointment.id,
+        p_amount: amount,
+        p_refund_method: refundMethod,
+        p_notes: notes,
+      });
+      if (error) throw new Error(error.message || "Could not record refund.");
+      return data;
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["appointmentRefunds"] });
       if (appointment?.id) {
@@ -80,10 +90,8 @@ export default function RefundDialog({ open, onOpenChange, appointment, studio }
     if (amt > maxRefund + 1e-6) return;
 
     refundMutation.mutate({
-      studio_id: studio.id,
-      appointment_id: appointment.id,
       amount: round2(amt),
-      refund_method: refundMethod,
+      refundMethod,
       notes: notes.trim() || null,
     });
   };

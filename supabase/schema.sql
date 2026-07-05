@@ -219,17 +219,53 @@ create table if not exists appointments (
   )
 );
 
+create table if not exists sales (
+  id uuid primary key default gen_random_uuid(),
+  studio_id uuid not null references studios (id),
+  location_id uuid references locations (id),
+  artist_id uuid references artists (id),
+  customer_id uuid references customers (id),
+  appointment_id uuid references appointments (id) on delete set null,
+  sale_date date not null default current_date,
+  status text not null default 'completed' check (status in ('open', 'completed', 'voided')),
+  subtotal numeric not null default 0,
+  tax_total numeric not null default 0,
+  discount_total numeric not null default 0,
+  tip_total numeric not null default 0,
+  total numeric not null default 0,
+  artist_share numeric not null default 0,
+  notes text,
+  created_by uuid references users (id),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists sales_studio_date_idx on sales (studio_id, sale_date);
+create index if not exists sales_location_date_idx on sales (location_id, sale_date);
+create index if not exists sales_appointment_idx on sales (appointment_id);
+create index if not exists sales_artist_idx on sales (artist_id);
+create unique index if not exists sales_appointment_unique_idx
+  on sales (appointment_id) where appointment_id is not null;
+
 create table if not exists payments (
   id uuid primary key default gen_random_uuid(),
   studio_id uuid references studios(id),
   appointment_id uuid references appointments(id) on delete set null,
   customer_id uuid references customers(id),
+  location_id uuid references locations(id),
+  sale_id uuid references sales(id) on delete set null,
   stripe_checkout_session_id text,
   stripe_payment_intent_id text,
   amount numeric not null,
   currency text default 'USD',
   status text default 'pending',
   payment_type text default 'deposit',
+  -- Cash ledger fields (single source of truth for POS reconciliation):
+  business_date date,          -- studio-local date the money moved
+  tender_type text,            -- Cash|E-Transfer|Amex|Mastercard|Visa|Debit|Other|Stripe
+  channel text,                -- in_person | online
+  purpose text,                -- deposit|balance|retail|tip|refund|gift_card_sale|gift_card_redeem
+  occurred_at timestamptz default now(),
   checkout_url text,
   paid_at timestamptz,
   expires_at timestamptz,
@@ -241,6 +277,9 @@ create table if not exists payments (
 create index if not exists payments_appointment_idx on payments(appointment_id);
 create index if not exists payments_studio_idx on payments(studio_id);
 create index if not exists payments_stripe_session_idx on payments(stripe_checkout_session_id);
+create index if not exists payments_close_idx on payments(studio_id, location_id, business_date, channel, status);
+create index if not exists payments_sale_idx on payments(sale_id);
+create index if not exists payments_business_date_idx on payments(business_date);
 
 create table if not exists email_events (
   id uuid primary key default gen_random_uuid(),
@@ -430,8 +469,10 @@ create table if not exists artist_ledger_entries (
   artist_id uuid not null references artists (id),
   settlement_id uuid references daily_settlements (id) on delete cascade,
   settlement_line_id uuid references daily_settlement_lines (id) on delete cascade,
+  sale_id uuid references sales (id) on delete set null,
   appointment_id uuid references appointments (id) on delete set null,
   payout_id uuid references artist_payouts (id) on delete cascade,
+  reconciliation_id uuid, -- FK added after daily_reconciliations is defined
   entry_type text not null check (entry_type in ('settlement_share', 'tip', 'payout', 'adjustment')),
   amount numeric not null,
   description text,
@@ -444,6 +485,7 @@ create index if not exists artist_ledger_entries_studio_idx on artist_ledger_ent
 create index if not exists artist_ledger_entries_artist_date_idx on artist_ledger_entries(artist_id, occurred_on);
 create index if not exists artist_ledger_entries_settlement_idx on artist_ledger_entries(settlement_id);
 create index if not exists artist_ledger_entries_payout_idx on artist_ledger_entries(payout_id);
+create index if not exists artist_ledger_entries_reconciliation_idx on artist_ledger_entries(reconciliation_id);
 
 create table if not exists artist_weekly_schedules (
   id uuid primary key default gen_random_uuid(),
@@ -650,3 +692,99 @@ end;
 $$;
 
 grant execute on function public.apply_product_checkout_stock_system(uuid, jsonb) to service_role;
+
+-- ---------------------------------------------------------------------------
+-- Unified accounting: sale line items + daily reconciliation (POS close)
+-- ---------------------------------------------------------------------------
+create table if not exists sale_line_items (
+  id uuid primary key default gen_random_uuid(),
+  studio_id uuid not null references studios (id),
+  sale_id uuid not null references sales (id) on delete cascade,
+  line_type text not null default 'product'
+    check (line_type in ('service', 'product', 'adjustment', 'gift_card')),
+  reporting_category_id uuid references reporting_categories (id),
+  reporting_category_name text,
+  product_id uuid references products (id),
+  description text not null,
+  quantity numeric not null default 1,
+  unit_price numeric not null default 0,
+  discount_amount numeric not null default 0,
+  tax_rate numeric not null default 0,
+  tax_inclusive boolean not null default false,
+  net_amount numeric not null default 0,   -- signed pre-tax net (canonical)
+  tax_amount numeric not null default 0,   -- exact per-line tax
+  line_total numeric not null default 0,   -- net_amount + tax_amount
+  revenue_sign smallint not null default 1,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists sale_line_items_sale_idx on sale_line_items (sale_id);
+create index if not exists sale_line_items_studio_idx on sale_line_items (studio_id);
+create index if not exists sale_line_items_category_idx on sale_line_items (reporting_category_id);
+create index if not exists sale_line_items_product_idx on sale_line_items (product_id);
+
+create table if not exists daily_reconciliations (
+  id uuid primary key default gen_random_uuid(),
+  studio_id uuid not null references studios (id),
+  location_id uuid not null references locations (id),
+  business_date date not null,
+  status text not null default 'open' check (status in ('open', 'closed')),
+  in_person_total numeric not null default 0,
+  online_total numeric not null default 0,
+  refunds_in_person numeric not null default 0,
+  refunds_online numeric not null default 0,
+  pos_reported_total numeric,
+  variance numeric,
+  notes text,
+  closed_at timestamptz,
+  closed_by uuid references users (id),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create unique index if not exists daily_reconciliations_unique_idx
+  on daily_reconciliations (studio_id, location_id, business_date);
+create index if not exists daily_reconciliations_studio_date_idx
+  on daily_reconciliations (studio_id, business_date);
+
+-- Deferred FK: artist_ledger_entries is defined earlier, before this table exists.
+do $$ begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'artist_ledger_entries_reconciliation_id_fkey'
+  ) then
+    alter table artist_ledger_entries
+      add constraint artist_ledger_entries_reconciliation_id_fkey
+      foreign key (reconciliation_id) references daily_reconciliations (id) on delete cascade;
+  end if;
+end $$;
+
+create table if not exists reconciliation_tenders (
+  id uuid primary key default gen_random_uuid(),
+  studio_id uuid not null references studios (id),
+  reconciliation_id uuid not null references daily_reconciliations (id) on delete cascade,
+  tender_type text not null,
+  system_amount numeric not null default 0,
+  pos_amount numeric,
+  variance numeric,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists reconciliation_tenders_recon_idx on reconciliation_tenders (reconciliation_id);
+create unique index if not exists reconciliation_tenders_unique_idx
+  on reconciliation_tenders (reconciliation_id, tender_type);
+
+create trigger set_sales_updated_at
+before update on sales
+for each row execute procedure set_updated_at();
+
+create trigger set_sale_line_items_updated_at
+before update on sale_line_items
+for each row execute procedure set_updated_at();
+
+create trigger set_daily_reconciliations_updated_at
+before update on daily_reconciliations
+for each row execute procedure set_updated_at();
+
+-- finalize_sale + compute_daily_reconciliation live in
+-- migrations/20260705140000_accounting_functions.sql (canonical definitions).

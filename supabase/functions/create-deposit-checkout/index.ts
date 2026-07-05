@@ -4,6 +4,8 @@ import Stripe from "npm:stripe@17";
 import { formatTime12h } from "../_shared/timeDisplay.ts";
 import { requireStaffStudio } from "../_shared/staffStudioAuth.ts";
 import { STAFF_DEPOSIT_CHECKOUT_EXPIRY_SECONDS } from "../_shared/depositCheckoutExpiry.ts";
+import { mergeStripeDepositPaidMetadata } from "../_shared/stripeDepositPaymentMetadata.ts";
+import { buildPaymentLedgerFields } from "../_shared/paymentLedger.ts";
 
 const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY")!;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -114,6 +116,15 @@ serve(async (req) => {
       );
 
       if (session.payment_status === "paid") {
+        const paidAt = new Date().toISOString();
+        const ledger = buildPaymentLedgerFields({
+          locationId: appointment.location_id,
+          timezone: studio?.timezone as string | undefined,
+          paidAt,
+          tenderType: "Stripe",
+          channel: "online",
+          purpose: "deposit",
+        });
         await supabase
           .from("payments")
           .update({
@@ -122,7 +133,14 @@ serve(async (req) => {
               typeof session.payment_intent === "string"
                 ? session.payment_intent
                 : null,
-            paid_at: new Date().toISOString(),
+            paid_at: paidAt,
+            location_id: ledger.location_id,
+            business_date: ledger.business_date,
+            tender_type: ledger.tender_type,
+            channel: ledger.channel,
+            purpose: ledger.purpose,
+            occurred_at: ledger.occurred_at,
+            metadata: mergeStripeDepositPaidMetadata(activePayment.metadata),
           })
           .eq("id", activePayment.id);
 
@@ -234,11 +252,15 @@ serve(async (req) => {
       studio_id: studio.id,
       appointment_id: appointmentId,
       customer_id: appointment.customer_id || null,
+      location_id: appointment.location_id || null,
       stripe_checkout_session_id: session.id,
       amount: depositAmount,
       currency: studio.currency || "USD",
       status: "pending",
       payment_type: "deposit",
+      purpose: "deposit",
+      channel: "online",
+      tender_type: "Stripe",
       checkout_url: session.url,
       expires_at: new Date(expiresAt * 1000).toISOString(),
       metadata: { appointment_id: appointmentId },

@@ -25,8 +25,10 @@ import Customers from "./pages/Customers";
 import Products from "./pages/Products";
 import ReportingCategories from "./pages/ReportingCategories";
 import Reports from "./pages/Reports";
+import Sales from "./pages/Sales";
 import Settlements from "./pages/Settlements";
 import SettlementDetail from "./pages/SettlementDetail";
+import ReconciliationDetail from "./pages/ReconciliationDetail";
 import ArtistPayouts from "./pages/ArtistPayouts";
 import MyAvailability from "./pages/MyAvailability";
 import OnboardingChoice from "./pages/OnboardingChoice";
@@ -175,8 +177,10 @@ export default function App() {
             <Route path="/reporting-categories" element={<ReportingCategories />} />
             <Route path="/customers" element={<Customers />} />
             <Route path="/reports" element={<Reports />} />
+            <Route path="/sales" element={<Sales />} />
             <Route path="/settlements" element={<Settlements />} />
             <Route path="/settlements/:settlementId" element={<SettlementDetail />} />
+            <Route path="/reconciliation/:reconciliationId" element={<ReconciliationDetail />} />
             <Route path="/artist-payouts" element={<ArtistPayouts />} />
             <Route path="/my-availability" element={<MyAvailability />} />
             <Route path="/onboarding-choice" element={<OnboardingChoice />} />

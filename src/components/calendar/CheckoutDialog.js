@@ -16,6 +16,12 @@ import {
 } from "@/utils/reportingCategories";
 import { CHECKOUT_PAYMENT_METHOD_OPTIONS } from "@/utils/checkoutPaymentMethods";
 import { formatTimeRange12h } from "@/utils/index";
+import { buildFinalizeLines, saleServiceProductNet, computeSaleTotals, normalizeCartLines, lineTotal } from "@/utils/saleLines";
+import {
+  resolveRevenueSplitRule,
+  isAppointmentTypeSplitEnabled,
+  computeAppointmentShares,
+} from "@/utils/revenueSplits";
 
 const LEGACY_PAYMENT_METHOD_MAP = {
   Card: "Other",
@@ -100,14 +106,14 @@ function parseMoneyInput(value) {
   return Math.max(0, parsed);
 }
 
-/** Prefer saved charge, then appointment estimate, then type service_cost for piercing-style pricing. */
+/** Prefer appointment type service_cost (sticker price), not charge_amount (pre-tax net after checkout). */
 function initialServiceLineUnitPrice(appointment, aptType) {
-  const charge = parseFloat(appointment?.charge_amount);
-  if (!Number.isNaN(charge) && charge > 0) return charge;
-  const estimate = parseFloat(appointment?.total_estimate);
-  if (!Number.isNaN(estimate) && estimate > 0) return estimate;
   const svc = aptType?.service_cost != null ? Number(aptType.service_cost) : NaN;
   if (!Number.isNaN(svc) && svc > 0) return svc;
+  const estimate = parseFloat(appointment?.total_estimate);
+  if (!Number.isNaN(estimate) && estimate > 0) return estimate;
+  const charge = parseFloat(appointment?.charge_amount);
+  if (!Number.isNaN(charge) && charge > 0) return charge;
   return 0;
 }
 
@@ -132,6 +138,12 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
   const { data: reportingCategories = [] } = useQuery({
     queryKey: ['reportingCategories', studio?.id],
     queryFn: () => base44.entities.ReportingCategory.filter({ studio_id: studio.id }),
+    enabled: open && !!studio?.id
+  });
+
+  const { data: splitRules = [] } = useQuery({
+    queryKey: ['artistSplitRules', studio?.id],
+    queryFn: () => base44.entities.ArtistSplitRule.filter({ studio_id: studio.id }),
     enabled: open && !!studio?.id
   });
 
@@ -320,24 +332,18 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
     return null;
   };
 
-  const lineSubtotal = lineItems.reduce((sum, li) => sum + linePreTaxNet(li), 0);
-
-  const grossBeforeLineDiscounts = lineItems.reduce(
-    (sum, li) => sum + lineSign(li) * li.quantity * li.unit_price,
-    0
+  const cartTotals = useMemo(
+    () => computeSaleTotals(normalizeCartLines(lineItems), tipAmount),
+    [lineItems, tipAmount]
   );
-
-  const computedTax = lineItems.reduce((sum, li) => sum + lineTaxAmount(li), 0);
+  const allTaxInclusive = lineItems.length > 0 && lineItems.every((li) => li.tax_inclusive);
 
   const depositOnFile = appointment?.deposit_amount || 0;
   /** Only reduce balance when deposit was actually collected (walk-ins often have no paid deposit). */
   const depositCredited =
     appointment?.deposit_status === "paid" ? depositOnFile : 0;
-  const lineDiscountsTotal = lineItems.reduce((sum, li) => sum + (li.discount_amount || 0), 0);
-  const grandTotal = lineSubtotal + computedTax;
-  const tipTotal = parseMoneyInput(tipAmount);
-  const amountDueBeforeTip = Math.max(0, grandTotal - depositCredited);
-  const amountDue = amountDueBeforeTip + tipTotal;
+  const amountDueBeforeTip = Math.max(0, cartTotals.grandTotal - depositCredited);
+  const amountDue = amountDueBeforeTip + cartTotals.tipTotal;
 
   const checkoutMutation = useMutation({
     mutationFn: async () => {
@@ -348,53 +354,54 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
       if (hasOnlyNegativeLines && lineItems.length > 0) {
         throw new Error('Cannot check out with only negative-revenue items.');
       }
-      if (lineSubtotal + computedTax + tipTotal <= 0 && !lineItems.some(li => isNegativeRevenueLine(li))) {
+      if (cartTotals.grandTotal + cartTotals.tipTotal <= 0 && !lineItems.some(li => isNegativeRevenueLine(li))) {
         throw new Error('Total must be greater than zero.');
       }
 
-      const taxTotal = lineItems.reduce((sum, li) => sum + lineTaxAmount(li), 0);
+      // Map dialog line shape (_revenue_sign) to the canonical saleLines shape.
+      const mappedLines = normalizeCartLines(lineItems);
 
-      const chargePromises = lineItems.map(li => {
-        const rawTotal = (li.quantity * li.unit_price) - (li.discount_amount || 0);
-        const lineTotal = isNegativeRevenueLine(li) ? -Math.abs(rawTotal) : rawTotal;
-        return base44.entities.AppointmentCharge.create({
-          studio_id: studio.id,
-          appointment_id: appointment.id,
-          line_type: li.line_type,
-          reporting_category_id: li.reporting_category_id || null,
-          reporting_category_name: resolveReportingCategoryName(li.reporting_category_id),
-          product_id: li.product_id || null,
-          description: li.description,
-          quantity: li.quantity,
-          unit_price: li.unit_price,
-          discount_amount: li.discount_amount || 0,
-          line_total: lineTotal
+      let artistShare = 0;
+      if (appointment.artist_id) {
+        const artist = artists?.find(a => a.id === appointment.artist_id);
+        const splitResolution = resolveRevenueSplitRule(splitRules, {
+          appointmentTypeId: appointment.appointment_type_id,
+          artistId: appointment.artist_id,
+          appointmentTypeSplitEnabled: isAppointmentTypeSplitEnabled(artist),
         });
-      });
-      await Promise.all(chargePromises);
-
-      const stockLines = aggregateProductCheckoutQuantities(
-        lineItems.filter(li => !isNegativeRevenueLine(li))
-      );
-      if (stockLines.length > 0) {
-        const { error: rpcErr } = await supabase.rpc('apply_product_checkout_stock', {
-          p_lines: stockLines,
-        });
-        if (rpcErr) throw new Error(rpcErr.message || 'Could not update inventory.');
+        const { service, product } = saleServiceProductNet(mappedLines);
+        artistShare = computeAppointmentShares(
+          splitResolution,
+          { service, product },
+          cartTotals.taxTotal
+        ).artistShare;
       }
 
-      await base44.entities.Appointment.update(appointment.id, {
-        status: 'completed',
-        charge_amount: lineSubtotal,
-        tax_amount: taxTotal,
-        tip_amount: tipTotal,
-        discount_amount: lineItems.reduce((s, li) => s + (li.discount_amount || 0), 0),
-        payment_method: paymentMethod || null
+      // Balance collected now at checkout (deposit already recorded separately).
+      const paymentPayload = amountDue > 0
+        ? { tender_type: paymentMethod || 'Other', channel: 'in_person', amount: amountDue }
+        : null;
+
+      const { data, error } = await supabase.rpc('finalize_sale', {
+        p_sale: {
+          location_id: appointment.location_id || null,
+          artist_id: appointment.artist_id || null,
+          customer_id: appointment.customer_id || null,
+          appointment_id: appointment.id,
+          sale_date: appointment.appointment_date || null,
+          tip_total: cartTotals.tipTotal,
+          artist_share: artistShare,
+        },
+        p_lines: buildFinalizeLines(mappedLines, resolveReportingCategoryName),
+        p_payment: paymentPayload,
       });
+      if (error) throw new Error(error.message || 'Checkout failed.');
+      return data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['appointments'] });
       queryClient.invalidateQueries({ queryKey: ['appointmentCharges'] });
+      queryClient.invalidateQueries({ queryKey: ['sales'] });
       queryClient.invalidateQueries({ queryKey: ['products'] });
       if (studio?.id) {
         queryClient.invalidateQueries({ queryKey: ['products', studio.id] });
@@ -599,7 +606,8 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
                 </thead>
                 <tbody className="divide-y divide-gray-100">
                   {lineItems.map(li => {
-                    const lineAfterDisc = signedLineAmountAfterDiscount(li);
+                    const normalized = normalizeCartLines([li])[0];
+                    const lineAfterDisc = lineTotal(normalized);
                     const rate = resolveLineTaxRate(li);
                     return (
                       <tr key={li._key}>
@@ -674,7 +682,7 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
             <div className="space-y-1">
               <Label className="text-xs">Tax</Label>
               <div className="text-sm font-medium tabular-nums border rounded-md px-2 py-1.5 bg-gray-50">
-                ${computedTax.toFixed(2)}
+                ${cartTotals.taxTotal.toFixed(2)}
               </div>
               <p className="text-[10px] text-gray-500 leading-snug">
                 Per line after that line&apos;s discount. Service lines use {DEFAULT_SERVICE_TAX_RATE * 100}% unless exempt;
@@ -714,22 +722,39 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
           </div>
 
           <div className="bg-gray-50 rounded-lg p-3 space-y-1 text-sm">
-            <div className="flex justify-between"><span className="text-gray-500">Subtotal (before discounts):</span><span>${grossBeforeLineDiscounts.toFixed(2)}</span></div>
-            {lineDiscountsTotal > 0 && (
+            <div className="flex justify-between"><span className="text-gray-500">Subtotal (before discounts):</span><span>${cartTotals.grossBeforeDiscounts.toFixed(2)}</span></div>
+            {cartTotals.discountTotal > 0 && (
               <div className="flex justify-between text-red-600">
                 <span>Line discounts:</span>
-                <span>-${lineDiscountsTotal.toFixed(2)}</span>
+                <span>-${cartTotals.discountTotal.toFixed(2)}</span>
               </div>
             )}
-            <div className="flex justify-between font-medium text-gray-800"><span>Net (pre-tax):</span><span>${lineSubtotal.toFixed(2)}</span></div>
-            <div className="flex justify-between"><span className="text-gray-500">Tax:</span><span>${computedTax.toFixed(2)}</span></div>
-            {tipTotal > 0 && (
+            <div className="flex justify-between font-medium text-gray-800">
+              <span>{allTaxInclusive ? "Merchandise (tax included in prices)" : "Net (pre-tax)"}:</span>
+              <span>${allTaxInclusive ? cartTotals.grandTotal.toFixed(2) : cartTotals.subtotal.toFixed(2)}</span>
+            </div>
+            {cartTotals.taxTotal > 0 && (
+              <div className="flex justify-between">
+                <span className="text-gray-500">{allTaxInclusive ? "Tax (included above)" : "Tax"}:</span>
+                <span>${cartTotals.taxTotal.toFixed(2)}</span>
+              </div>
+            )}
+            {cartTotals.tipTotal > 0 && (
               <div className="flex justify-between text-green-700">
                 <span>Tip to artist:</span>
-                <span>${tipTotal.toFixed(2)}</span>
+                <span>${cartTotals.tipTotal.toFixed(2)}</span>
               </div>
             )}
-            <div className="flex justify-between font-semibold border-t border-gray-200 pt-1 mt-1"><span>Total before tip:</span><span>${grandTotal.toFixed(2)}</span></div>
+            <div className="flex justify-between font-semibold border-t border-gray-200 pt-1 mt-1">
+              <span>Merchandise total:</span>
+              <span>${cartTotals.grandTotal.toFixed(2)}</span>
+            </div>
+            {cartTotals.tipTotal > 0 && (
+              <div className="flex justify-between font-semibold text-gray-900">
+                <span>Total incl. tip:</span>
+                <span>${cartTotals.totalWithTip.toFixed(2)}</span>
+              </div>
+            )}
             {depositCredited > 0 && (
               <div className="flex justify-between text-green-700"><span>Paid deposit applied:</span><span>-${depositCredited.toFixed(2)}</span></div>
             )}

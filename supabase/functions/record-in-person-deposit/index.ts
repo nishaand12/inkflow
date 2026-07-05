@@ -2,6 +2,8 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import Stripe from "npm:stripe@17";
 
+import { buildPaymentLedgerFields } from "../_shared/paymentLedger.ts";
+
 const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY") || "";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -187,11 +189,20 @@ serve(async (req) => {
 
     const currency = String(studio?.currency || "USD");
     const paidAt = new Date().toISOString();
+    const ledger = buildPaymentLedgerFields({
+      locationId: appointment.location_id,
+      timezone: studio?.timezone as string | undefined,
+      paidAt,
+      tenderType: method,
+      channel: "in_person",
+      purpose: "deposit",
+    });
 
     await supabase.from("payments").insert({
       studio_id: appointment.studio_id,
       appointment_id: appointmentId,
       customer_id: appointment.customer_id || null,
+      location_id: ledger.location_id,
       stripe_checkout_session_id: null,
       stripe_payment_intent_id: null,
       amount,
@@ -201,6 +212,11 @@ serve(async (req) => {
       checkout_url: null,
       paid_at: paidAt,
       expires_at: null,
+      business_date: ledger.business_date,
+      tender_type: ledger.tender_type,
+      channel: ledger.channel,
+      purpose: ledger.purpose,
+      occurred_at: ledger.occurred_at,
       metadata: {
         appointment_id: appointmentId,
         collection_channel: "in_person",

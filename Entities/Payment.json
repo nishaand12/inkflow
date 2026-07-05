@@ -59,6 +59,37 @@
       "metadata": {
         "type": "object",
         "description": "Additional metadata"
+      },
+      "location_id": {
+        "type": "string",
+        "description": "Location where payment was collected"
+      },
+      "sale_id": {
+        "type": "string",
+        "description": "FK to sales (when linked to a completed sale)"
+      },
+      "business_date": {
+        "type": "string",
+        "format": "date",
+        "description": "Studio-local date the money moved (POS reconciliation key)"
+      },
+      "tender_type": {
+        "type": "string",
+        "description": "Cash|E-Transfer|Amex|Mastercard|Visa|Debit|Other|Stripe"
+      },
+      "channel": {
+        "type": "string",
+        "enum": ["in_person", "online"],
+        "description": "In-shop vs Stripe"
+      },
+      "purpose": {
+        "type": "string",
+        "description": "deposit|balance|retail|tip|refund|..."
+      },
+      "occurred_at": {
+        "type": "string",
+        "format": "date-time",
+        "description": "When the payment occurred"
       }
     },
     "required": ["studio_id", "amount"],

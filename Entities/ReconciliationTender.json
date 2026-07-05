@@ -1,0 +1,19 @@
+{
+  "name": "ReconciliationTender",
+  "type": "object",
+  "properties": {
+    "studio_id": { "type": "string", "description": "Studio ID" },
+    "reconciliation_id": { "type": "string", "description": "FK to daily_reconciliations" },
+    "tender_type": { "type": "string", "description": "Cash|E-Transfer|Amex|Mastercard|Visa|Debit|Other|Stripe" },
+    "system_amount": { "type": "number", "default": 0, "description": "Total from payments for this tender" },
+    "pos_amount": { "type": "number", "description": "Total entered from the POS printout" },
+    "variance": { "type": "number", "description": "system_amount - pos_amount" }
+  },
+  "required": ["studio_id", "reconciliation_id", "tender_type"],
+  "rls": {
+    "read": { "data.studio_id": "{{user.data.studio_id}}" },
+    "update": { "data.studio_id": "{{user.data.studio_id}}", "user_condition": { "data.user_role": ["Owner", "Admin"] } },
+    "delete": { "data.studio_id": "{{user.data.studio_id}}", "user_condition": { "data.user_role": ["Owner", "Admin"] } },
+    "write": { "user_condition": { "data.user_role": ["Owner", "Admin"] } }
+  }
+}

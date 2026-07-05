@@ -4,6 +4,7 @@ import Stripe from "npm:stripe@17";
 import { formatTime12h } from "../_shared/timeDisplay.ts";
 import { appUrl } from "../_shared/appUrl.ts";
 import { STAFF_DEPOSIT_CHECKOUT_EXPIRY_SECONDS } from "../_shared/depositCheckoutExpiry.ts";
+import { mergeStripeDepositPaidMetadata } from "../_shared/stripeDepositPaymentMetadata.ts";
 
 const MAILJET_API_KEY = Deno.env.get("MAILJET_API_KEY");
 const MAILJET_SECRET_KEY = Deno.env.get("MAILJET_SECRET_KEY");
@@ -692,6 +693,7 @@ async function createDepositCheckout(
               ? existingSession.payment_intent
               : null,
           paid_at: new Date().toISOString(),
+          metadata: mergeStripeDepositPaidMetadata(pendingPayment.metadata),
         })
         .eq("id", pendingPayment.id);
 

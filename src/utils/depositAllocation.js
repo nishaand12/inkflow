@@ -14,9 +14,28 @@ export function getPaidDepositRowsForAppointment(allPayments, appointmentId) {
   );
 }
 
+function parsePaymentMetadata(raw) {
+  if (!raw) return {};
+  if (typeof raw === "object" && !Array.isArray(raw)) return raw;
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+        ? parsed
+        : {};
+    } catch {
+      return {};
+    }
+  }
+  return {};
+}
+
 function isStripeOnlineDepositPayment(p) {
-  const meta = p.metadata || {};
+  if (p.stripe_checkout_session_id || p.stripe_payment_intent_id) return true;
+
+  const meta = parsePaymentMetadata(p.metadata);
   if (meta.collection_channel === "in_person") return false;
+  if (meta.method === "Stripe" || meta.collection_channel === "online") return true;
   return true;
 }
 
@@ -49,7 +68,7 @@ export function allocatePaidDepositToBuckets(paidDepositAmount, depositPaidRows)
     if (isStripeOnlineDepositPayment(r)) {
       out.online += portion;
     } else {
-      const meta = r.metadata || {};
+      const meta = parsePaymentMetadata(r.metadata);
       const method = meta.method || "Other";
       const bucket = getCollectionBucket(method);
       if (bucket === "cash") out.cash += portion;
@@ -92,7 +111,7 @@ export function allocatePaidDepositToMethodLabels(paidDepositAmount, depositPaid
         ? (Number(r.amount) || 0) / totalRowAmount
         : 1 / rows.length;
     const portion = paid * w;
-    const meta = r.metadata || {};
+    const meta = parsePaymentMetadata(r.metadata);
     if (isStripeOnlineDepositPayment(r)) {
       add("Stripe", portion);
     } else {
