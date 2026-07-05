@@ -22,27 +22,7 @@ import {
   allocatePaidDepositToBuckets,
   getPaidDepositRowsForAppointment,
 } from "@/utils/depositAllocation";
-
-function getAppointmentSettlementAmounts(appointment, appointmentCharges) {
-  const tip = Number(appointment.tip_amount) || 0;
-
-  if (appointmentCharges.length > 0) {
-    const gross = appointmentCharges.reduce((s, c) => s + (Number(c.line_total) || 0), 0);
-    const service = appointmentCharges
-      .filter((c) => c.line_type === "service")
-      .reduce((s, c) => s + (Number(c.line_total) || 0), 0);
-    const product = appointmentCharges
-      .filter((c) => c.line_type === "product")
-      .reduce((s, c) => s + (Number(c.line_total) || 0), 0);
-
-    return { gross, service, product, tip };
-  }
-
-  const charge = Number(appointment.charge_amount) || 0;
-  const deposit = Number(appointment.deposit_amount) || 0;
-  const gross = charge > 0 ? charge : deposit;
-  return { gross, service: gross, product: 0, tip };
-}
+import { getAppointmentSettlementAmounts } from "@/utils/appointmentAmounts";
 
 function getPaidDepositAmount(appointment, grossAmount) {
   if (appointment.deposit_status !== "paid") return 0;

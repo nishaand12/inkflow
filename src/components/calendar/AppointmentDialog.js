@@ -192,10 +192,9 @@ function buildCheckoutSummary(charges, appointment) {
     (sum, charge) => sum + (Number(charge.discount_amount) || 0),
     0
   );
-  const netPreTax = lines.reduce(
-    (sum, charge) => sum + (Number(charge.line_total) || 0),
-    0
-  );
+  // line_total is the customer-facing line amount (tax-inclusive when the product/type is).
+  // Pre-tax net is stored on the appointment at checkout (charge_amount).
+  const netPreTax = Number(appointment?.charge_amount) || 0;
   const tax = Number(appointment?.tax_amount) || 0;
   const tip = Number(appointment?.tip_amount) || 0;
   const totalBeforeTip = netPreTax + tax;

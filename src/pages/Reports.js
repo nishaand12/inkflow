@@ -18,6 +18,10 @@ import {
   computeAppointmentShares,
 } from "@/utils/revenueSplits";
 import {
+  getAppointmentAmounts,
+  getChargePreTaxAmount,
+} from "@/utils/appointmentAmounts";
+import {
   CATEGORY_ROLE_REPORTING,
   filterCategoriesByRole,
   findCategoryById,
@@ -132,11 +136,12 @@ export default function Reports() {
     const catMap = {};
     for (const apt of completedAppointments) {
       const aptCharges = charges.filter((c) => c.appointment_id === apt.id);
+      const amounts = getAppointmentAmounts(apt, aptCharges);
       if (aptCharges.length > 0) {
         for (const ch of aptCharges) {
           const { key, label } = resolveChargeCategoryKey(ch);
           if (!catMap[key]) catMap[key] = { category: label, revenue: 0, count: 0 };
-          catMap[key].revenue += ch.line_total || 0;
+          catMap[key].revenue += getChargePreTaxAmount(ch, amounts.preTaxRatio);
           catMap[key].count += ch.quantity || 1;
         }
       } else {
@@ -171,10 +176,8 @@ export default function Reports() {
       };
 
       const aptCharges = charges.filter(c => c.appointment_id === apt.id);
-      const chargeSum = aptCharges.reduce((s, c) => s + (c.line_total || 0), 0);
-      const charge = Number(apt.charge_amount) || 0;
-      const deposit = Number(apt.deposit_amount) || 0;
-      const gross = chargeSum > 0 ? chargeSum : (charge > 0 ? charge : deposit);
+      const amounts = getAppointmentAmounts(apt, aptCharges);
+      const gross = amounts.customerTotal;
 
       dayMap[d].gross += gross;
       dayMap[d].tax += apt.tax_amount || 0;
@@ -253,7 +256,7 @@ export default function Reports() {
     acc[name].deposits += apt.deposit_amount || 0;
     acc[name].charges += apt.charge_amount || 0;
     acc[name].tax += apt.tax_amount || 0;
-    acc[name].revenue += (apt.deposit_amount || 0) + (apt.charge_amount || 0);
+    acc[name].revenue += (apt.charge_amount || 0) + (apt.tax_amount || 0);
     acc[name].count++;
     return acc;
   }, {});
@@ -270,24 +273,10 @@ export default function Reports() {
       });
 
       const aptCharges = charges.filter(c => c.appointment_id === apt.id);
-      let service = 0;
-      let product = 0;
-      if (aptCharges.length > 0) {
-        service = aptCharges
-          .filter(c => c.line_type === "service")
-          .reduce((s, c) => s + (c.line_total || 0), 0);
-        product = aptCharges
-          .filter(c => c.line_type === "product")
-          .reduce((s, c) => s + (c.line_total || 0), 0);
-      } else {
-        const charge = Number(apt.charge_amount) || 0;
-        const deposit = Number(apt.deposit_amount) || 0;
-        service = charge > 0 ? charge : deposit;
-      }
-      const gross = service + product;
+      const amounts = getAppointmentAmounts(apt, aptCharges);
       const { artistShare, shopShare } = computeAppointmentShares(
         splitResolution,
-        { service, product },
+        { service: amounts.servicePreTax, product: amounts.productPreTax },
         apt.tax_amount || 0
       );
 
@@ -304,7 +293,7 @@ export default function Reports() {
       if (!shares[name].split_labels.includes(splitResolution.displayLabel)) {
         shares[name].split_labels.push(splitResolution.displayLabel);
       }
-      shares[name].gross += gross;
+      shares[name].gross += amounts.preTaxNet;
       shares[name].artist_share += artistShare;
       shares[name].shop_share += shopShare;
     }
@@ -326,7 +315,7 @@ export default function Reports() {
     acc[name].deposits += apt.deposit_amount || 0;
     acc[name].charges += apt.charge_amount || 0;
     acc[name].tax += apt.tax_amount || 0;
-    acc[name].revenue += (apt.deposit_amount || 0) + (apt.charge_amount || 0);
+    acc[name].revenue += (apt.charge_amount || 0) + (apt.tax_amount || 0);
     acc[name].count++;
     return acc;
   }, {});
