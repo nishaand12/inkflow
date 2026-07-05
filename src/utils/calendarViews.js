@@ -65,6 +65,22 @@ export function navigatePrev(currentDate, view) {
 }
 
 /**
+ * Map a picked calendar date to the anchor date for the active view.
+ */
+export function resolveCalendarJumpDate(selectedDate, view) {
+  switch (view) {
+    case "month":
+      return startOfMonth(selectedDate);
+    case "week":
+    case "3day":
+    case "4day":
+    case "day":
+    default:
+      return selectedDate;
+  }
+}
+
+/**
  * Returns a human-readable title string for the current view/date.
  */
 export function getViewTitle(currentDate, view) {
