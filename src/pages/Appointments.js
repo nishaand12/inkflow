@@ -23,6 +23,7 @@ import { getArtistTypeGroupLabel } from "@/utils/artistTypes";
 import {
   appointmentMatchesArtistFilter,
   getDistinctArtistTypes,
+  UNASSIGNED_ARTIST_FILTER,
 } from "@/utils/artistTypeFilter";
 import {
   compareAppointmentsByDateTimeAsc,
@@ -298,6 +299,7 @@ export default function Appointments() {
                     <SelectTrigger className="text-sm"><SelectValue placeholder="All Artists" /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Artists</SelectItem>
+                      <SelectItem value={UNASSIGNED_ARTIST_FILTER}>Unassigned</SelectItem>
                       {artistTypeOptions.length > 1 &&
                         artistTypeOptions.map((type) => (
                           <SelectItem key={`type:${type}`} value={`type:${type}`}>

@@ -23,6 +23,10 @@ import {
   getCategoryPathLabel,
 } from "@/utils/reportingCategories";
 import { allocatePaidDepositToMethodLabels } from "@/utils/depositAllocation";
+import {
+  getAppointmentAmounts,
+  getChargePreTaxAmount,
+} from "@/utils/appointmentAmounts";
 
 function money(n) {
   const v = Number(n) || 0;
@@ -259,25 +263,25 @@ export default function SettlementDetail() {
     for (const line of lines) {
       const apt = aptById[line.appointment_id];
       const aptCharges = chargesByAppointment[line.appointment_id] || [];
-      const lineGross = Number(line.gross_amount) || 0;
+      const amounts = getAppointmentAmounts(apt, aptCharges);
 
       if (aptCharges.length > 0) {
         let chargeTotal = 0;
         for (const ch of aptCharges) {
-          const amount = Number(ch.line_total) || 0;
+          const amount = getChargePreTaxAmount(ch, amounts.preTaxRatio);
           const { key, label } = categoryKeyForCharge(ch);
           addAmount(key, label, amount, Number(ch.quantity) || 1);
           chargeTotal += amount;
         }
 
-        const remainingSettlementAmount = lineGross - chargeTotal;
+        const remainingSettlementAmount = amounts.preTaxNet - chargeTotal;
         if (Math.abs(remainingSettlementAmount) >= 0.01) {
           const { key, label } = fallbackCategoryKeyForAppointment(apt);
           addAmount(key, label, remainingSettlementAmount, 1);
         }
       } else {
         const { key, label } = fallbackCategoryKeyForAppointment(apt);
-        addAmount(key, label, lineGross, 1);
+        addAmount(key, label, amounts.preTaxNet, 1);
       }
     }
 
