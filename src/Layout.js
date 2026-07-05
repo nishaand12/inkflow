@@ -137,6 +137,8 @@ export default function Layout({ children, currentPageName = null }) {
     "Calendar",
     "Appointments",
     "Availability",
+    "Artist Payouts",
+    "New Sale",
     "Supplies",
   ];
 
@@ -178,7 +180,7 @@ export default function Layout({ children, currentPageName = null }) {
         title: "New Sale",
         url: createPageUrl("Sales"),
         icon: ShoppingCart,
-        roles: ["Owner", "Admin", "Front_Desk"],
+        roles: ["Owner", "Admin", "Front_Desk", "Artist"],
       },
       {
         title: "Customers",

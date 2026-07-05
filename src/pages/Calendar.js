@@ -42,6 +42,7 @@ import {
   scrollMainContentToGridTime,
 } from "@/utils/calendarGrid";
 import CalendarTimedBlock, { buildCalendarBlockTitle } from "../components/calendar/CalendarTimedBlock";
+import CalendarDatePicker from "../components/calendar/CalendarDatePicker";
 
 const ARTIST_LANE_MIN_WIDTH = 140;
 
@@ -732,6 +733,12 @@ export default function Calendar() {
                   <Button variant="outline" onClick={handleNext} className="flex-1 sm:flex-none px-3">
                     <ChevronRight className="w-4 h-4" />
                   </Button>
+                  <CalendarDatePicker
+                    date={currentDate}
+                    onDateChange={setCurrentDate}
+                    view={view}
+                    buttonClassName="flex-1 sm:flex-none"
+                  />
                 </div>
               </div>
 

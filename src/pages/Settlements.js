@@ -35,11 +35,6 @@ export default function Settlements() {
   }, []);
 
   const studioId = user?.studio_id;
-  const qOpts = (key, fn, extraEnabled = true) => ({
-    queryKey: [key, studioId, selectedDate],
-    queryFn: () => fn(),
-    enabled: !!studioId && extraEnabled,
-  });
 
   const { data: locations = [] } = useQuery({
     queryKey: ["locations", studioId],

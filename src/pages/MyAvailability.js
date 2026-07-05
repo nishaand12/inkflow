@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Plus, Calendar, Clock, ChevronLeft, ChevronRight, Save, Trash2 } from "lucide-react";
 import AvailabilityDialog from "../components/availability/AvailabilityDialog";
 import AvailabilityCalendar from "../components/availability/AvailabilityCalendar";
+import CalendarDatePicker from "../components/calendar/CalendarDatePicker";
 import TimePicker12h from "../components/calendar/TimePicker12h";
 import { normalizeUserRole } from "@/utils/roles";
 import { formatTimeRange12h, DEFAULT_BOOKING_START_TIME, DEFAULT_AVAILABILITY_END_TIME } from "@/utils/index";
@@ -16,7 +17,6 @@ import { getArtistTypeGroupLabel } from "@/utils/artistTypes";
 import {
   getArtistIdsForFilter,
   getDistinctArtistTypes,
-  isArtistTypeFilter,
 } from "@/utils/artistTypeFilter";
 import { getArtistColor } from "@/utils/artistColors";
 import { navigateNext, navigatePrev, getViewTitle } from "@/utils/calendarViews";
@@ -319,6 +319,11 @@ export default function MyAvailability() {
                   <Button variant="outline" onClick={handleNext} className="px-3">
                     <ChevronRight className="w-4 h-4" />
                   </Button>
+                  <CalendarDatePicker
+                    date={currentDate}
+                    onDateChange={setCurrentDate}
+                    view={view}
+                  />
                 </div>
 
                 <div className="text-sm font-semibold text-gray-700 hidden sm:block">

@@ -30,6 +30,7 @@ import {
   isAppointmentTypeSplitEnabled,
   computeAppointmentShares,
 } from "@/utils/revenueSplits";
+import SaleDetailDialog from "../components/sales/SaleDetailDialog";
 
 function getProductTaxRate(product) {
   const r = product?.tax_rate;
@@ -76,6 +77,7 @@ export default function Sales() {
   const [message, setMessage] = useState(null);
   const [showManualAdd, setShowManualAdd] = useState(false);
   const [manualLine, setManualLine] = useState({ description: "", unit_price: "", quantity: 1, reporting_category_id: "", discount: "" });
+  const [selectedSaleRow, setSelectedSaleRow] = useState(null);
 
   useEffect(() => {
     (async () => {
@@ -547,7 +549,11 @@ export default function Sales() {
                       const location = locations.find((l) => l.id === sale.location_id);
                       const artist = artists.find((a) => a.id === sale.artist_id);
                       return (
-                        <tr key={sale.id} className="hover:bg-gray-50/80">
+                        <tr
+                          key={sale.id}
+                          className="hover:bg-gray-50/80 cursor-pointer"
+                          onClick={() => setSelectedSaleRow({ sale, lineItems: items, payment })}
+                        >
                           <td className="px-3 py-2.5 text-xs text-gray-600 whitespace-nowrap tabular-nums">
                             {formatSaleTime(sale.created_at)}
                           </td>
@@ -578,6 +584,20 @@ export default function Sales() {
             )}
           </CardContent>
         </Card>
+
+        <SaleDetailDialog
+          open={!!selectedSaleRow}
+          onOpenChange={(isOpen) => { if (!isOpen) setSelectedSaleRow(null); }}
+          sale={selectedSaleRow?.sale}
+          lineItems={selectedSaleRow?.lineItems || []}
+          payment={selectedSaleRow?.payment}
+          customer={customers.find((c) => c.id === selectedSaleRow?.sale?.customer_id)}
+          location={locations.find((l) => l.id === selectedSaleRow?.sale?.location_id)}
+          artist={artists.find((a) => a.id === selectedSaleRow?.sale?.artist_id)}
+          user={user}
+          studioId={studioId}
+          saleDate={today}
+        />
       </div>
     </div>
   );
