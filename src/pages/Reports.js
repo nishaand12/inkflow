@@ -42,8 +42,8 @@ function dailyTotalsRowsToCsv(rows, locationById, includeLocation) {
     ...(includeLocation
       ? { location: locationById[row.location_id]?.name || row.location_id }
       : {}),
-    sales: row.sale_count,
-    merchandise: row.merchandise_total,
+    sale_count: row.sale_count,
+    sales: row.merchandise_total,
     tax: row.tax_total,
     discounts: row.discount_total,
     tips: row.tip_total,
@@ -411,7 +411,7 @@ export default function Reports() {
           </Card>
           <Card className="bg-white border-none shadow-md">
             <CardContent className="p-4">
-              <p className="text-xs text-gray-500">Merchandise (reconciled)</p>
+              <p className="text-xs text-gray-500">Sales (reconciled)</p>
               <p className="text-2xl font-bold text-gray-900">{money(periodSummary.merchandise_total)}</p>
             </CardContent>
           </Card>
@@ -479,8 +479,8 @@ export default function Reports() {
                           {showMultiLocationTab && (
                             <th className="px-3 py-3 text-left text-sm font-semibold text-gray-900">Location</th>
                           )}
+                          <th className="px-3 py-3 text-right text-sm font-semibold text-gray-900"># Sales</th>
                           <th className="px-3 py-3 text-right text-sm font-semibold text-gray-900">Sales</th>
-                          <th className="px-3 py-3 text-right text-sm font-semibold text-gray-900">Merchandise</th>
                           <th className="px-3 py-3 text-right text-sm font-semibold text-gray-900">Tax</th>
                           <th className="px-3 py-3 text-right text-sm font-semibold text-gray-900">Discounts</th>
                           <th className="px-3 py-3 text-right text-sm font-semibold text-gray-900">Tips</th>
@@ -633,7 +633,7 @@ export default function Reports() {
                     exportToCSV(
                       artistRows.map((row) => ({
                         artist: artistById[row.artist_id]?.full_name || row.artist_id || "Unassigned",
-                        sales: row.sale_count,
+                        sale_count: row.sale_count,
                         service: row.service_total,
                         tax: row.tax_total,
                         product: row.product_total,
@@ -664,7 +664,7 @@ export default function Reports() {
                       <thead className="bg-gray-50">
                         <tr>
                           <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Artist</th>
-                          <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Sales</th>
+                          <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900"># Sales</th>
                           <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Service</th>
                           <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Tax</th>
                           <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Products</th>
@@ -719,8 +719,8 @@ export default function Reports() {
                         locationRows.map((row) => ({
                           location: locationById[row.location_id]?.name || row.location_id,
                           closed_days: row.closed_day_count,
-                          sales: row.sale_count,
-                          merchandise: row.merchandise_total,
+                          sale_count: row.sale_count,
+                          sales: row.merchandise_total,
                           tax: row.tax_total,
                           discounts: row.discount_total,
                           tips: row.tip_total,
@@ -751,8 +751,8 @@ export default function Reports() {
                           <tr>
                             <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Location</th>
                             <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Closed days</th>
+                            <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900"># Sales</th>
                             <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Sales</th>
-                            <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Merchandise</th>
                             <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Tax</th>
                             <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Discounts</th>
                             <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Tips</th>

@@ -385,7 +385,7 @@ export default function ReconciliationDetail() {
               <CardContent>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   <div className="rounded-lg border border-gray-100 p-4 bg-gray-50/80">
-                    <p className="text-xs text-gray-500 uppercase tracking-wide">Merchandise</p>
+                    <p className="text-xs text-gray-500 uppercase tracking-wide">Sales</p>
                     <p className="text-xl font-bold text-gray-900">{money(revenueTotals.subtotal + revenueTotals.tax)}</p>
                   </div>
                   <div className="rounded-lg border border-gray-100 p-4 bg-gray-50/80">
@@ -541,7 +541,7 @@ export default function ReconciliationDetail() {
                       <TableHeader>
                         <TableRow>
                           <TableHead>Artist</TableHead>
-                          <TableHead className="text-right">Sales</TableHead>
+                          <TableHead className="text-right"># Sales</TableHead>
                           <TableHead className="text-right">Service</TableHead>
                           <TableHead className="text-right">Tax</TableHead>
                           <TableHead className="text-right">Products</TableHead>
