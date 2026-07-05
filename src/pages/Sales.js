@@ -7,7 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ShoppingCart, Plus, Trash2, ScanBarcode, Package, CheckCircle } from "lucide-react";
+import { ShoppingCart, Plus, Trash2, ScanBarcode, Package, CheckCircle, Receipt } from "lucide-react";
+import { format, parseISO } from "date-fns";
 import {
   CATEGORY_ROLE_REPORTING,
   filterCategoriesByRole,
@@ -36,6 +37,30 @@ function getProductTaxRate(product) {
   return DEFAULT_SERVICE_TAX_RATE;
 }
 
+function money(n) {
+  return `$${(Number(n) || 0).toFixed(2)}`;
+}
+
+function formatSaleTime(createdAt) {
+  if (!createdAt) return "—";
+  try {
+    return format(parseISO(createdAt), "h:mm a");
+  } catch {
+    return "—";
+  }
+}
+
+function summarizeLineItems(lineItems) {
+  if (!lineItems.length) return "—";
+  const parts = lineItems.map((li) => {
+    const qty = Number(li.quantity) || 1;
+    const label = li.description || "Item";
+    return qty > 1 ? `${label} ×${qty}` : label;
+  });
+  const joined = parts.join(", ");
+  return joined.length > 80 ? `${joined.slice(0, 77)}…` : joined;
+}
+
 export default function Sales() {
   const queryClient = useQueryClient();
   const [user, setUser] = useState(null);
@@ -59,6 +84,7 @@ export default function Sales() {
   }, []);
 
   const studioId = user?.studio_id;
+  const today = format(new Date(), "yyyy-MM-dd");
   const qOpts = (key, fn) => ({ queryKey: [key, studioId], queryFn: () => fn(), enabled: !!studioId });
 
   const { data: locations = [] } = useQuery(qOpts("locations", () => base44.entities.Location.filter({ studio_id: studioId })));
@@ -67,6 +93,71 @@ export default function Sales() {
   const { data: artists = [] } = useQuery(qOpts("artists", () => base44.entities.Artist.filter({ studio_id: studioId })));
   const { data: splitRules = [] } = useQuery(qOpts("artistSplitRules", () => base44.entities.ArtistSplitRule.filter({ studio_id: studioId })));
   const { data: reportingCategories = [] } = useQuery(qOpts("reportingCategories", () => base44.entities.ReportingCategory.filter({ studio_id: studioId })));
+
+  const { data: todaySales = [], isLoading: loadingTodaySales } = useQuery({
+    queryKey: ["sales", studioId, today],
+    queryFn: async () => {
+      const rows = await base44.entities.Sale.filter({ studio_id: studioId, sale_date: today }, "-created_at");
+      return rows.filter((s) => !s.appointment_id && s.status === "completed");
+    },
+    enabled: !!studioId,
+    refetchInterval: 30000,
+  });
+
+  const todaySaleIdsKey = useMemo(
+    () => todaySales.map((s) => s.id).sort().join(","),
+    [todaySales]
+  );
+
+  const { data: todayLineItems = [] } = useQuery({
+    queryKey: ["saleLineItems", studioId, todaySaleIdsKey],
+    queryFn: async () => {
+      const all = await base44.entities.SaleLineItem.filter({ studio_id: studioId });
+      const idSet = new Set(todaySales.map((s) => s.id));
+      return all.filter((li) => idSet.has(li.sale_id));
+    },
+    enabled: !!studioId && todaySales.length > 0,
+  });
+
+  const { data: todayPayments = [] } = useQuery({
+    queryKey: ["salePayments", studioId, todaySaleIdsKey],
+    queryFn: async () => {
+      const all = await base44.entities.Payment.filter({ studio_id: studioId });
+      const idSet = new Set(todaySales.map((s) => s.id));
+      return all.filter((p) => idSet.has(p.sale_id) && p.status === "paid");
+    },
+    enabled: !!studioId && todaySales.length > 0,
+  });
+
+  const lineItemsBySale = useMemo(() => {
+    const map = {};
+    for (const li of todayLineItems) (map[li.sale_id] ||= []).push(li);
+    return map;
+  }, [todayLineItems]);
+
+  const paymentBySale = useMemo(() => {
+    const map = {};
+    for (const p of todayPayments) {
+      if (!p.sale_id || map[p.sale_id]) continue;
+      map[p.sale_id] = p;
+    }
+    return map;
+  }, [todayPayments]);
+
+  const todaySalesRows = useMemo(
+    () =>
+      todaySales.map((sale) => ({
+        sale,
+        lineItems: lineItemsBySale[sale.id] || [],
+        payment: paymentBySale[sale.id] || null,
+      })),
+    [todaySales, lineItemsBySale, paymentBySale]
+  );
+
+  const todaySalesTotal = useMemo(
+    () => todaySales.reduce((sum, s) => sum + (Number(s.total) || 0), 0),
+    [todaySales]
+  );
 
   useEffect(() => {
     if (locations.length && !locationId) setLocationId(locations[0].id);
@@ -208,7 +299,7 @@ export default function Sales() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["products", studioId] });
-      queryClient.invalidateQueries({ queryKey: ["sales"] });
+      queryClient.invalidateQueries({ queryKey: ["sales", studioId, today] });
       setLineItems([]);
       setTipAmount("");
       setCustomerId("");
@@ -418,6 +509,73 @@ export default function Sales() {
               <CheckCircle className="w-4 h-4 mr-2" />
               {saleMutation.isPending ? "Processing..." : "Complete Sale"}
             </Button>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-white border-none shadow-md">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Receipt className="w-5 h-5 text-indigo-600" />
+              Today&apos;s Sales
+            </CardTitle>
+            <p className="text-sm text-gray-500 font-normal">
+              {todaySales.length > 0
+                ? `${todaySales.length} transaction${todaySales.length === 1 ? "" : "s"} · ${money(todaySalesTotal)} total`
+                : "Standalone retail transactions completed today, most recent first."}
+            </p>
+          </CardHeader>
+          <CardContent>
+            {loadingTodaySales ? (
+              <p className="text-sm text-gray-500 py-4 text-center">Loading today&apos;s sales…</p>
+            ) : todaySalesRows.length === 0 ? (
+              <p className="text-sm text-gray-400 py-4 text-center">No sales recorded yet today.</p>
+            ) : (
+              <div className="border border-gray-200 rounded-lg overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-3 py-2 text-left font-medium text-gray-700 w-20">Time</th>
+                      <th className="px-3 py-2 text-left font-medium text-gray-700">Items</th>
+                      <th className="px-3 py-2 text-left font-medium text-gray-700 hidden sm:table-cell">Customer</th>
+                      <th className="px-3 py-2 text-left font-medium text-gray-700 hidden md:table-cell">Payment</th>
+                      <th className="px-3 py-2 text-right font-medium text-gray-700 w-24">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {todaySalesRows.map(({ sale, lineItems: items, payment }) => {
+                      const customer = customers.find((c) => c.id === sale.customer_id);
+                      const location = locations.find((l) => l.id === sale.location_id);
+                      const artist = artists.find((a) => a.id === sale.artist_id);
+                      return (
+                        <tr key={sale.id} className="hover:bg-gray-50/80">
+                          <td className="px-3 py-2.5 text-xs text-gray-600 whitespace-nowrap tabular-nums">
+                            {formatSaleTime(sale.created_at)}
+                          </td>
+                          <td className="px-3 py-2.5">
+                            <div className="text-xs font-medium text-gray-900">{summarizeLineItems(items)}</div>
+                            <div className="text-[10px] text-gray-500 mt-0.5">
+                              {[location?.name, artist?.full_name].filter(Boolean).join(" · ") || "Walk-in sale"}
+                            </div>
+                          </td>
+                          <td className="px-3 py-2.5 text-xs text-gray-600 hidden sm:table-cell">
+                            {customer?.name || "Walk-in"}
+                          </td>
+                          <td className="px-3 py-2.5 text-xs text-gray-600 hidden md:table-cell">
+                            {payment?.tender_type || "—"}
+                            {Number(sale.tip_total) > 0 && (
+                              <span className="text-green-700 ml-1">+{money(sale.tip_total)} tip</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2.5 text-right text-xs font-semibold text-gray-900 tabular-nums">
+                            {money(sale.total)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
