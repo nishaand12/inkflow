@@ -1,0 +1,26 @@
+{
+  "name": "DailyReconciliation",
+  "type": "object",
+  "properties": {
+    "studio_id": { "type": "string", "description": "Studio ID" },
+    "location_id": { "type": "string", "description": "FK to locations" },
+    "business_date": { "type": "string", "format": "date", "description": "Local date of the POS close" },
+    "status": { "type": "string", "enum": ["open", "closed"], "default": "open" },
+    "in_person_total": { "type": "number", "default": 0, "description": "System total the POS batch should match" },
+    "online_total": { "type": "number", "default": 0, "description": "Stripe collected that day (reconciled separately)" },
+    "refunds_in_person": { "type": "number", "default": 0 },
+    "refunds_online": { "type": "number", "default": 0 },
+    "pos_reported_total": { "type": "number", "description": "Total entered from the POS machine" },
+    "variance": { "type": "number", "description": "in_person_total - pos_reported_total" },
+    "notes": { "type": "string" },
+    "closed_at": { "type": "string", "format": "date-time" },
+    "closed_by": { "type": "string" }
+  },
+  "required": ["studio_id", "location_id", "business_date"],
+  "rls": {
+    "read": { "data.studio_id": "{{user.data.studio_id}}" },
+    "update": { "data.studio_id": "{{user.data.studio_id}}", "user_condition": { "data.user_role": ["Owner", "Admin"] } },
+    "delete": { "data.studio_id": "{{user.data.studio_id}}", "user_condition": { "data.user_role": ["Owner", "Admin"] } },
+    "write": { "user_condition": { "data.user_role": ["Owner", "Admin"] } }
+  }
+}

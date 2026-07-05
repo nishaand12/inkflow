@@ -40,8 +40,8 @@ function money(n) {
 }
 
 function entryLabel(type) {
-  if (type === "settlement_share") return "Settlement share";
-  if (type === "tip") return "Tip";
+  if (type === "settlement_share") return "Service fees";
+  if (type === "tip") return "Tips";
   if (type === "payout") return "Payout";
   return "Adjustment";
 }

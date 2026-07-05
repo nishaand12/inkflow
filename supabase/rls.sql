@@ -866,3 +866,100 @@ using (
   studio_id = public.current_user_studio()
   and public.current_user_role() in ('Owner', 'Admin')
 );
+
+-- Sales
+alter table public.sales enable row level security;
+
+drop policy if exists sales_select on public.sales;
+create policy sales_select on public.sales
+for select using (studio_id = public.current_user_studio());
+
+drop policy if exists sales_insert on public.sales;
+create policy sales_insert on public.sales
+for insert with check (studio_id = public.current_user_studio());
+
+drop policy if exists sales_update on public.sales;
+create policy sales_update on public.sales
+for update using (studio_id = public.current_user_studio());
+
+drop policy if exists sales_delete on public.sales;
+create policy sales_delete on public.sales
+for delete using (
+  studio_id = public.current_user_studio()
+  and public.current_user_role() in ('Owner', 'Admin')
+);
+
+-- Sale line items
+alter table public.sale_line_items enable row level security;
+
+drop policy if exists sale_line_items_select on public.sale_line_items;
+create policy sale_line_items_select on public.sale_line_items
+for select using (studio_id = public.current_user_studio());
+
+drop policy if exists sale_line_items_insert on public.sale_line_items;
+create policy sale_line_items_insert on public.sale_line_items
+for insert with check (studio_id = public.current_user_studio());
+
+drop policy if exists sale_line_items_update on public.sale_line_items;
+create policy sale_line_items_update on public.sale_line_items
+for update using (studio_id = public.current_user_studio());
+
+drop policy if exists sale_line_items_delete on public.sale_line_items;
+create policy sale_line_items_delete on public.sale_line_items
+for delete using (studio_id = public.current_user_studio());
+
+-- Daily reconciliations (Owner/Admin writes)
+alter table public.daily_reconciliations enable row level security;
+
+drop policy if exists daily_reconciliations_select on public.daily_reconciliations;
+create policy daily_reconciliations_select on public.daily_reconciliations
+for select using (studio_id = public.current_user_studio());
+
+drop policy if exists daily_reconciliations_insert on public.daily_reconciliations;
+create policy daily_reconciliations_insert on public.daily_reconciliations
+for insert with check (
+  studio_id = public.current_user_studio()
+  and public.current_user_role() in ('Owner', 'Admin')
+);
+
+drop policy if exists daily_reconciliations_update on public.daily_reconciliations;
+create policy daily_reconciliations_update on public.daily_reconciliations
+for update using (
+  studio_id = public.current_user_studio()
+  and public.current_user_role() in ('Owner', 'Admin')
+);
+
+drop policy if exists daily_reconciliations_delete on public.daily_reconciliations;
+create policy daily_reconciliations_delete on public.daily_reconciliations
+for delete using (
+  studio_id = public.current_user_studio()
+  and public.current_user_role() in ('Owner', 'Admin')
+);
+
+-- Reconciliation tenders (Owner/Admin writes)
+alter table public.reconciliation_tenders enable row level security;
+
+drop policy if exists reconciliation_tenders_select on public.reconciliation_tenders;
+create policy reconciliation_tenders_select on public.reconciliation_tenders
+for select using (studio_id = public.current_user_studio());
+
+drop policy if exists reconciliation_tenders_insert on public.reconciliation_tenders;
+create policy reconciliation_tenders_insert on public.reconciliation_tenders
+for insert with check (
+  studio_id = public.current_user_studio()
+  and public.current_user_role() in ('Owner', 'Admin')
+);
+
+drop policy if exists reconciliation_tenders_update on public.reconciliation_tenders;
+create policy reconciliation_tenders_update on public.reconciliation_tenders
+for update using (
+  studio_id = public.current_user_studio()
+  and public.current_user_role() in ('Owner', 'Admin')
+);
+
+drop policy if exists reconciliation_tenders_delete on public.reconciliation_tenders;
+create policy reconciliation_tenders_delete on public.reconciliation_tenders
+for delete using (
+  studio_id = public.current_user_studio()
+  and public.current_user_role() in ('Owner', 'Admin')
+);

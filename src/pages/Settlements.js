@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { base44 } from "@/api/base44Client";
+import { supabase } from "@/utils/supabase";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -8,280 +9,156 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Wallet, Lock, Loader2 } from "lucide-react";
+import { Wallet, Lock, Loader2, RefreshCw, FileText } from "lucide-react";
 import { format } from "date-fns";
 import { normalizeUserRole } from "@/utils/roles";
-import { createPageUrl } from "@/utils/index";
-import { getCollectionBucket } from "@/utils/collectionBuckets";
-import {
-  resolveRevenueSplitRule,
-  isAppointmentTypeSplitEnabled,
-  computeAppointmentShares,
-} from "@/utils/revenueSplits";
-import {
-  allocatePaidDepositToBuckets,
-  getPaidDepositRowsForAppointment,
-} from "@/utils/depositAllocation";
+import { CHECKOUT_PAYMENT_METHOD_VALUES } from "@/utils/checkoutPaymentMethods";
 
-function getAppointmentSettlementAmounts(appointment, appointmentCharges) {
-  const tip = Number(appointment.tip_amount) || 0;
+/** In-person tender columns the POS batch reports (Stripe is online, reconciled elsewhere). */
+const IN_PERSON_TENDERS = CHECKOUT_PAYMENT_METHOD_VALUES;
 
-  if (appointmentCharges.length > 0) {
-    const gross = appointmentCharges.reduce((s, c) => s + (Number(c.line_total) || 0), 0);
-    const service = appointmentCharges
-      .filter((c) => c.line_type === "service")
-      .reduce((s, c) => s + (Number(c.line_total) || 0), 0);
-    const product = appointmentCharges
-      .filter((c) => c.line_type === "product")
-      .reduce((s, c) => s + (Number(c.line_total) || 0), 0);
-
-    return { gross, service, product, tip };
-  }
-
-  const charge = Number(appointment.charge_amount) || 0;
-  const deposit = Number(appointment.deposit_amount) || 0;
-  const gross = charge > 0 ? charge : deposit;
-  return { gross, service: gross, product: 0, tip };
-}
-
-function getPaidDepositAmount(appointment, grossAmount) {
-  if (appointment.deposit_status !== "paid") return 0;
-  const deposit = Number(appointment.deposit_amount) || 0;
-  return Math.min(deposit, Math.max(0, Number(grossAmount) || 0));
+function money(n) {
+  return `$${(Number(n) || 0).toFixed(2)}`;
 }
 
 export default function Settlements() {
   const queryClient = useQueryClient();
   const [user, setUser] = useState(null);
-  const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'));
-  const [filterLocation, setFilterLocation] = useState('all');
+  const [selectedDate, setSelectedDate] = useState(format(new Date(), "yyyy-MM-dd"));
+  const [filterLocation, setFilterLocation] = useState("");
+  const [posInputs, setPosInputs] = useState({}); // tender_type -> string
 
   useEffect(() => {
-    const loadUser = async () => {
-      try {
-        const currentUser = await base44.auth.me();
-        setUser(currentUser);
-      } catch (error) {
-        console.error("Error loading user:", error);
-      }
-    };
-    loadUser();
+    (async () => {
+      try { setUser(await base44.auth.me()); } catch (e) { console.error(e); }
+    })();
   }, []);
 
+  const studioId = user?.studio_id;
+  const qOpts = (key, fn, extraEnabled = true) => ({
+    queryKey: [key, studioId, selectedDate],
+    queryFn: () => fn(),
+    enabled: !!studioId && extraEnabled,
+  });
+
   const { data: locations = [] } = useQuery({
-    queryKey: ['locations', user?.studio_id],
-    queryFn: () => base44.entities.Location.filter({ studio_id: user.studio_id }),
-    enabled: !!user?.studio_id
+    queryKey: ["locations", studioId],
+    queryFn: () => base44.entities.Location.filter({ studio_id: studioId }),
+    enabled: !!studioId,
   });
 
-  const { data: settlements = [] } = useQuery({
-    queryKey: ['settlements', user?.studio_id],
-    queryFn: () => base44.entities.DailySettlement.filter({ studio_id: user.studio_id }),
-    enabled: !!user?.studio_id
+  useEffect(() => {
+    if (locations.length && !filterLocation) setFilterLocation(locations[0].id);
+  }, [locations, filterLocation]);
+
+  const { data: reconciliations = [] } = useQuery({
+    queryKey: ["reconciliations", studioId, selectedDate],
+    queryFn: () => base44.entities.DailyReconciliation.filter({ studio_id: studioId, business_date: selectedDate }),
+    enabled: !!studioId,
   });
 
-  const { data: appointments = [] } = useQuery({
-    queryKey: ['appointments', user?.studio_id],
-    queryFn: () => base44.entities.Appointment.filter({ studio_id: user.studio_id }),
-    enabled: !!user?.studio_id
+  const reconciliation = useMemo(
+    () => reconciliations.find((r) => r.location_id === filterLocation) || null,
+    [reconciliations, filterLocation]
+  );
+
+  const { data: tenderRows = [] } = useQuery({
+    queryKey: ["reconciliationTenders", reconciliation?.id],
+    queryFn: () => base44.entities.ReconciliationTender.filter({ reconciliation_id: reconciliation.id }),
+    enabled: !!reconciliation?.id,
   });
 
-  const { data: charges = [] } = useQuery({
-    queryKey: ['appointmentCharges', user?.studio_id],
-    queryFn: () => base44.entities.AppointmentCharge.filter({ studio_id: user.studio_id }),
-    enabled: !!user?.studio_id
-  });
+  const getUserRole = () =>
+    user ? normalizeUserRole(user.user_role || (user.role === "admin" ? "Admin" : "Front_Desk")) : null;
+  const isAdmin = getUserRole() === "Admin" || getUserRole() === "Owner";
+  const isClosed = reconciliation?.status === "closed";
 
-  const { data: splitRules = [] } = useQuery({
-    queryKey: ['artistSplitRules', user?.studio_id],
-    queryFn: () => base44.entities.ArtistSplitRule.filter({ studio_id: user.studio_id }),
-    enabled: !!user?.studio_id
-  });
+  // Merge DB tender rows with the standard in-person tender set for POS entry.
+  const tenderView = useMemo(() => {
+    const byType = {};
+    for (const t of tenderRows) byType[t.tender_type] = t;
+    const types = Array.from(new Set([...IN_PERSON_TENDERS, ...tenderRows.map((t) => t.tender_type)]));
+    return types.map((type) => {
+      const row = byType[type];
+      const system = Number(row?.system_amount) || 0;
+      const posRaw = posInputs[type];
+      const pos = posRaw != null && posRaw !== ""
+        ? Number(posRaw)
+        : (row?.pos_amount != null ? Number(row.pos_amount) : null);
+      return {
+        tender_type: type,
+        row,
+        system_amount: system,
+        pos_amount: pos,
+        variance: pos != null ? system - pos : null,
+      };
+    });
+  }, [tenderRows, posInputs]);
 
-  const { data: artists = [] } = useQuery({
-    queryKey: ['artists', user?.studio_id],
-    queryFn: () => base44.entities.Artist.filter({ studio_id: user.studio_id }),
-    enabled: !!user?.studio_id
-  });
+  const posReportedTotal = useMemo(
+    () => tenderView.reduce((s, t) => s + (t.pos_amount != null ? t.pos_amount : 0), 0),
+    [tenderView]
+  );
+  const overallVariance = reconciliation ? (Number(reconciliation.in_person_total) || 0) - posReportedTotal : 0;
 
-  const { data: reportingCategories = [] } = useQuery({
-    queryKey: ['reportingCategories', user?.studio_id],
-    queryFn: () => base44.entities.ReportingCategory.filter({ studio_id: user.studio_id }),
-    enabled: !!user?.studio_id
-  });
-
-  const getUserRole = () => {
-    if (!user) return null;
-    return normalizeUserRole(user.user_role || (user.role === 'admin' ? 'Admin' : 'Front_Desk'));
-  };
-
-  const userRole = getUserRole();
-  const isAdmin = userRole === 'Admin' || userRole === 'Owner';
-
-  const generateSettlement = useMutation({
-    mutationFn: async ({ locationId, date }) => {
-      const allPayments = await base44.entities.Payment.filter({ studio_id: user.studio_id });
-
-      const dayAppointments = appointments.filter(
-        a => a.appointment_date === date && a.status === 'completed' &&
-          (locationId === 'all' || a.location_id === locationId)
-      );
-
-      const locationsToSettle = locationId === 'all'
-        ? [...new Set(dayAppointments.map(a => a.location_id).filter(Boolean))]
-        : [locationId];
-
-      const results = [];
-
-      for (const locId of locationsToSettle) {
-        const locAppointments = dayAppointments.filter(a => a.location_id === locId);
-        if (locAppointments.length === 0) continue;
-
-        let grossTotal = 0;
-        let taxTotal = 0;
-        let discountTotal = 0;
-        let tipTotal = 0;
-        let terminalCollected = 0;
-        let cashCollected = 0;
-        let onlineCollected = 0;
-        let giftCardSales = 0;
-        let giftCardReturns = 0;
-
-        for (const apt of locAppointments) {
-          const aptCharges = charges.filter(c => c.appointment_id === apt.id);
-          const amounts = getAppointmentSettlementAmounts(apt, aptCharges);
-          grossTotal += amounts.gross;
-          taxTotal += apt.tax_amount || 0;
-          discountTotal += apt.discount_amount || 0;
-          tipTotal += amounts.tip;
-
-          for (const ch of aptCharges) {
-            const cat = reportingCategories.find(c => c.id === ch.reporting_category_id);
-            if (cat?.category_type === 'store_credit' || cat?.revenue_sign === 'negative') {
-              if (ch.line_total >= 0) giftCardSales += ch.line_total;
-              else giftCardReturns += Math.abs(ch.line_total);
-            }
-          }
-
-          const paidDeposit = getPaidDepositAmount(apt, amounts.gross);
-          const finalCollectedAmount = Math.max(0, amounts.gross - paidDeposit) + amounts.tip;
-          const collectionBucket = getCollectionBucket(apt.payment_method);
-          const depositRows = getPaidDepositRowsForAppointment(allPayments, apt.id);
-          const depBuckets = allocatePaidDepositToBuckets(paidDeposit, depositRows);
-          onlineCollected += depBuckets.online;
-          cashCollected += depBuckets.cash;
-          terminalCollected += depBuckets.terminal;
-          if (collectionBucket === "online") {
-            onlineCollected += finalCollectedAmount;
-          } else if (collectionBucket === "cash") {
-            cashCollected += finalCollectedAmount;
-          } else {
-            terminalCollected += finalCollectedAmount;
-          }
-        }
-
-        const netTotal = grossTotal - taxTotal - discountTotal;
-
-        const settlement = await base44.entities.DailySettlement.create({
-          studio_id: user.studio_id,
-          location_id: locId,
-          settlement_date: date,
-          status: 'locked',
-          gross_total: grossTotal,
-          tax_total: taxTotal,
-          discount_total: discountTotal,
-          tip_total: tipTotal,
-          net_total: netTotal,
-          pos_collected: terminalCollected,
-          cash_collected: cashCollected,
-          online_collected: onlineCollected,
-          gift_card_sales: giftCardSales,
-          gift_card_returns: giftCardReturns,
-          locked_at: new Date().toISOString(),
-          locked_by: user.id
-        });
-
-        for (const apt of locAppointments) {
-          const artist = artists.find((a) => a.id === apt.artist_id);
-          const splitResolution = resolveRevenueSplitRule(splitRules, {
-            appointmentTypeId: apt.appointment_type_id,
-            artistId: apt.artist_id,
-            appointmentTypeSplitEnabled: isAppointmentTypeSplitEnabled(artist),
-          });
-          const splitPercent = splitResolution.splitPercent;
-          const splitMode = splitResolution.splitMode;
-          const splitValue = splitResolution.splitValue;
-          const aptCharges = charges.filter(c => c.appointment_id === apt.id);
-          const amounts = getAppointmentSettlementAmounts(apt, aptCharges);
-          const { artistShare, shopShare } = computeAppointmentShares(
-            splitResolution,
-            amounts,
-            apt.tax_amount || 0
-          );
-
-          const line = await base44.entities.DailySettlementLine.create({
-            studio_id: user.studio_id,
-            settlement_id: settlement.id,
-            artist_id: apt.artist_id,
-            appointment_id: apt.id,
-            gross_amount: amounts.gross,
-            service_amount: amounts.service,
-            product_amount: amounts.product,
-            tip_amount: amounts.tip,
-            artist_share: artistShare,
-            shop_share: shopShare,
-            split_percent: splitPercent,
-            split_mode: splitMode,
-            split_value: splitValue,
-          });
-
-          if (apt.artist_id && artistShare > 0) {
-            await base44.entities.ArtistLedgerEntry.create({
-              studio_id: user.studio_id,
-              artist_id: apt.artist_id,
-              settlement_id: settlement.id,
-              settlement_line_id: line.id,
-              appointment_id: apt.id,
-              entry_type: "settlement_share",
-              amount: artistShare,
-              description: `Settlement share for ${date}`,
-              occurred_on: date,
-              created_by: user.id
-            });
-          }
-
-          if (apt.artist_id && amounts.tip > 0) {
-            await base44.entities.ArtistLedgerEntry.create({
-              studio_id: user.studio_id,
-              artist_id: apt.artist_id,
-              settlement_id: settlement.id,
-              settlement_line_id: line.id,
-              appointment_id: apt.id,
-              entry_type: "tip",
-              amount: amounts.tip,
-              description: `Tip for ${date}`,
-              occurred_on: date,
-              created_by: user.id
-            });
-          }
-        }
-
-        results.push(settlement);
-      }
-
-      return results;
+  const buildMutation = useMutation({
+    mutationFn: async () => {
+      if (!filterLocation) throw new Error("Select a location.");
+      const { error } = await supabase.rpc("compute_daily_reconciliation", {
+        p_location_id: filterLocation,
+        p_business_date: selectedDate,
+      });
+      if (error) throw new Error(error.message || "Could not build reconciliation.");
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['settlements'] });
-      queryClient.invalidateQueries({ queryKey: ['dailySettlementLines'] });
-      queryClient.invalidateQueries({ queryKey: ['artistLedgerEntries'] });
-    }
+      queryClient.invalidateQueries({ queryKey: ["reconciliations", studioId, selectedDate] });
+      queryClient.invalidateQueries({ queryKey: ["reconciliationTenders"] });
+    },
   });
 
-  const existingSettlement = settlements.find(
-    s => s.settlement_date === selectedDate &&
-      (filterLocation === 'all' || s.location_id === filterLocation)
-  );
+  const savePosMutation = useMutation({
+    mutationFn: async ({ close }) => {
+      if (!reconciliation) throw new Error("Build the reconciliation first.");
+      for (const t of tenderView) {
+        if (t.pos_amount == null && !t.row) continue;
+        const variance = t.pos_amount != null ? t.system_amount - t.pos_amount : null;
+        if (t.row) {
+          await base44.entities.ReconciliationTender.update(t.row.id, {
+            pos_amount: t.pos_amount,
+            variance,
+          });
+        } else if (t.pos_amount != null) {
+          await base44.entities.ReconciliationTender.create({
+            studio_id: studioId,
+            reconciliation_id: reconciliation.id,
+            tender_type: t.tender_type,
+            system_amount: 0,
+            pos_amount: t.pos_amount,
+            variance,
+          });
+        }
+      }
+      // Persist POS totals first; closing is a separate RPC so it can also post
+      // the day's consolidated artist earnings (Service fees + Tips) atomically.
+      await base44.entities.DailyReconciliation.update(reconciliation.id, {
+        pos_reported_total: posReportedTotal,
+        variance: overallVariance,
+      });
+      if (close) {
+        const { error } = await supabase.rpc("close_daily_reconciliation", {
+          p_reconciliation_id: reconciliation.id,
+        });
+        if (error) throw new Error(error.message || "Could not close the day.");
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["reconciliations", studioId, selectedDate] });
+      queryClient.invalidateQueries({ queryKey: ["reconciliationTenders"] });
+      queryClient.invalidateQueries({ queryKey: ["artistLedgerEntries"] });
+    },
+  });
+
+  useEffect(() => { setPosInputs({}); }, [reconciliation?.id]);
 
   if (!isAdmin) {
     return (
@@ -290,7 +167,7 @@ export default function Settlements() {
           <Card className="bg-white border-none shadow-lg">
             <CardContent className="p-12 text-center">
               <h2 className="text-xl font-bold text-gray-900 mb-2">Access Restricted</h2>
-              <p className="text-gray-500">Only Owners and Admins can access settlements.</p>
+              <p className="text-gray-500">Only Owners and Admins can access reconciliation.</p>
             </CardContent>
           </Card>
         </div>
@@ -298,30 +175,22 @@ export default function Settlements() {
     );
   }
 
-  const filteredSettlements = settlements
-    .filter(s => filterLocation === 'all' || s.location_id === filterLocation)
-    .sort((a, b) => b.settlement_date.localeCompare(a.settlement_date));
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 p-6">
-      <div className="max-w-7xl mx-auto space-y-6">
+      <div className="max-w-5xl mx-auto space-y-6">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Daily Settlements</h1>
-          <p className="text-gray-500 mt-1">Generate and review daily payout settlements</p>
+          <h1 className="text-3xl font-bold text-gray-900">Daily Reconciliation</h1>
+          <p className="text-gray-500 mt-1">Match the day's in-shop payments to the POS batch, by tender.</p>
         </div>
 
         <Card className="bg-white border border-indigo-100 bg-indigo-50/40 shadow-sm">
           <CardContent className="p-4 text-sm text-gray-700">
-            <p className="font-medium text-gray-900 mb-1">What “settled” means in Inkflow</p>
+            <p className="font-medium text-gray-900 mb-1">How this reconciles to the POS</p>
             <p>
-              Generating a settlement creates a <strong>frozen snapshot</strong> of that day’s completed
-              appointments at each location: gross, tax, discounts, tips, net, terminal/card vs cash vs online
-              totals, and per-appointment service splits. Product sales are included in gross but not artist/shop
-              split; tips are owed 100% to the assigned artist. It does <strong>not</strong> lock the calendar or block
-              edits to appointments. Refunds recorded later still apply to the appointment and reports,
-              but they do <strong>not</strong> automatically change an existing settlement record—you would
-              treat refunds as cash movements or use a future adjustment if your studio requires books to
-              tie exactly.
+              The system total is every <strong>in-person</strong> payment recorded on this business date — sale balances,
+              retail sales, <strong>and deposits taken in-store for future appointments</strong> — broken down by card type.
+              Enter the matching totals from your POS batch printout to see per-tender variance. Stripe (online) payments are
+              shown separately and reconciled against Stripe payouts, not the POS.
             </p>
           </CardContent>
         </Card>
@@ -330,107 +199,127 @@ export default function Settlements() {
           <CardContent className="p-6">
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
               <div className="space-y-2">
-                <Label>Settlement Date</Label>
-                <Input
-                  type="date"
-                  value={selectedDate}
-                  onChange={(e) => setSelectedDate(e.target.value)}
-                />
+                <Label>Business Date</Label>
+                <Input type="date" value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} />
               </div>
               <div className="space-y-2">
                 <Label>Location</Label>
                 <Select value={filterLocation} onValueChange={setFilterLocation}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="All Locations" />
-                  </SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder="Location" /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">All Locations</SelectItem>
-                    {locations.map(loc => (
-                      <SelectItem key={loc.id} value={loc.id}>{loc.name}</SelectItem>
-                    ))}
+                    {locations.map((loc) => (<SelectItem key={loc.id} value={loc.id}>{loc.name}</SelectItem>))}
                   </SelectContent>
                 </Select>
               </div>
               <Button
-                onClick={() => generateSettlement.mutate({ locationId: filterLocation, date: selectedDate })}
-                disabled={generateSettlement.isPending || !!existingSettlement}
+                onClick={() => buildMutation.mutate()}
+                disabled={buildMutation.isPending || isClosed || !filterLocation}
                 className="bg-indigo-600 hover:bg-indigo-700"
               >
-                {generateSettlement.isPending ? (
-                  <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Generating...</>
-                ) : existingSettlement ? (
-                  <><Lock className="w-4 h-4 mr-2" /> Already Settled</>
+                {buildMutation.isPending ? (
+                  <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Building...</>
                 ) : (
-                  <><Wallet className="w-4 h-4 mr-2" /> Generate Settlement</>
+                  <><RefreshCw className="w-4 h-4 mr-2" /> {reconciliation ? "Refresh from payments" : "Build reconciliation"}</>
                 )}
               </Button>
             </div>
           </CardContent>
         </Card>
 
-        <Card className="bg-white border-none shadow-lg">
-          <CardHeader>
-            <CardTitle>Settlement History</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {filteredSettlements.length === 0 ? (
-              <div className="text-center py-12">
-                <Wallet className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                <p className="text-gray-500">No settlements yet</p>
-              </div>
-            ) : (
+        {reconciliation && (
+          <Card className="bg-white border-none shadow-lg">
+            <CardHeader className="flex flex-row items-center justify-between">
+              <CardTitle>Tender Reconciliation</CardTitle>
+              <Badge className={isClosed ? "bg-green-100 text-green-800" : "bg-amber-100 text-amber-800"}>
+                {isClosed ? "Closed" : "Open"}
+              </Badge>
+            </CardHeader>
+            <CardContent className="space-y-4">
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead className="bg-gray-50">
                     <tr>
-                      <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Date</th>
-                      <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Location</th>
-                      <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Sales Gross</th>
-                      <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Tax</th>
-                      <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Discounts</th>
-                      <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Tips</th>
-                      <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Net</th>
-                      <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Terminal</th>
-                      <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Cash</th>
-                      <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Online</th>
-                      <th className="px-4 py-3 text-center text-sm font-semibold text-gray-900">Status</th>
-                      <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Details</th>
+                      <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Tender</th>
+                      <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">System (Inkflow)</th>
+                      <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">POS batch</th>
+                      <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Variance</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-200">
-                    {filteredSettlements.map(s => {
-                      const loc = locations.find(l => l.id === s.location_id);
-                      return (
-                        <tr key={s.id} className="hover:bg-gray-50">
-                          <td className="px-4 py-3 text-sm text-gray-900">{s.settlement_date}</td>
-                          <td className="px-4 py-3 text-sm text-gray-600">{loc?.name || 'Unknown'}</td>
-                          <td className="px-4 py-3 text-sm text-gray-900 text-right">${(s.gross_total || 0).toFixed(2)}</td>
-                          <td className="px-4 py-3 text-sm text-gray-900 text-right">${(s.tax_total || 0).toFixed(2)}</td>
-                          <td className="px-4 py-3 text-sm text-gray-900 text-right">${(s.discount_total || 0).toFixed(2)}</td>
-                          <td className="px-4 py-3 text-sm text-gray-900 text-right">${(s.tip_total || 0).toFixed(2)}</td>
-                          <td className="px-4 py-3 text-sm text-gray-900 text-right font-bold">${(s.net_total || 0).toFixed(2)}</td>
-                          <td className="px-4 py-3 text-sm text-gray-900 text-right">${(s.pos_collected || 0).toFixed(2)}</td>
-                          <td className="px-4 py-3 text-sm text-gray-900 text-right">${(s.cash_collected || 0).toFixed(2)}</td>
-                          <td className="px-4 py-3 text-sm text-gray-900 text-right">${(s.online_collected || 0).toFixed(2)}</td>
-                          <td className="px-4 py-3 text-center">
-                            <Badge className={s.status === 'locked' ? 'bg-green-100 text-green-800' : 'bg-amber-100 text-amber-800'}>
-                              {s.status === 'locked' ? 'Locked' : 'Draft'}
-                            </Badge>
-                          </td>
-                          <td className="px-4 py-3 text-right">
-                            <Button variant="outline" size="sm" asChild>
-                              <Link to={`${createPageUrl("Settlements")}/${s.id}`}>View</Link>
-                            </Button>
-                          </td>
-                        </tr>
-                      );
-                    })}
+                    {tenderView.map((t) => (
+                      <tr key={t.tender_type} className="hover:bg-gray-50">
+                        <td className="px-4 py-3 text-sm text-gray-900 font-medium">{t.tender_type}</td>
+                        <td className="px-4 py-3 text-sm text-gray-900 text-right tabular-nums">{money(t.system_amount)}</td>
+                        <td className="px-4 py-3 text-right">
+                          <Input
+                            type="number"
+                            step="0.01"
+                            disabled={isClosed}
+                            className="h-8 w-28 text-right ml-auto"
+                            value={posInputs[t.tender_type] ?? (t.row?.pos_amount != null ? String(t.row.pos_amount) : "")}
+                            onChange={(e) => setPosInputs((prev) => ({ ...prev, [t.tender_type]: e.target.value }))}
+                            placeholder="0.00"
+                          />
+                        </td>
+                        <td className={`px-4 py-3 text-sm text-right tabular-nums font-medium ${
+                          t.variance == null ? "text-gray-400" : Math.abs(t.variance) < 0.005 ? "text-green-700" : "text-red-600"
+                        }`}>
+                          {t.variance == null ? "—" : money(t.variance)}
+                        </td>
+                      </tr>
+                    ))}
+                    <tr className="bg-gray-50 font-semibold">
+                      <td className="px-4 py-3 text-sm text-gray-900">In-person total</td>
+                      <td className="px-4 py-3 text-sm text-gray-900 text-right tabular-nums">{money(reconciliation.in_person_total)}</td>
+                      <td className="px-4 py-3 text-sm text-gray-900 text-right tabular-nums">{money(posReportedTotal)}</td>
+                      <td className={`px-4 py-3 text-sm text-right tabular-nums ${
+                        Math.abs(overallVariance) < 0.005 ? "text-green-700" : "text-red-600"
+                      }`}>{money(overallVariance)}</td>
+                    </tr>
                   </tbody>
                 </table>
               </div>
-            )}
-          </CardContent>
-        </Card>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
+                <div className="rounded-lg bg-indigo-50 p-3">
+                  <p className="text-xs text-gray-500">Online (Stripe) — reconciled separately</p>
+                  <p className="text-lg font-bold text-indigo-700">{money(reconciliation.online_total)}</p>
+                </div>
+                <div className="rounded-lg bg-gray-50 p-3">
+                  <p className="text-xs text-gray-500">In-person refunds (incl. above)</p>
+                  <p className="text-lg font-bold text-gray-900">{money(reconciliation.refunds_in_person)}</p>
+                </div>
+                <div className="flex items-end justify-end gap-2">
+                  {isClosed ? (
+                    <Button variant="outline" asChild>
+                      <Link to={`/reconciliation/${reconciliation.id}`}>
+                        <FileText className="w-4 h-4 mr-2" /> View detail
+                      </Link>
+                    </Button>
+                  ) : (
+                    <>
+                      <Button variant="outline" disabled={savePosMutation.isPending} onClick={() => savePosMutation.mutate({ close: false })}>
+                        Save
+                      </Button>
+                      <Button className="bg-green-600 hover:bg-green-700" disabled={savePosMutation.isPending} onClick={() => savePosMutation.mutate({ close: true })}>
+                        <Lock className="w-4 h-4 mr-2" /> Close day
+                      </Button>
+                    </>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {!reconciliation && (
+          <Card className="bg-white border-none shadow-lg">
+            <CardContent className="text-center py-12">
+              <Wallet className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+              <p className="text-gray-500">No reconciliation built for this date and location yet.</p>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </div>
   );

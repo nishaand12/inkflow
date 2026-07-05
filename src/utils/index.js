@@ -9,6 +9,7 @@ const PAGE_PATHS = {
   Products: "/products",
   ReportingCategories: "/reporting-categories",
   Reports: "/reports",
+  Sales: "/sales",
   Settlements: "/settlements",
   ArtistPayouts: "/artist-payouts",
   WorkStations: "/workstations",

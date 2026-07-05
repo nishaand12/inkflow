@@ -24,7 +24,7 @@ import TimePicker12h from "./TimePicker12h";
 import { normalizeUserRole } from "@/utils/roles";
 import { addMinutesToTime, formatDuration, formatTime12h, DEFAULT_BOOKING_START_TIME, DEFAULT_APPOINTMENT_END_TIME } from "@/utils/index";
 import { getAppointmentTypeDisplaySections } from "@/utils/reportingCategories";
-import { CHECKOUT_PAYMENT_METHOD_OPTIONS } from "@/utils/checkoutPaymentMethods";
+import { CHECKOUT_PAYMENT_METHOD_OPTIONS, CHECKOUT_PAYMENT_METHOD_VALUES } from "@/utils/checkoutPaymentMethods";
 import { filterArtistsSelectableForBooking } from "@/utils/artistTypes";
 import { getAppointmentStatusLabel } from "@/utils/appointmentStatus";
 import {
@@ -35,6 +35,10 @@ import {
 } from "@/utils/artistServiceEligibility";
 import { pickPreferredWorkStationId } from "@/utils/workStationSelection";
 import LinkifiedText, { textContainsUrl } from "@/components/common/LinkifiedText";
+import {
+  buildCheckoutSummaryFromLegacyCharges,
+  buildCheckoutSummaryFromSale,
+} from "@/utils/saleLines";
 
 // Stable empty array to prevent new references on each render
 const EMPTY_ARRAY = [];
@@ -171,47 +175,6 @@ async function persistAppointmentDepositSnapshotIfStale(appointment, formData, q
   }
 }
 
-function chargeGrossBeforeDiscount(charge) {
-  const qty = Number(charge.quantity) || 0;
-  const price = Number(charge.unit_price) || 0;
-  const lineTotal = Number(charge.line_total) || 0;
-  const sign = lineTotal < 0 ? -1 : 1;
-  return sign * qty * price;
-}
-
-function buildCheckoutSummary(charges, appointment) {
-  const lines = [...charges].sort((a, b) =>
-    String(a.created_at || "").localeCompare(String(b.created_at || ""))
-  );
-
-  const grossBeforeDiscounts = lines.reduce(
-    (sum, charge) => sum + chargeGrossBeforeDiscount(charge),
-    0
-  );
-  const lineDiscountsTotal = lines.reduce(
-    (sum, charge) => sum + (Number(charge.discount_amount) || 0),
-    0
-  );
-  const netPreTax = lines.reduce(
-    (sum, charge) => sum + (Number(charge.line_total) || 0),
-    0
-  );
-  const tax = Number(appointment?.tax_amount) || 0;
-  const tip = Number(appointment?.tip_amount) || 0;
-  const totalBeforeTip = netPreTax + tax;
-
-  return {
-    lines,
-    grossBeforeDiscounts,
-    lineDiscountsTotal,
-    netPreTax,
-    tax,
-    tip,
-    totalBeforeTip,
-    grandTotal: totalBeforeTip + tip,
-  };
-}
-
 export default function AppointmentDialog({ open, onOpenChange, appointment, defaultDate, defaultArtistId, artists, locations, currentUser, userArtist }) {
   const queryClient = useQueryClient();
   const [formData, setFormData] = useState({
@@ -251,6 +214,9 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
   const [inPersonDepositNote, setInPersonDepositNote] = useState("");
   const [inPersonDepositAmountInput, setInPersonDepositAmountInput] = useState("");
   const [recordInPersonLoading, setRecordInPersonLoading] = useState(false);
+  const [editingPaymentMethod, setEditingPaymentMethod] = useState(false);
+  const [paymentMethodDraft, setPaymentMethodDraft] = useState("");
+  const [paymentMethodError, setPaymentMethodError] = useState(null);
 
   const [validationErrors, setValidationErrors] = useState({
     artistConflict: null,
@@ -318,6 +284,12 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
   };
 
   const canRecordRefund = () => {
+    if (!currentUser || !appointment) return false;
+    if (appointment.status !== 'completed') return false;
+    return isAdmin || userRole === 'Front_Desk';
+  };
+
+  const canEditCheckoutPayment = () => {
     if (!currentUser || !appointment) return false;
     if (appointment.status !== 'completed') return false;
     return isAdmin || userRole === 'Front_Desk';
@@ -420,19 +392,33 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     enabled: !!currentUser?.studio_id
   });
 
-  const { data: checkoutCharges = EMPTY_ARRAY, isLoading: checkoutChargesLoading } = useQuery({
-    queryKey: ['appointmentCharges', appointment?.id],
+  const { data: checkoutSaleData, isLoading: checkoutChargesLoading } = useQuery({
+    queryKey: ['checkoutSale', appointment?.id],
     queryFn: async () => {
-      if (!appointment?.id) return [];
-      return base44.entities.AppointmentCharge.filter({ appointment_id: appointment.id });
+      if (!appointment?.id) return null;
+      const sales = await base44.entities.Sale.filter({ appointment_id: appointment.id });
+      const sale = sales?.[0];
+      if (!sale) {
+        const legacyCharges = await base44.entities.AppointmentCharge.filter({
+          appointment_id: appointment.id,
+        });
+        return { sale: null, lineItems: legacyCharges };
+      }
+      const lineItems = await base44.entities.SaleLineItem.filter({ sale_id: sale.id });
+      return { sale, lineItems };
     },
     enabled: open && !!appointment?.id && appointment.status === 'completed',
   });
 
   const checkoutSummary = useMemo(() => {
-    if (!checkoutCharges.length || !appointment) return null;
-    return buildCheckoutSummary(checkoutCharges, appointment);
-  }, [checkoutCharges, appointment]);
+    if (!checkoutSaleData || !appointment) return null;
+    const { sale, lineItems } = checkoutSaleData;
+    if (!lineItems?.length) return null;
+    if (sale) {
+      return buildCheckoutSummaryFromSale(sale, lineItems, appointment);
+    }
+    return buildCheckoutSummaryFromLegacyCharges(lineItems, appointment);
+  }, [checkoutSaleData, appointment]);
 
   // Use userArtist?.id for stable dependency instead of the full object
   const userArtistId = userArtist?.id;
@@ -443,6 +429,11 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     const cached = allAppointments.find((a) => a.id === appointment.id);
     return cached ?? appointment;
   }, [appointment, allAppointments]);
+
+  useEffect(() => {
+    setEditingPaymentMethod(false);
+    setPaymentMethodError(null);
+  }, [appointment?.id, open]);
 
   useEffect(() => {
     if (appointment) {
@@ -1011,6 +1002,119 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     }
   });
 
+  /**
+   * Update the tender after checkout. Writes the cash-ledger row(s) first (this is
+   * what Daily Reconciliation sums by tender_type), then the denormalized field on
+   * the appointment. Manual tenders are always in-person, so force channel too.
+   */
+  const updatePaymentMethodMutation = useMutation({
+    mutationFn: async (newMethod) => {
+      if (!appointment?.id) throw new Error('No appointment.');
+      const { error: payErr } = await supabase
+        .from('payments')
+        .update({ tender_type: newMethod, channel: 'in_person' })
+        .eq('appointment_id', appointment.id)
+        .in('purpose', ['balance', 'retail']);
+      if (payErr) throw new Error(payErr.message || 'Could not update the payment ledger.');
+
+      const { error: aptErr } = await supabase
+        .from('appointments')
+        .update({ payment_method: newMethod })
+        .eq('id', appointment.id);
+      if (aptErr) throw new Error(aptErr.message || 'Could not update the appointment.');
+      return newMethod;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['appointments'] });
+      queryClient.invalidateQueries({ queryKey: ['checkoutSale', appointment?.id] });
+      queryClient.invalidateQueries({ queryKey: ['reconciliations'] });
+      queryClient.invalidateQueries({ queryKey: ['reconciliationTenders'] });
+      setEditingPaymentMethod(false);
+    },
+    onError: (err) => {
+      setPaymentMethodError(err?.message || 'Failed to update payment method.');
+    },
+  });
+
+  const renderCheckoutPaymentField = () => {
+    const current = appointment.payment_method || "";
+    if (!canEditCheckoutPayment()) {
+      return (
+        <div>
+          <span className="text-emerald-600">Payment:</span>
+          <p className="font-medium text-emerald-900">{current || "N/A"}</p>
+        </div>
+      );
+    }
+    if (!editingPaymentMethod) {
+      return (
+        <div>
+          <span className="text-emerald-600">Payment:</span>
+          <div className="flex items-center gap-2">
+            <p className="font-medium text-emerald-900">{current || "N/A"}</p>
+            <button
+              type="button"
+              onClick={() => {
+                setPaymentMethodError(null);
+                setPaymentMethodDraft(CHECKOUT_PAYMENT_METHOD_VALUES.includes(current) ? current : "");
+                setEditingPaymentMethod(true);
+              }}
+              className="text-xs text-emerald-700 underline hover:text-emerald-900"
+            >
+              Edit
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return (
+      <div className="col-span-2">
+        <span className="text-emerald-600">Payment:</span>
+        <div className="flex items-center gap-2 mt-1">
+          <Select value={paymentMethodDraft} onValueChange={setPaymentMethodDraft}>
+            <SelectTrigger className="h-8 text-sm bg-white w-36">
+              <SelectValue placeholder="Method" />
+            </SelectTrigger>
+            <SelectContent>
+              {CHECKOUT_PAYMENT_METHOD_OPTIONS.map(({ value, label }) => (
+                <SelectItem key={value} value={value}>{label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            type="button"
+            size="sm"
+            className="h-8 bg-emerald-600 hover:bg-emerald-700"
+            disabled={!paymentMethodDraft || updatePaymentMethodMutation.isPending}
+            onClick={() => {
+              setPaymentMethodError(null);
+              updatePaymentMethodMutation.mutate(paymentMethodDraft);
+            }}
+          >
+            {updatePaymentMethodMutation.isPending ? "Saving…" : "Save"}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="h-8 text-emerald-800"
+            disabled={updatePaymentMethodMutation.isPending}
+            onClick={() => {
+              setEditingPaymentMethod(false);
+              setPaymentMethodError(null);
+            }}
+          >
+            Cancel
+          </Button>
+        </div>
+        {paymentMethodError && <p className="text-xs text-red-600 mt-1">{paymentMethodError}</p>}
+        <p className="text-[10px] text-emerald-700 mt-1">
+          Updates the payment ledger. Rebuild Daily Reconciliation to refresh tender totals.
+        </p>
+      </div>
+    );
+  };
+
   const handleSubmit = (e) => {
     e.preventDefault();
     setEmailSendWarning(null);
@@ -1277,11 +1381,10 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     }
     setSaveError(null);
     try {
-      const { error: delErr } = await supabase
-        .from("appointment_charges")
-        .delete()
-        .eq("appointment_id", appointment.id);
-      if (delErr) throw delErr;
+      const { error: voidErr } = await supabase.rpc("void_appointment_sale", {
+        p_appointment_id: appointment.id,
+      });
+      if (voidErr) throw voidErr;
 
       const sanitizeUuid = (v) => (v === "" || v == null ? null : v);
       const data = {
@@ -1302,6 +1405,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
 
       await updateMutation.mutateAsync({ id: appointment.id, data });
       queryClient.invalidateQueries({ queryKey: ["appointmentCharges"] });
+      queryClient.invalidateQueries({ queryKey: ["sales"] });
     } catch (e) {
       setSaveError(e?.message || "Could not unlock appointment.");
     }
@@ -2018,22 +2122,75 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                   <span className="font-semibold text-emerald-800">Checked Out</span>
                 </div>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
-                  <div>
-                    <span className="text-emerald-600">Charge:</span>
-                    <p className="font-medium text-emerald-900">${(appointment.charge_amount || 0).toFixed(2)}</p>
-                  </div>
-                  <div>
-                    <span className="text-emerald-600">Tax:</span>
-                    <p className="font-medium text-emerald-900">${(appointment.tax_amount || 0).toFixed(2)}</p>
-                  </div>
-                  <div>
-                    <span className="text-emerald-600">Tip:</span>
-                    <p className="font-medium text-emerald-900">${(appointment.tip_amount || 0).toFixed(2)}</p>
-                  </div>
-                  <div>
-                    <span className="text-emerald-600">Payment:</span>
-                    <p className="font-medium text-emerald-900">{appointment.payment_method || 'N/A'}</p>
-                  </div>
+                  {checkoutSummary ? (
+                    <>
+                      <div>
+                        <span className="text-emerald-600">
+                          {checkoutSummary.allTaxInclusive ? "Merchandise" : "Charge (net)"}:
+                        </span>
+                        <p className="font-medium text-emerald-900 tabular-nums">
+                          ${checkoutSummary.allTaxInclusive
+                            ? checkoutSummary.merchandiseTotal.toFixed(2)
+                            : checkoutSummary.netPreTax.toFixed(2)}
+                        </p>
+                      </div>
+                      {checkoutSummary.tax > 0 && (
+                        <div>
+                          <span className="text-emerald-600">
+                            {checkoutSummary.allTaxInclusive ? "Tax (incl.)" : "Tax"}:
+                          </span>
+                          <p className="font-medium text-emerald-900 tabular-nums">
+                            ${checkoutSummary.tax.toFixed(2)}
+                          </p>
+                        </div>
+                      )}
+                      <div>
+                        <span className="text-emerald-600">Tip:</span>
+                        <p className="font-medium text-emerald-900 tabular-nums">
+                          ${checkoutSummary.tip.toFixed(2)}
+                        </p>
+                      </div>
+                      {renderCheckoutPaymentField()}
+                      {checkoutSummary.depositCredited > 0 && (
+                        <>
+                          <div>
+                            <span className="text-emerald-600">Deposit applied:</span>
+                            <p className="font-medium text-emerald-900 tabular-nums">
+                              -${checkoutSummary.depositCredited.toFixed(2)}
+                            </p>
+                          </div>
+                          <div>
+                            <span className="text-emerald-600">Collected at checkout:</span>
+                            <p className="font-bold text-emerald-950 tabular-nums">
+                              ${checkoutSummary.amountDue.toFixed(2)}
+                            </p>
+                          </div>
+                        </>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <div>
+                        <span className="text-emerald-600">Charge:</span>
+                        <p className="font-medium text-emerald-900">
+                          ${(appointment.charge_amount || 0).toFixed(2)}
+                        </p>
+                      </div>
+                      <div>
+                        <span className="text-emerald-600">Tax:</span>
+                        <p className="font-medium text-emerald-900">
+                          ${(appointment.tax_amount || 0).toFixed(2)}
+                        </p>
+                      </div>
+                      <div>
+                        <span className="text-emerald-600">Tip:</span>
+                        <p className="font-medium text-emerald-900">
+                          ${(appointment.tip_amount || 0).toFixed(2)}
+                        </p>
+                      </div>
+                      {renderCheckoutPaymentField()}
+                    </>
+                  )}
                 </div>
 
                 <div className="mt-4 pt-4 border-t border-emerald-200">
@@ -2102,13 +2259,23 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                           </div>
                         )}
                         <div className="flex justify-between font-medium text-emerald-900">
-                          <span className="text-emerald-600">Net (pre-tax):</span>
-                          <span className="tabular-nums">${checkoutSummary.netPreTax.toFixed(2)}</span>
+                          <span className="text-emerald-600">
+                            {checkoutSummary.allTaxInclusive ? "Merchandise (tax included in prices)" : "Net (pre-tax)"}:
+                          </span>
+                          <span className="tabular-nums">
+                            ${checkoutSummary.allTaxInclusive
+                              ? checkoutSummary.merchandiseTotal.toFixed(2)
+                              : checkoutSummary.netPreTax.toFixed(2)}
+                          </span>
                         </div>
-                        <div className="flex justify-between text-emerald-800">
-                          <span className="text-emerald-600">Tax:</span>
-                          <span className="tabular-nums">${checkoutSummary.tax.toFixed(2)}</span>
-                        </div>
+                        {checkoutSummary.tax > 0 && (
+                          <div className="flex justify-between text-emerald-800">
+                            <span className="text-emerald-600">
+                              {checkoutSummary.allTaxInclusive ? "Tax (included above)" : "Tax"}:
+                            </span>
+                            <span className="tabular-nums">${checkoutSummary.tax.toFixed(2)}</span>
+                          </div>
+                        )}
                         {checkoutSummary.tip > 0 && (
                           <div className="flex justify-between text-emerald-800">
                             <span className="text-emerald-600">Tip to artist:</span>
@@ -2119,6 +2286,18 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                           <span>Total{checkoutSummary.tip > 0 ? " (incl. tip)" : ""}:</span>
                           <span className="tabular-nums">${checkoutSummary.grandTotal.toFixed(2)}</span>
                         </div>
+                        {checkoutSummary.depositCredited > 0 && (
+                          <>
+                            <div className="flex justify-between text-emerald-800">
+                              <span className="text-emerald-600">Paid deposit applied:</span>
+                              <span className="tabular-nums">-${checkoutSummary.depositCredited.toFixed(2)}</span>
+                            </div>
+                            <div className="flex justify-between font-bold text-emerald-950">
+                              <span>Collected at checkout:</span>
+                              <span className="tabular-nums">${checkoutSummary.amountDue.toFixed(2)}</span>
+                            </div>
+                          </>
+                        )}
                       </div>
                     </>
                   ) : (

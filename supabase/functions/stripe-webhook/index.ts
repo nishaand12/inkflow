@@ -1,6 +1,8 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import Stripe from "npm:stripe@17";
+import { mergeStripeDepositPaidMetadata } from "../_shared/stripeDepositPaymentMetadata.ts";
+import { buildPaymentLedgerFields } from "../_shared/paymentLedger.ts";
 
 const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY")!;
 const STRIPE_WEBHOOK_SECRET = Deno.env.get("STRIPE_WEBHOOK_SECRET")!;
@@ -88,16 +90,49 @@ serve(async (req) => {
           .eq("stripe_checkout_session_id", session.id)
           .maybeSingle();
 
+        const { data: aptRow } = appointmentId
+          ? await supabase
+            .from("appointments")
+            .select("id, location_id, artist_id, customer_id, appointment_date, status, studio:studios(timezone)")
+            .eq("id", appointmentId)
+            .maybeSingle()
+          : { data: null };
+
+        const paidAt = new Date().toISOString();
+        const studioTz = (aptRow?.studio as { timezone?: string } | null)?.timezone;
+        const purpose = paymentType === "checkout" ? "balance" : "deposit";
+        const ledger = buildPaymentLedgerFields({
+          locationId: aptRow?.location_id,
+          timezone: studioTz,
+          paidAt,
+          tenderType: "Stripe",
+          channel: "online",
+          purpose,
+        });
+
+        const payUpdate: Record<string, unknown> = {
+          status: "paid",
+          stripe_payment_intent_id:
+            typeof session.payment_intent === "string"
+              ? session.payment_intent
+              : null,
+          paid_at: paidAt,
+          location_id: ledger.location_id,
+          business_date: ledger.business_date,
+          tender_type: ledger.tender_type,
+          channel: ledger.channel,
+          purpose: ledger.purpose,
+          occurred_at: ledger.occurred_at,
+        };
+        if (paymentType === "deposit") {
+          payUpdate.metadata = mergeStripeDepositPaidMetadata(
+            paymentRow?.metadata as Record<string, unknown> | null | undefined,
+          );
+        }
+
         const { error: payUpdateErr } = await supabase
           .from("payments")
-          .update({
-            status: "paid",
-            stripe_payment_intent_id:
-              typeof session.payment_intent === "string"
-                ? session.payment_intent
-                : null,
-            paid_at: new Date().toISOString(),
-          })
+          .update(payUpdate)
           .eq("stripe_checkout_session_id", session.id);
 
         // Surface DB failures as 500 so Stripe retries the event instead of
@@ -109,38 +144,19 @@ serve(async (req) => {
 
         if (appointmentId) {
           if (paymentType === "checkout") {
-            const chargeAmount = session.metadata?.charge_amount
-              ? parseFloat(session.metadata.charge_amount)
-              : null;
-            const taxAmount = session.metadata?.tax_amount
-              ? parseFloat(session.metadata.tax_amount)
-              : null;
             const tipAmount = session.metadata?.tip_amount
               ? parseFloat(session.metadata.tip_amount)
               : 0;
-
-            const { data: aptBefore } = await supabase
-              .from("appointments")
-              .select("status")
-              .eq("id", appointmentId)
-              .maybeSingle();
 
             const rawLines = paymentRow?.metadata?.checkout_line_items;
             const lineItems = Array.isArray(rawLines) ? rawLines : [];
 
             if (
-              aptBefore?.status !== "completed" &&
+              aptRow?.status !== "completed" &&
               lineItems.length > 0 &&
               studioIdMeta
             ) {
-              await supabase
-                .from("appointment_charges")
-                .delete()
-                .eq("appointment_id", appointmentId);
-
-              const rows = lineItems.map((line: Record<string, unknown>) => ({
-                studio_id: studioIdMeta,
-                appointment_id: appointmentId,
+              const pLines = lineItems.map((line: Record<string, unknown>) => ({
                 line_type: String(line.line_type ?? "adjustment"),
                 reporting_category_id: line.reporting_category_id ?? null,
                 reporting_category_name: line.reporting_category_name ?? null,
@@ -149,67 +165,62 @@ serve(async (req) => {
                 quantity: Number(line.quantity) || 1,
                 unit_price: Number(line.unit_price) || 0,
                 discount_amount: Number(line.discount_amount) || 0,
-                line_total: Number(line.line_total) || 0,
+                tax_rate: Number(line.tax_rate) ||
+                  (line.line_type === "service" ? 0.13 : 0),
+                tax_inclusive: Boolean(line.tax_inclusive),
+                revenue_sign: Number(line.revenue_sign) ||
+                  (Number(line.line_total) < 0 ? -1 : 1),
               }));
 
-              const stockPayload = lineItems
-                .filter(
-                  (line: Record<string, unknown>) =>
-                    line.line_type === "product" && line.product_id,
-                )
-                .reduce(
-                  (
-                    acc: { product_id: string; quantity: number }[],
-                    line: Record<string, unknown>,
-                  ) => {
-                    const pid = String(line.product_id);
-                    const qty = Number(line.quantity) || 0;
-                    const idx = acc.findIndex((x) => x.product_id === pid);
-                    if (idx >= 0) acc[idx].quantity += qty;
-                    else acc.push({ product_id: pid, quantity: qty });
-                    return acc;
+              const { data: saleId, error: finalizeErr } = await supabase.rpc(
+                "finalize_sale_system",
+                {
+                  p_studio: studioIdMeta,
+                  p_sale: {
+                    location_id: aptRow?.location_id || null,
+                    artist_id: aptRow?.artist_id || null,
+                    customer_id: aptRow?.customer_id || null,
+                    appointment_id: appointmentId,
+                    sale_date: aptRow?.appointment_date || null,
+                    tip_total: tipAmount,
+                    artist_share: 0,
                   },
-                  [],
-                );
-
-              const { error: insertErr } = await supabase
-                .from("appointment_charges")
-                .insert(rows);
-              if (insertErr) {
-                console.error("appointment_charges insert:", insertErr);
-              } else if (stockPayload.length > 0) {
-                const { error: stockErr } = await supabase.rpc(
-                  "apply_product_checkout_stock_system",
-                  { p_studio_id: studioIdMeta, p_lines: stockPayload },
-                );
-                if (stockErr) {
-                  console.error("apply_product_checkout_stock_system:", stockErr);
-                }
-              }
-            }
-
-            const aptPatch: Record<string, unknown> = {
-              status: "completed",
-              charge_amount: chargeAmount,
-              tax_amount: taxAmount,
-              tip_amount: tipAmount,
-              payment_method: "Stripe",
-            };
-            if (
-              lineItems.length > 0 &&
-              aptBefore?.status !== "completed"
-            ) {
-              aptPatch.discount_amount = lineItems.reduce(
-                (s, line: Record<string, unknown>) =>
-                  s + (Number(line.discount_amount) || 0),
-                0,
+                  p_lines: pLines,
+                  p_payment: null,
+                },
               );
-            }
 
-            await supabase
-              .from("appointments")
-              .update(aptPatch)
-              .eq("id", appointmentId);
+              if (finalizeErr) {
+                console.error("finalize_sale_system:", finalizeErr);
+                throw new Error(`finalize_sale_system failed: ${finalizeErr.message}`);
+              }
+
+              if (saleId) {
+                await supabase
+                  .from("payments")
+                  .update({ sale_id: saleId })
+                  .eq("stripe_checkout_session_id", session.id);
+              }
+            } else if (aptRow?.status !== "completed") {
+              // Legacy fallback when no line items were stored in payment metadata.
+              const chargeAmount = session.metadata?.charge_amount
+                ? parseFloat(session.metadata.charge_amount)
+                : null;
+              const taxAmount = session.metadata?.tax_amount
+                ? parseFloat(session.metadata.tax_amount)
+                : null;
+
+              await supabase
+                .from("appointments")
+                .update({
+                  status: "completed",
+                  charge_amount: chargeAmount,
+                  tax_amount: taxAmount,
+                  tip_amount: tipAmount,
+                  payment_method: "Stripe",
+                })
+                .eq("id", appointmentId);
+            }
           } else {
             const { error: aptUpdateErr } = await supabase
               .from("appointments")

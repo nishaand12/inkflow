@@ -8,6 +8,8 @@
     "settlement_line_id": { "type": "string", "description": "FK to daily_settlement_lines" },
     "appointment_id": { "type": "string", "description": "FK to appointments" },
     "payout_id": { "type": "string", "description": "FK to artist_payouts" },
+    "sale_id": { "type": "string", "description": "FK to sales" },
+    "reconciliation_id": { "type": "string", "description": "FK to daily_reconciliations that posted this earnings row" },
     "entry_type": {
       "type": "string",
       "enum": ["settlement_share", "tip", "payout", "adjustment"],

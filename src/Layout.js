@@ -22,7 +22,8 @@ import {
   Tags,
   Wallet,
   FileText,
-  ClipboardCheck
+  ClipboardCheck,
+  ShoppingCart
 } from "lucide-react";
 import {
   Sidebar,
@@ -174,6 +175,12 @@ export default function Layout({ children, currentPageName = null }) {
         roles: ["Owner", "Admin", "Front_Desk", "Artist"],
       },
       {
+        title: "New Sale",
+        url: createPageUrl("Sales"),
+        icon: ShoppingCart,
+        roles: ["Owner", "Admin", "Front_Desk"],
+      },
+      {
         title: "Customers",
         url: createPageUrl("Customers"),
         icon: UserPlus,
@@ -222,7 +229,7 @@ export default function Layout({ children, currentPageName = null }) {
         roles: ["Owner", "Admin"],
       },
       {
-        title: "Settlements",
+        title: "Daily Reconciliation",
         url: createPageUrl("Settlements"),
         icon: Wallet,
         roles: ["Owner", "Admin"],
