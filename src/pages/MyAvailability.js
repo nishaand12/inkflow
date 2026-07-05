@@ -17,7 +17,6 @@ import { getArtistTypeGroupLabel } from "@/utils/artistTypes";
 import {
   getArtistIdsForFilter,
   getDistinctArtistTypes,
-  isArtistTypeFilter,
 } from "@/utils/artistTypeFilter";
 import { getArtistColor } from "@/utils/artistColors";
 import { navigateNext, navigatePrev, getViewTitle } from "@/utils/calendarViews";

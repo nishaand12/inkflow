@@ -57,22 +57,8 @@ function productPriceIncludesTax(product) {
   return Boolean(product?.price_includes_tax);
 }
 
-function lineAmountAfterDiscount(li) {
-  return Math.max(0, li.quantity * li.unit_price - (li.discount_amount || 0));
-}
-
 function isNegativeRevenueLine(li) {
   return li._revenue_sign === 'negative';
-}
-
-/** +1 for normal lines, -1 for negative-revenue lines (coupons/discounts). */
-function lineSign(li) {
-  return isNegativeRevenueLine(li) ? -1 : 1;
-}
-
-/** Signed line amount after discount: negative-revenue lines subtract from totals. */
-function signedLineAmountAfterDiscount(li) {
-  return lineSign(li) * lineAmountAfterDiscount(li);
 }
 
 function resolveLineTaxRate(li) {
@@ -81,29 +67,6 @@ function resolveLineTaxRate(li) {
     rate = li.line_type === "service" ? DEFAULT_SERVICE_TAX_RATE : 0;
   }
   return Number(rate);
-}
-
-/** Pre-tax net (appointment charge_amount is sum of these). Signed: negative-revenue lines subtract. */
-function linePreTaxNet(li) {
-  const gross = lineAmountAfterDiscount(li);
-  const rate = resolveLineTaxRate(li);
-  let net = gross;
-  if (rate > 0 && li.tax_inclusive) net = gross / (1 + rate);
-  return lineSign(li) * net;
-}
-
-function lineTaxAmount(li) {
-  const gross = lineAmountAfterDiscount(li);
-  const rate = resolveLineTaxRate(li);
-  if (rate <= 0) return 0;
-  const tax = li.tax_inclusive ? gross - gross / (1 + rate) : gross * rate;
-  return lineSign(li) * tax;
-}
-
-function parseMoneyInput(value) {
-  const parsed = parseFloat(value);
-  if (!Number.isFinite(parsed)) return 0;
-  return Math.max(0, parsed);
 }
 
 /** Prefer appointment type service_cost (sticker price), not charge_amount (pre-tax net after checkout). */
