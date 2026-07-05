@@ -8,10 +8,12 @@ import {
   fetchCategoryReport,
   fetchDailyTotalsReport,
   fetchLocationReport,
+  fetchPaymentsReport,
   fetchReportContext,
   fetchSalesReport,
   fetchStripeDepositsReport,
 } from "@/api/reports";
+import { CHECKOUT_PAYMENT_METHOD_OPTIONS } from "@/utils/checkoutPaymentMethods";
 import SaleDetailDialog from "@/components/sales/SaleDetailDialog";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -26,7 +28,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import { Download, DollarSign, Clock, AlertTriangle, BarChart3, Users, TrendingUp, Globe, ShoppingBag, ChevronLeft, ChevronRight } from "lucide-react";
+import { Download, DollarSign, Clock, AlertTriangle, BarChart3, Users, TrendingUp, Globe, ShoppingBag, ChevronLeft, ChevronRight, CreditCard } from "lucide-react";
 import { format, parseISO, startOfMonth, endOfMonth } from "date-fns";
 import { normalizeUserRole } from "@/utils/roles";
 import { getArtistTypeLabel, isSupportStaffArtistType } from "@/utils/artistTypes";
@@ -70,6 +72,14 @@ function exportToCSV(data, filename) {
 }
 
 const SALES_PAGE_SIZE = 25;
+const PAYMENTS_PAGE_SIZE = 50;
+
+// Tender options for the Payments reconciliation filter: in-person tenders plus
+// online (Stripe) payments, which are stored with tender_type = "Stripe".
+const PAYMENT_TENDER_OPTIONS = [
+  ...CHECKOUT_PAYMENT_METHOD_OPTIONS,
+  { value: "Stripe", label: "Stripe (online)" },
+];
 
 function formatDateTime(iso) {
   if (!iso) return "—";
@@ -101,6 +111,8 @@ export default function Reports() {
   const [activeTab, setActiveTab] = useState("daily");
   const [salesPage, setSalesPage] = useState(0);
   const [selectedSaleRow, setSelectedSaleRow] = useState(null);
+  const [filterTender, setFilterTender] = useState("all");
+  const [paymentsPage, setPaymentsPage] = useState(0);
 
   useEffect(() => {
     (async () => {
@@ -130,6 +142,10 @@ export default function Reports() {
   useEffect(() => {
     setSalesPage(0);
   }, [startDate, endDate, filterLocation, filterArtist]);
+
+  useEffect(() => {
+    setPaymentsPage(0);
+  }, [startDate, endDate, filterLocation, filterTender]);
 
   const { data: availabilities = [], isLoading: loadingAvailabilities } = useQuery({
     queryKey: ["reportAvailabilities", startDate, endDate, filterLocation],
@@ -234,6 +250,20 @@ export default function Reports() {
     enabled: !!studioId && dateRangeValid && activeTab === "sales",
   });
 
+  const { data: paymentsReport, isLoading: loadingPayments } = useQuery({
+    queryKey: ["paymentsReport", startDate, endDate, filterLocation, filterTender, paymentsPage],
+    queryFn: () =>
+      fetchPaymentsReport({
+        startDate,
+        endDate,
+        locationId: filterLocation,
+        tenderType: filterTender,
+        limit: PAYMENTS_PAGE_SIZE,
+        offset: paymentsPage * PAYMENTS_PAGE_SIZE,
+      }),
+    enabled: !!studioId && dateRangeValid && activeTab === "payments",
+  });
+
   const dailyRows = dailyTotalsReport?.rows ?? [];
   const periodSummary = dailyTotalsReport?.period_summary ?? {};
   const unreconciledDayCount = dailyTotalsReport?.unreconciled_day_count ?? 0;
@@ -268,6 +298,12 @@ export default function Reports() {
   const salesRows = salesReport?.rows ?? [];
   const salesTotalCount = salesReport?.total_count ?? 0;
   const salesTotalPages = Math.max(1, Math.ceil(salesTotalCount / SALES_PAGE_SIZE));
+
+  const paymentRows = paymentsReport?.rows ?? [];
+  const paymentsByTender = paymentsReport?.by_tender ?? [];
+  const paymentsSummary = paymentsReport?.summary ?? {};
+  const paymentsTotalCount = paymentsReport?.total_count ?? 0;
+  const paymentsTotalPages = Math.max(1, Math.ceil(paymentsTotalCount / PAYMENTS_PAGE_SIZE));
 
   const customerById = useMemo(
     () => Object.fromEntries(customers.map((c) => [c.id, c])),
@@ -436,6 +472,7 @@ export default function Reports() {
             <TabsTrigger value="artist">By Artist</TabsTrigger>
             {showMultiLocationTab && <TabsTrigger value="location">By Location</TabsTrigger>}
             <TabsTrigger value="support_staff_hours">Counter / Scrub Hours</TabsTrigger>
+            <TabsTrigger value="payments">Payments</TabsTrigger>
             <TabsTrigger value="stripe">Stripe Deposits</TabsTrigger>
             <TabsTrigger value="sales">Sales</TabsTrigger>
           </TabsList>
@@ -846,6 +883,167 @@ export default function Reports() {
                       </tbody>
                     </table>
                   </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="payments">
+            <Card className="bg-white border-none shadow-lg">
+              <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <CreditCard className="w-5 h-5 text-indigo-600" />
+                    Payments
+                  </CardTitle>
+                  <p className="text-sm text-gray-500 font-normal mt-1 max-w-xl">
+                    Payments captured by business date (the day the money moved). Match the
+                    per-tender totals against your cash drawer and card terminal.
+                  </p>
+                </div>
+                <div className="flex flex-col sm:flex-row sm:items-center gap-3 shrink-0">
+                  <div className="flex items-center gap-2">
+                    <Label className="text-sm whitespace-nowrap">Method</Label>
+                    <Select value={filterTender} onValueChange={setFilterTender}>
+                      <SelectTrigger className="w-[180px]"><SelectValue placeholder="All Methods" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Methods</SelectItem>
+                        {PAYMENT_TENDER_OPTIONS.map((o) => (
+                          <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <Button
+                    variant="outline"
+                    className="shrink-0"
+                    onClick={async () => {
+                      const exportData = await fetchPaymentsReport({
+                        startDate,
+                        endDate,
+                        locationId: filterLocation,
+                        tenderType: filterTender,
+                        limit: 500,
+                        offset: 0,
+                      });
+                      exportToCSV(
+                        (exportData.rows ?? []).map((row) => ({
+                          business_date: row.business_date,
+                          occurred_at: row.occurred_at || row.paid_at,
+                          method: row.tender_type || "",
+                          channel: row.channel || "",
+                          purpose: row.purpose || "",
+                          amount: row.amount,
+                          location: locationById[row.location_id]?.name || "",
+                          sale_id: row.sale_id || "",
+                          customer_id: row.customer_id || "",
+                        })),
+                        "payments_reconciliation"
+                      );
+                    }}
+                    disabled={paymentsTotalCount === 0}
+                  >
+                    <Download className="w-4 h-4 mr-2" /> Export CSV
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {loadingPayments ? (
+                  <p className="text-center py-12 text-gray-500">Loading…</p>
+                ) : (
+                  <>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                      <div className="rounded-lg border border-gray-100 p-4 bg-gray-50/80">
+                        <p className="text-xs text-gray-500">Net collected</p>
+                        <p className="text-xl font-bold text-gray-900">{money(paymentsSummary.net_collected)}</p>
+                      </div>
+                      <div className="rounded-lg border border-gray-100 p-4 bg-red-50/60">
+                        <p className="text-xs text-gray-500">Refunds</p>
+                        <p className="text-xl font-bold text-red-700">{money(paymentsSummary.refund_total)}</p>
+                      </div>
+                      <div className="rounded-lg border border-gray-100 p-4 bg-gray-50/80">
+                        <p className="text-xs text-gray-500">Payments</p>
+                        <p className="text-xl font-bold text-gray-900">{paymentsSummary.payment_count ?? 0}</p>
+                      </div>
+                    </div>
+                    {paymentsByTender.length > 0 && (
+                      <div className="flex flex-wrap gap-2">
+                        {paymentsByTender.map((row) => (
+                          <span
+                            key={row.tender_type}
+                            className="inline-flex items-center rounded-full bg-indigo-50 text-indigo-900 px-3 py-1 text-xs font-medium"
+                          >
+                            {row.tender_type}: {money(row.net_total)} ({row.payment_count})
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {paymentRows.length === 0 ? (
+                      <div className="text-center py-12">
+                        <CreditCard className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                        <p className="text-gray-500">No payments captured in this range.</p>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="overflow-x-auto">
+                          <table className="w-full">
+                            <thead className="bg-gray-50">
+                              <tr>
+                                <th className="px-3 py-3 text-left text-sm font-semibold text-gray-900">Business date</th>
+                                <th className="px-3 py-3 text-left text-sm font-semibold text-gray-900">Time</th>
+                                <th className="px-3 py-3 text-left text-sm font-semibold text-gray-900">Method</th>
+                                <th className="px-3 py-3 text-left text-sm font-semibold text-gray-900">Channel</th>
+                                <th className="px-3 py-3 text-left text-sm font-semibold text-gray-900">Purpose</th>
+                                <th className="px-3 py-3 text-right text-sm font-semibold text-gray-900">Amount</th>
+                                <th className="px-3 py-3 text-left text-sm font-semibold text-gray-900">Sale</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-200">
+                              {paymentRows.map((row) => (
+                                <tr key={row.id} className="hover:bg-gray-50">
+                                  <td className="px-3 py-3 text-sm text-gray-900">{row.business_date}</td>
+                                  <td className="px-3 py-3 text-sm text-gray-600">{formatDateTime(row.occurred_at || row.paid_at)}</td>
+                                  <td className="px-3 py-3 text-sm text-gray-900 font-medium">{row.tender_type || "—"}</td>
+                                  <td className="px-3 py-3 text-sm text-gray-600 capitalize">
+                                    {row.channel ? row.channel.replace("_", "-") : "—"}
+                                  </td>
+                                  <td className="px-3 py-3 text-sm text-gray-600 capitalize">{row.purpose || "—"}</td>
+                                  <td className="px-3 py-3 text-sm text-gray-900 text-right tabular-nums font-medium">{money(row.amount)}</td>
+                                  <td className="px-3 py-3 text-sm text-gray-500 font-mono text-xs">{row.sale_id ? row.sale_id.slice(0, 8) : "—"}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                        {paymentsTotalCount > PAYMENTS_PAGE_SIZE && (
+                          <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-100">
+                            <p className="text-sm text-gray-500">
+                              Showing {paymentsPage * PAYMENTS_PAGE_SIZE + 1}–
+                              {Math.min((paymentsPage + 1) * PAYMENTS_PAGE_SIZE, paymentsTotalCount)} of {paymentsTotalCount}
+                            </p>
+                            <div className="flex gap-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={paymentsPage === 0}
+                                onClick={() => setPaymentsPage((p) => p - 1)}
+                              >
+                                <ChevronLeft className="w-4 h-4" />
+                              </Button>
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={paymentsPage >= paymentsTotalPages - 1}
+                                onClick={() => setPaymentsPage((p) => p + 1)}
+                              >
+                                <ChevronRight className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </>
                 )}
               </CardContent>
             </Card>

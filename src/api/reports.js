@@ -178,6 +178,36 @@ export async function fetchStripeDepositsReport({ startDate, endDate, locationId
   );
 }
 
+/** Payment-centric reconciliation report — get_payments_report RPC */
+export async function fetchPaymentsReport({
+  startDate,
+  endDate,
+  locationId,
+  tenderType,
+  limit = 50,
+  offset = 0,
+}) {
+  const { data, error } = await supabase.rpc("get_payments_report", {
+    p_start_date: startDate,
+    p_end_date: endDate,
+    p_location_id: normalizeLocationId(locationId),
+    p_tender_type: tenderType && tenderType !== "all" ? tenderType : null,
+    p_limit: limit,
+    p_offset: offset,
+  });
+  if (error) throw error;
+  return (
+    data ?? {
+      rows: [],
+      by_tender: [],
+      summary: {},
+      total_count: 0,
+      limit,
+      offset,
+    }
+  );
+}
+
 /** Phase 7 — get_sales_summary_report RPC */
 export async function fetchSalesReport({
   startDate,
