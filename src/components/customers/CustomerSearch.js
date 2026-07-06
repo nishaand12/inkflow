@@ -1,10 +1,20 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import { Button } from "@/components/ui/button";
-import { Search, Plus, Check } from "lucide-react";
+import { Search, Plus, Check, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { sortByNameThenId } from "@/utils/listSort";
 
-export default function CustomerSearch({ customers, onSelect, onNewCustomer, onAdvancedSearch, selectedCustomer }) {
+export default function CustomerSearch({
+  customers,
+  onSelect,
+  onNewCustomer,
+  onAdvancedSearch,
+  selectedCustomer,
+  emptyLabel = "Search customer by name...",
+  allowClear = false,
+  onClear,
+}) {
   const [open, setOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const dropdownRef = useRef(null);
@@ -24,15 +34,23 @@ export default function CustomerSearch({ customers, onSelect, onNewCustomer, onA
     };
   }, [open]);
 
-  const activeCustomers = customers.filter(customer => customer.is_active);
+  const sortedActiveCustomers = useMemo(
+    () => sortByNameThenId(customers.filter((customer) => customer.is_active)),
+    [customers]
+  );
 
-  const filteredCustomers = searchTerm.trim() === ''
-    ? activeCustomers.slice(0, 10)
-    : activeCustomers.filter(customer =>
-        customer.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        customer.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        customer.phone_number?.includes(searchTerm)
-      ).slice(0, 10);
+  const filteredCustomers = useMemo(() => {
+    const term = searchTerm.trim().toLowerCase();
+    const matches = term === ""
+      ? sortedActiveCustomers
+      : sortedActiveCustomers.filter(
+          (customer) =>
+            customer.name?.toLowerCase().includes(term) ||
+            customer.email?.toLowerCase().includes(term) ||
+            customer.phone_number?.includes(searchTerm.trim())
+        );
+    return matches.slice(0, 10);
+  }, [searchTerm, sortedActiveCustomers]);
 
   const handleSelect = (customer) => {
     onSelect(customer);
@@ -50,10 +68,23 @@ export default function CustomerSearch({ customers, onSelect, onNewCustomer, onA
           className="w-full justify-between text-left"
         >
           <span className={selectedCustomer ? "text-gray-900" : "text-gray-500"}>
-            {selectedCustomer ? selectedCustomer.name : "Search customer by name..."}
+            {selectedCustomer ? selectedCustomer.name : emptyLabel}
           </span>
           <Search className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
+
+        {allowClear && selectedCustomer && onClear && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onClear}
+            className="absolute right-10 top-1/2 -translate-y-1/2 h-7 w-7 p-0 text-gray-400 hover:text-gray-600"
+            aria-label="Clear customer selection"
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        )}
 
         {open && (
           <div className="absolute z-50 w-full mt-2 bg-white border border-gray-200 rounded-md shadow-lg max-h-[300px] overflow-auto">

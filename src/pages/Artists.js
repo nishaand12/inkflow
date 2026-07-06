@@ -338,15 +338,15 @@ export default function Artists() {
                 } overflow-hidden`}
               >
                 <div className="h-2 bg-gradient-to-r from-indigo-500 to-purple-500"></div>
-                <CardContent className="p-6">
-                  <div className="flex items-start gap-4 mb-4">
-                    <Avatar className="w-16 h-16 border-4 border-indigo-100">
+                <CardContent className="p-6 min-w-0">
+                  <div className="flex items-start gap-4 mb-4 min-w-0">
+                    <Avatar className="w-16 h-16 shrink-0 border-4 border-indigo-100">
                       <AvatarFallback className="bg-gradient-to-br from-indigo-500 to-indigo-600 text-white text-xl font-bold">
                         {artist.full_name?.charAt(0)}
                       </AvatarFallback>
                     </Avatar>
-                    <div className="flex-1">
-                      <h3 className="font-bold text-lg text-gray-900">{artist.full_name}</h3>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-bold text-lg text-gray-900 break-words">{artist.full_name}</h3>
                       <div className="flex gap-1 mt-1 flex-wrap">
                         <Badge variant="secondary" className={
                           artist.artist_type === 'piercer'
@@ -381,7 +381,7 @@ export default function Artists() {
                         )}
                       </div>
                     </div>
-                    <Badge className={artist.is_active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}>
+                    <Badge className={`shrink-0 ${artist.is_active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
                       {artist.is_active ? 'Active' : 'Inactive'}
                     </Badge>
                   </div>
@@ -412,7 +412,7 @@ export default function Artists() {
                   </div>
                   
                   {canEdit && (
-                    <div className="flex justify-end mt-4 pt-4 border-t border-gray-100 gap-2">
+                    <div className="grid gap-2 mt-4 pt-4 border-t border-gray-100 [grid-template-columns:repeat(auto-fit,minmax(min(100%,8rem),1fr))]">
                       {(() => {
                         const rule = splitRules.find(
                           (r) => isArtistDefaultSplitRule(r) && r.artist_id === artist.id
@@ -421,38 +421,45 @@ export default function Artists() {
                           <Button
                             variant="outline"
                             size="sm"
+                            className="w-full"
                             onClick={(e) => { e.stopPropagation(); setSplitArtist(artist); setShowSplitDialog(true); }}
                           >
-                            <HandCoins className="w-4 h-4 mr-1" />
-                            {rule
-                              ? rule.split_mode === "fixed_amount"
-                                ? `$${Number(rule.split_value ?? 0).toFixed(2)}`
-                                : `${Number(rule.split_value ?? rule.split_percent ?? 0)}%`
-                              : 'Set Split'}
+                            <HandCoins className="w-4 h-4 mr-1 shrink-0" />
+                            <span className="truncate">
+                              {rule
+                                ? rule.split_mode === "fixed_amount"
+                                  ? `$${Number(rule.split_value ?? 0).toFixed(2)}`
+                                  : `${Number(rule.split_value ?? rule.split_percent ?? 0)}%`
+                                : 'Set Split'}
+                            </span>
                           </Button>
                         );
                       })()}
                       <Button
                         variant="outline"
                         size="sm"
+                        className="w-full"
                         onClick={(e) => {
                           e.stopPropagation();
                           setRestrictionsArtist(artist);
                           setShowRestrictionsDialog(true);
                         }}
                       >
-                        <Ban className="w-4 h-4 mr-1" />
-                        {exclusionCount > 0 ? `${exclusionCount} excluded` : "Services"}
+                        <Ban className="w-4 h-4 mr-1 shrink-0" />
+                        <span className="truncate">
+                          {exclusionCount > 0 ? `${exclusionCount} excluded` : "Services"}
+                        </span>
                       </Button>
                       <AlertDialog>
                         <AlertDialogTrigger asChild>
                           <Button
                             variant="destructive"
                             size="sm"
+                            className="w-full"
                             onClick={(e) => e.stopPropagation()}
                             disabled={deleteArtistMutation.isLoading}
                           >
-                            <Trash className="w-4 h-4 mr-2" />
+                            <Trash className="w-4 h-4 mr-2 shrink-0" />
                             Remove
                           </Button>
                         </AlertDialogTrigger>
