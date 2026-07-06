@@ -31,6 +31,10 @@ import {
   computeAppointmentShares,
 } from "@/utils/revenueSplits";
 import SaleDetailDialog from "../components/sales/SaleDetailDialog";
+import CustomerSearch from "../components/customers/CustomerSearch";
+import CustomerDialog from "../components/customers/CustomerDialog";
+import AdvancedSearchDialog from "../components/customers/AdvancedSearchDialog";
+import { normalizeUserRole } from "@/utils/roles";
 
 function getProductTaxRate(product) {
   const r = product?.tax_rate;
@@ -69,7 +73,9 @@ export default function Sales() {
   const [barcodeBuffer, setBarcodeBuffer] = useState("");
 
   const [locationId, setLocationId] = useState("");
-  const [customerId, setCustomerId] = useState("");
+  const [selectedCustomer, setSelectedCustomer] = useState(null);
+  const [showCustomerDialog, setShowCustomerDialog] = useState(false);
+  const [showAdvancedSearch, setShowAdvancedSearch] = useState(false);
   const [artistId, setArtistId] = useState("");
   const [lineItems, setLineItems] = useState([]);
   const [tipAmount, setTipAmount] = useState("");
@@ -86,6 +92,10 @@ export default function Sales() {
   }, []);
 
   const studioId = user?.studio_id;
+  const userRole = user
+    ? normalizeUserRole(user.user_role || (user.role === "admin" ? "Admin" : "Front_Desk"))
+    : null;
+  const isAdmin = userRole === "Admin" || userRole === "Owner";
   const today = format(new Date(), "yyyy-MM-dd");
   const qOpts = (key, fn) => ({ queryKey: [key, studioId], queryFn: () => fn(), enabled: !!studioId });
 
@@ -288,7 +298,7 @@ export default function Sales() {
         p_sale: {
           location_id: locationId,
           artist_id: artistId || null,
-          customer_id: customerId || null,
+          customer_id: selectedCustomer?.id || null,
           appointment_id: null,
           tip_total: totals.tipTotal,
           artist_share: artistShare,
@@ -304,13 +314,23 @@ export default function Sales() {
       queryClient.invalidateQueries({ queryKey: ["sales", studioId, today] });
       setLineItems([]);
       setTipAmount("");
-      setCustomerId("");
+      setSelectedCustomer(null);
       setArtistId("");
       setMessage({ type: "success", text: "Sale recorded." });
       setTimeout(() => setMessage(null), 3000);
     },
     onError: (err) => setMessage({ type: "error", text: err.message || "Sale failed." }),
   });
+
+  const handleCustomerSelect = (customer) => {
+    setSelectedCustomer(customer);
+    const preferredLocation = locations.find((location) => location.id === customer.preferred_location_id);
+    if (preferredLocation?.is_active) {
+      setLocationId(customer.preferred_location_id);
+    }
+  };
+
+  const handleClearCustomer = () => setSelectedCustomer(null);
 
   const activeProducts = products.filter((p) => p.is_active);
 
@@ -338,13 +358,16 @@ export default function Sales() {
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">Customer (optional)</Label>
-                <Select value={customerId || "__none__"} onValueChange={(v) => setCustomerId(v === "__none__" ? "" : v)}>
-                  <SelectTrigger><SelectValue placeholder="Walk-in" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">Walk-in</SelectItem>
-                    {customers.map((c) => (<SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>))}
-                  </SelectContent>
-                </Select>
+                <CustomerSearch
+                  customers={customers}
+                  selectedCustomer={selectedCustomer}
+                  onSelect={handleCustomerSelect}
+                  onNewCustomer={() => setShowCustomerDialog(true)}
+                  onAdvancedSearch={() => setShowAdvancedSearch(true)}
+                  emptyLabel="Walk-in"
+                  allowClear
+                  onClear={handleClearCustomer}
+                />
               </div>
               <div className="space-y-1">
                 <Label className="text-xs">Attribute to artist (optional)</Label>
@@ -597,6 +620,26 @@ export default function Sales() {
           user={user}
           studioId={studioId}
           saleDate={today}
+        />
+
+        <CustomerDialog
+          open={showCustomerDialog}
+          onOpenChange={setShowCustomerDialog}
+          customer={null}
+          locations={locations}
+          isAdmin={isAdmin}
+          currentUser={user}
+          onCreated={(customer) => {
+            handleCustomerSelect(customer);
+            queryClient.invalidateQueries({ queryKey: ["customers", studioId] });
+          }}
+        />
+
+        <AdvancedSearchDialog
+          open={showAdvancedSearch}
+          onOpenChange={setShowAdvancedSearch}
+          customers={customers}
+          onSelectCustomer={handleCustomerSelect}
         />
       </div>
     </div>

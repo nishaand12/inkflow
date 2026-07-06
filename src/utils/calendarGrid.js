@@ -1,4 +1,5 @@
-export const HOUR_HEIGHT = 120;
+export const HOUR_HEIGHT = 180;
+export const CALENDAR_APPOINTMENT_FONT_SIZE = 10;
 export const SHORT_APPT_THRESHOLD_MINS = 20;
 export const DEFAULT_CALENDAR_START_HOUR = 0;
 export const DEFAULT_CALENDAR_END_HOUR = 24;
@@ -53,18 +54,21 @@ export function getAppointmentHeight(durationMins, grid) {
   return Math.max(1, (durationMins / 60) * grid.hourHeight - 1);
 }
 
-/** Fit label typography inside the block without exceeding its proportional height. */
+/** Typography scales up with block height; never below CALENDAR_APPOINTMENT_FONT_SIZE. */
 export function getAppointmentBlockTypography(blockHeightPx) {
-  if (blockHeightPx < 12) {
-    return { fontSize: 7, paddingTop: 0, paddingX: 2, lineHeight: 1 };
+  let fontSize = CALENDAR_APPOINTMENT_FONT_SIZE;
+  if (blockHeightPx >= 72) {
+    fontSize = 12;
+  } else if (blockHeightPx >= 36) {
+    fontSize = 11;
   }
-  if (blockHeightPx < 16) {
-    return { fontSize: 8, paddingTop: 0, paddingX: 3, lineHeight: 1 };
-  }
-  if (blockHeightPx < 22) {
-    return { fontSize: 9, paddingTop: 1, paddingX: 4, lineHeight: 1 };
-  }
-  return { fontSize: 10, paddingTop: 2, paddingX: 4, lineHeight: 1 };
+
+  return {
+    fontSize,
+    paddingTop: blockHeightPx < 14 ? 0 : fontSize >= 12 ? 4 : 2,
+    paddingX: blockHeightPx < 14 ? 3 : 4,
+    lineHeight: 1,
+  };
 }
 
 export function getNowLineTop(now, grid) {

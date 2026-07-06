@@ -1,10 +1,11 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Search, Phone, Mail, Instagram, CheckCircle2, XCircle } from "lucide-react";
+import { sortByNameThenId } from "@/utils/listSort";
 
 export default function AdvancedSearchDialog({ open, onOpenChange, customers, onSelectCustomer }) {
   const [filters, setFilters] = useState({
@@ -14,14 +15,19 @@ export default function AdvancedSearchDialog({ open, onOpenChange, customers, on
     instagram_username: ''
   });
 
-  const filteredResults = customers.filter(customer => {
-    const nameMatch = !filters.name || customer.name?.toLowerCase().includes(filters.name.toLowerCase());
-    const phoneMatch = !filters.phone_number || customer.phone_number?.includes(filters.phone_number);
-    const emailMatch = !filters.email || customer.email?.toLowerCase().includes(filters.email.toLowerCase());
-    const instagramMatch = !filters.instagram_username || customer.instagram_username?.toLowerCase().includes(filters.instagram_username.toLowerCase());
-    
-    return nameMatch && phoneMatch && emailMatch && instagramMatch;
-  });
+  const filteredResults = useMemo(() => {
+    const results = customers.filter((customer) => {
+      const nameMatch = !filters.name || customer.name?.toLowerCase().includes(filters.name.toLowerCase());
+      const phoneMatch = !filters.phone_number || customer.phone_number?.includes(filters.phone_number);
+      const emailMatch = !filters.email || customer.email?.toLowerCase().includes(filters.email.toLowerCase());
+      const instagramMatch =
+        !filters.instagram_username ||
+        customer.instagram_username?.toLowerCase().includes(filters.instagram_username.toLowerCase());
+
+      return nameMatch && phoneMatch && emailMatch && instagramMatch;
+    });
+    return sortByNameThenId(results);
+  }, [customers, filters]);
 
   const handleSelect = (customer) => {
     onSelectCustomer(customer);
