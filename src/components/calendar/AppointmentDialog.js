@@ -217,6 +217,11 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
   const [editingPaymentMethod, setEditingPaymentMethod] = useState(false);
   const [paymentMethodDraft, setPaymentMethodDraft] = useState("");
   const [paymentMethodError, setPaymentMethodError] = useState(null);
+  const [editingDeposit, setEditingDeposit] = useState(false);
+  const [depositDraftMethod, setDepositDraftMethod] = useState("Cash");
+  const [depositDraftAmount, setDepositDraftAmount] = useState("");
+  const [depositDraftNote, setDepositDraftNote] = useState("");
+  const [depositEditError, setDepositEditError] = useState(null);
 
   const [validationErrors, setValidationErrors] = useState({
     artistConflict: null,
@@ -509,6 +514,8 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     setInPersonDepositNote("");
     setInPersonDepositAmountInput("");
     setRecordInPersonLoading(false);
+    setEditingDeposit(false);
+    setDepositEditError(null);
     setSaveError(null);
   }, [appointment, appointmentForForm, defaultDate, defaultArtistId, open, isArtist, isAdmin, userArtistId, customers, artists, locations]);
 
@@ -1033,6 +1040,111 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     },
     onError: (err) => {
       setPaymentMethodError(err?.message || 'Failed to update payment method.');
+    },
+  });
+
+  // Paid deposit payment row(s) — used to let admins correct a mis-keyed manual deposit.
+  const { data: depositPaymentRows = EMPTY_ARRAY } = useQuery({
+    queryKey: ['appointmentDeposit', appointment?.id],
+    enabled: !!(open && appointment?.id && depositSatisfied),
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('payments')
+        .select('id, amount, tender_type, channel, metadata, business_date, stripe_payment_intent_id, stripe_checkout_session_id')
+        .eq('appointment_id', appointment.id)
+        .eq('payment_type', 'deposit')
+        .eq('status', 'paid')
+        .order('created_at', { ascending: false });
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  // A manual deposit has no Stripe references. Only a single, unambiguous manual row is editable.
+  const manualDepositRow = useMemo(() => {
+    const manual = depositPaymentRows.filter(
+      (p) => !p.stripe_payment_intent_id && !p.stripe_checkout_session_id
+    );
+    const hasStripeDeposit = depositPaymentRows.some(
+      (p) => p.stripe_payment_intent_id || p.stripe_checkout_session_id
+    );
+    if (manual.length === 1 && !hasStripeDeposit) return manual[0];
+    return null;
+  }, [depositPaymentRows]);
+
+  const isEditableDeposit = isAdmin && !!manualDepositRow;
+
+  const parseDepositMetadata = (raw) => {
+    if (!raw) return {};
+    if (typeof raw === 'object' && !Array.isArray(raw)) return raw;
+    if (typeof raw === 'string') {
+      try {
+        const parsed = JSON.parse(raw);
+        return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+      } catch {
+        return {};
+      }
+    }
+    return {};
+  };
+
+  const beginEditDeposit = () => {
+    if (!manualDepositRow) return;
+    const meta = parseDepositMetadata(manualDepositRow.metadata);
+    setDepositEditError(null);
+    setDepositDraftMethod(
+      CHECKOUT_PAYMENT_METHOD_VALUES.includes(manualDepositRow.tender_type)
+        ? manualDepositRow.tender_type
+        : (CHECKOUT_PAYMENT_METHOD_VALUES.includes(meta.method) ? meta.method : 'Cash')
+    );
+    setDepositDraftAmount(
+      manualDepositRow.amount != null ? String(Number(manualDepositRow.amount)) : ''
+    );
+    setDepositDraftNote(typeof meta.note === 'string' ? meta.note : '');
+    setEditingDeposit(true);
+  };
+
+  // Correct a manual deposit's amount / method / note. The cash-ledger date fields
+  // (business_date, occurred_at, paid_at) are deliberately left untouched so the
+  // payment stays on its original day.
+  const editDepositMutation = useMutation({
+    mutationFn: async () => {
+      if (!manualDepositRow?.id) throw new Error('No editable deposit found.');
+      const parsedAmount = Number(depositDraftAmount);
+      if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+        throw new Error('Enter a valid amount greater than 0.');
+      }
+      const amount = Math.round(parsedAmount * 100) / 100;
+      if (!CHECKOUT_PAYMENT_METHOD_VALUES.includes(depositDraftMethod)) {
+        throw new Error('Choose a valid payment method.');
+      }
+      const note = depositDraftNote.trim().slice(0, 500);
+      const nextMeta = {
+        ...parseDepositMetadata(manualDepositRow.metadata),
+        collection_channel: 'in_person',
+        method: depositDraftMethod,
+        note: note || undefined,
+      };
+      const { error } = await supabase
+        .from('payments')
+        .update({
+          amount,
+          tender_type: depositDraftMethod,
+          channel: 'in_person',
+          metadata: nextMeta,
+        })
+        .eq('id', manualDepositRow.id);
+      if (error) throw new Error(error.message || 'Could not update the deposit.');
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['appointments'] });
+      queryClient.invalidateQueries({ queryKey: ['appointmentDeposit', appointment?.id] });
+      queryClient.invalidateQueries({ queryKey: ['reconciliations'] });
+      queryClient.invalidateQueries({ queryKey: ['reconciliationTenders'] });
+      setEditingDeposit(false);
+    },
+    onError: (err) => {
+      setDepositEditError(err?.message || 'Failed to update deposit.');
     },
   });
 
@@ -1881,14 +1993,117 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                   </AccordionTrigger>
                   <AccordionContent className="px-3 pb-3 pt-0 space-y-3">
                     {depositSatisfied ? (
-                      <div className="flex gap-3 rounded-lg border border-green-200 bg-green-50/80 p-3">
-                        <CheckCircle className="w-5 h-5 text-green-700 shrink-0 mt-0.5" />
-                        <div>
-                          <p className="text-sm font-medium text-green-900">Deposit already paid</p>
-                          <p className="text-xs text-green-800 mt-1">
-                            The deposit for this appointment has been collected (online or recorded in person). No further deposit action is needed.
-                          </p>
+                      <div className="space-y-3">
+                        <div className="flex gap-3 rounded-lg border border-green-200 bg-green-50/80 p-3">
+                          <CheckCircle className="w-5 h-5 text-green-700 shrink-0 mt-0.5" />
+                          <div>
+                            <p className="text-sm font-medium text-green-900">Deposit already paid</p>
+                            <p className="text-xs text-green-800 mt-1">
+                              The deposit for this appointment has been collected (online or recorded in person). No further deposit action is needed.
+                            </p>
+                          </div>
                         </div>
+
+                        {isEditableDeposit && !editingDeposit && (
+                          <div className="rounded-lg border border-gray-200 p-3">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="text-xs text-gray-700">
+                                <p className="font-medium text-gray-800">
+                                  Recorded: {manualDepositRow.tender_type || '—'} · ${Number(manualDepositRow.amount || 0).toFixed(2)}
+                                </p>
+                                {manualDepositRow.business_date && (
+                                  <p className="text-gray-500 mt-0.5">Payment day: {manualDepositRow.business_date}</p>
+                                )}
+                              </div>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="shrink-0"
+                                onClick={beginEditDeposit}
+                              >
+                                Edit deposit
+                              </Button>
+                            </div>
+                          </div>
+                        )}
+
+                        {isEditableDeposit && editingDeposit && (
+                          <div className="rounded-lg border border-gray-200 p-3 space-y-3">
+                            <p className="text-xs font-medium text-gray-700">Correct recorded deposit</p>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              <div className="space-y-2">
+                                <Label className="text-xs text-gray-600">Payment method</Label>
+                                <Select value={depositDraftMethod} onValueChange={setDepositDraftMethod}>
+                                  <SelectTrigger className="text-sm h-9">
+                                    <SelectValue />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {CHECKOUT_PAYMENT_METHOD_OPTIONS.map(({ value, label }) => (
+                                      <SelectItem key={value} value={value}>{label}</SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <div className="space-y-2">
+                                <Label className="text-xs text-gray-600">Amount</Label>
+                                <Input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={depositDraftAmount}
+                                  onChange={(e) => setDepositDraftAmount(e.target.value)}
+                                  className="text-sm h-9"
+                                />
+                              </div>
+                              <div className="space-y-2 sm:col-span-2">
+                                <Label className="text-xs text-gray-600">Note (optional)</Label>
+                                <Input
+                                  value={depositDraftNote}
+                                  onChange={(e) => setDepositDraftNote(e.target.value)}
+                                  placeholder="e.g. receipt #, reference"
+                                  className="text-sm h-9"
+                                />
+                              </div>
+                            </div>
+                            <p className="text-xs text-gray-500">
+                              Payment day{manualDepositRow.business_date ? ` (${manualDepositRow.business_date})` : ''} stays the same.
+                            </p>
+                            {depositEditError && (
+                              <p className="text-xs text-red-600">{depositEditError}</p>
+                            )}
+                            <div className="flex items-center gap-2">
+                              <Button
+                                type="button"
+                                size="sm"
+                                className="bg-emerald-700 hover:bg-emerald-800"
+                                onClick={() => editDepositMutation.mutate()}
+                                disabled={editDepositMutation.isPending}
+                              >
+                                {editDepositMutation.isPending ? (
+                                  <>
+                                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                                    Saving...
+                                  </>
+                                ) : (
+                                  <>
+                                    <Save className="w-4 h-4 mr-2" />
+                                    Save changes
+                                  </>
+                                )}
+                              </Button>
+                              <Button
+                                type="button"
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => { setEditingDeposit(false); setDepositEditError(null); }}
+                                disabled={editDepositMutation.isPending}
+                              >
+                                Cancel
+                              </Button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     ) : (
                       <>
