@@ -985,36 +985,20 @@ export default function Calendar() {
                 <h2 className="text-xl sm:text-2xl font-bold text-gray-900">{headerLabel}</h2>
               </div>
 
-              {/* Status icon legend (desktop time grid) */}
-              {!isMobile && view !== 'month' && <CalendarStatusLegend />}
+              {/* Status icon legend — shown wherever status is drawn as an icon
+                  (desktop time grid + mobile day grid). Month/multi-day chips don't
+                  carry a status icon, so it is omitted there. */}
+              {((!isMobile && view !== 'month') || (isMobile && view === 'day')) && <CalendarStatusLegend />}
 
-              {/* Artist color legend (desktop, non-month, non-day-swimlane) */}
-              {!isMobile && view !== 'month' && !(isDaySwimlaneView && daySwimlaneArtists.length > 0) && artists.filter(a => a.is_active).length > 0 && (
+              {/* Artist color legend — every block/chip is tinted by artist. Shown everywhere
+                  except desktop day-swimlanes, where the column headers already name artists. */}
+              {!(!isMobile && isDaySwimlaneView && daySwimlaneArtists.length > 0) && artists.filter(a => a.is_active).length > 0 && (
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-gray-600">
                   <span className="font-semibold text-gray-700">Artists:</span>
                   {sortByFullNameThenId(artists.filter(a => a.is_active)).map(a => (
                     <span key={a.id} className="flex items-center gap-1.5">
                       <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: artistColorMap[a.id] }} />
                       {a.full_name}
-                    </span>
-                  ))}
-                </div>
-              )}
-
-              {/* Status legend (mobile, or month view) */}
-              {(isMobile || view === 'month') && (
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-600">
-                  <span className="font-semibold text-gray-700">Legend:</span>
-                  {[
-                    ['bg-gray-400', 'Scheduled'],
-                    ['bg-blue-500', getAppointmentStatusLabel('confirmed')],
-                    ['bg-green-500', 'Checked Out'],
-                    ['bg-red-500', 'Cancelled/No-Show'],
-                  ].map(([cls, label]) => (
-                    <span key={label} className="flex items-center gap-1">
-                      <span className={`h-2 w-2 rounded-full ${cls}`} />
-                      <span className="hidden sm:inline">{label}</span>
-                      <span className="sm:hidden">{label.split('/')[0]}</span>
                     </span>
                   ))}
                 </div>
