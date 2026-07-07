@@ -15,7 +15,7 @@ import AppointmentDialog from "../components/calendar/AppointmentDialog";
 import AppointmentCard from "../components/calendar/AppointmentCard";
 import { normalizeUserRole } from "@/utils/roles";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { ARTIST_PALETTE } from "@/utils/artistColors";
+import { ARTIST_PALETTE, hexToRgba } from "@/utils/artistColors";
 import {
   CATEGORY_ROLE_APPOINTMENT_KIND,
   filterCategoriesByRole,
@@ -45,6 +45,7 @@ import {
 import CalendarTimedBlock, { buildCalendarBlockTitle } from "../components/calendar/CalendarTimedBlock";
 import { CalendarStatusLegend } from "../components/calendar/CalendarStatusIcon";
 import CalendarDatePicker from "../components/calendar/CalendarDatePicker";
+import { getAvailabilityChipsForDay } from "@/utils/dayAvailability";
 
 const ARTIST_LANE_MIN_WIDTH = 140;
 
@@ -386,6 +387,86 @@ function AllDayAppointmentsRow({
   );
 }
 
+const MOBILE_DRAWER_COLLAPSED_LIMIT = 3;
+
+// Collapsible top drawer for mobile day view: all-day appointments + availability chips.
+function MobileDayDrawer({
+  allDayApts,
+  availabilityChips,
+  expanded,
+  onToggleExpand,
+  onEditAppointment,
+  artists,
+  locations,
+  getCustomerName,
+  isOwnAppointment,
+  getAptColor,
+  getAptTypeName,
+}) {
+  const totalItems = allDayApts.length + availabilityChips.length;
+  if (totalItems === 0) return null;
+
+  const showToggle = totalItems > MOBILE_DRAWER_COLLAPSED_LIMIT;
+  const hiddenCount = totalItems - MOBILE_DRAWER_COLLAPSED_LIMIT;
+
+  // When collapsed, cap the combined list (all-day first, then availability).
+  let budget = expanded ? Infinity : MOBILE_DRAWER_COLLAPSED_LIMIT;
+  const visibleAllDay = allDayApts.slice(0, budget);
+  budget -= visibleAllDay.length;
+  const visibleChips = availabilityChips.slice(0, Math.max(0, budget));
+
+  return (
+    <div className="border-b border-gray-200 bg-gray-50/90 px-2 py-2 space-y-1">
+      {visibleAllDay.map((apt) => (
+        <AppointmentCard
+          key={apt.id}
+          appointment={{ ...apt, client_name: getCustomerName(apt) }}
+          artists={artists}
+          locations={locations}
+          onClick={() => onEditAppointment(apt)}
+          compact
+          isOwnAppointment={isOwnAppointment(apt)}
+          artistColor={getAptColor(apt)}
+          appointmentTypeName={getAptTypeName(apt)}
+        />
+      ))}
+      {visibleChips.map((chip) => (
+        <div
+          key={chip.id}
+          className="flex items-center gap-1.5 rounded px-1.5 py-1 text-xs overflow-hidden"
+          style={{ backgroundColor: hexToRgba(chip.color, 0.12) }}
+        >
+          <span
+            className="w-2 h-2 rounded-full shrink-0"
+            style={{ backgroundColor: chip.color }}
+          />
+          <span className="font-semibold text-gray-800 truncate">{chip.firstName}</span>
+          <span className="text-gray-500 truncate">- {chip.range}</span>
+        </div>
+      ))}
+      {showToggle && (
+        <button
+          type="button"
+          onClick={onToggleExpand}
+          className="flex items-center gap-0.5 w-full text-[11px] text-gray-500 hover:text-gray-700 px-1 py-0.5 rounded hover:bg-gray-100"
+        >
+          {expanded ? (
+            <>
+              <ChevronUp className="w-3 h-3 shrink-0" />
+              <span>Show less</span>
+            </>
+          ) : (
+            <>
+              <ChevronDown className="w-3 h-3 shrink-0" />
+              <span>+{hiddenCount} more</span>
+            </>
+          )}
+        </button>
+      )}
+    </div>
+  );
+}
+
 // ─── Component ────────────────────────────────────────────────────────────
 export default function Calendar() {
   const isMobile = useIsMobile();
@@ -410,6 +491,7 @@ export default function Calendar() {
   const [user, setUser]                           = useState(null);
   const [userArtist, setUserArtist]               = useState(null);
   const [expandedAllDayDays, setExpandedAllDayDays] = useState(() => new Set());
+  const [mobileDrawerExpanded, setMobileDrawerExpanded] = useState(false);
 
   const advancedActiveCount = [selectedLocation, workStationFilter, specificTypeFilter]
     .filter(v => v && v !== 'all').length + (customerSearch ? 1 : 0);
@@ -422,6 +504,7 @@ export default function Calendar() {
 
   useEffect(() => {
     setExpandedAllDayDays(new Set());
+    setMobileDrawerExpanded(false);
   }, [view, currentDate]);
 
   const toggleAllDayExpand = useCallback((dayKey) => {
@@ -480,6 +563,18 @@ export default function Calendar() {
     enabled: !!user?.studio_id
   });
 
+  const { data: availabilities = [] } = useQuery({
+    queryKey: ['availabilities', user?.studio_id],
+    queryFn: () => base44.entities.Availability.filter({ studio_id: user.studio_id }),
+    enabled: !!user?.studio_id
+  });
+
+  const { data: weeklySchedules = [] } = useQuery({
+    queryKey: ['weeklySchedules', user?.studio_id],
+    queryFn: () => base44.entities.ArtistWeeklySchedule.filter({ studio_id: user.studio_id }),
+    enabled: !!user?.studio_id
+  });
+
   const typeCategoryFilterOptions = useMemo(() => {
     const opts = [{ value: "all", label: "All Types" }];
     const roots = filterCategoriesByRole(reportingCategories, CATEGORY_ROLE_APPOINTMENT_KIND)
@@ -520,7 +615,8 @@ export default function Calendar() {
 
   // Scroll page to current time within the grid on mount / view / date change
   useEffect(() => {
-    if (gridSectionRef.current && !isMobile && view !== 'month') {
+    const hasGrid = (!isMobile && view !== 'month') || (isMobile && view === 'day');
+    if (gridSectionRef.current && hasGrid) {
       requestAnimationFrame(() => {
         scrollMainContentToGridTime(gridSectionRef.current, calendarGrid);
       });
@@ -676,6 +772,22 @@ export default function Calendar() {
     : [];
   const daySwimlaneArtists = isDaySwimlaneView
     ? getArtistsWithTimedAppointments(dayTimedAppointments, artists)
+    : [];
+
+  // Availability chips for the mobile day drawer. Restrict to a single artist only
+  // when the artist filter targets a specific artist (not "all" or a type group),
+  // and to the current user's own record for the artist role.
+  const availabilityArtistFilter = (isArtist && !isAdmin)
+    ? (userArtist?.id || 'none')
+    : (selectedArtist && selectedArtist !== 'all' && !selectedArtist.startsWith('type:') ? selectedArtist : 'all');
+  const dayAvailabilityChips = (isMobile && isDaySwimlaneView)
+    ? getAvailabilityChipsForDay(currentDate, {
+        availabilities,
+        weeklySchedules,
+        artists,
+        artistColorMap,
+        artistFilter: availabilityArtistFilter,
+      })
     : [];
 
   // ── Current time offset ─────────────────────────────────────────────────
@@ -1142,74 +1254,40 @@ export default function Calendar() {
             )}
 
             {/* ═══════════════════════════════════════════════════════════
-                MOBILE: single day detailed list
+                MOBILE: single day Google-Calendar-style time grid
             ═══════════════════════════════════════════════════════════ */}
             {isMobile && view === 'day' && (
-              <div className="space-y-3">
-                <div className="text-center p-3 bg-indigo-50 rounded-lg mb-4">
-                  <div className="text-xs text-indigo-600 font-medium">{format(currentDate, 'EEEE')}</div>
-                  <div className="text-xl font-bold text-gray-900">{format(currentDate, 'MMMM d, yyyy')}</div>
+              <div className="flex flex-col rounded-lg border border-gray-100 min-w-0 overflow-hidden">
+                <MobileDayDrawer
+                  allDayApts={getAllDayAppointmentsForDay(currentDate)}
+                  availabilityChips={dayAvailabilityChips}
+                  expanded={mobileDrawerExpanded}
+                  onToggleExpand={() => setMobileDrawerExpanded((v) => !v)}
+                  onEditAppointment={handleEditAppointment}
+                  artists={artists}
+                  locations={locations}
+                  getCustomerName={getCustomerName}
+                  isOwnAppointment={isOwnAppointment}
+                  getAptColor={getAptColor}
+                  getAptTypeName={getAptTypeName}
+                />
+
+                <div ref={gridSectionRef} className="flex min-w-0">
+                  <TimeGridGutter grid={calendarGrid} />
+                  <OverlapDayColumn
+                    day={currentDate}
+                    timedApts={dayTimedAppointments}
+                    grid={calendarGrid}
+                    isToday={isSameDay(currentDate, new Date())}
+                    nowTop={showNowLine ? nowTop : null}
+                    onNewAppointment={handleNewAppointment}
+                    onEditAppointment={handleEditAppointment}
+                    getCustomerName={getCustomerName}
+                    getAptColor={getAptColor}
+                    getAptTypeName={getAptTypeName}
+                  />
                 </div>
-                {(() => {
-                  const dayApts = getAppointmentsForDay(currentDate);
-                  const allDayApts = dayApts.filter((a) => a.is_all_day);
-                  const timedApts = dayApts.filter((a) => !a.is_all_day);
-                  if (dayApts.length === 0) {
-                    return (
-                      <div className="text-center py-8">
-                        <p className="text-gray-500 text-sm">No appointments scheduled</p>
-                        <Button onClick={() => handleNewAppointment(currentDate)} variant="outline" className="mt-4">
-                          <Plus className="w-4 h-4 mr-2" />
-                          Add Appointment
-                        </Button>
-                      </div>
-                    );
-                  }
-                  return (
-                    <div className="space-y-3">
-                      {allDayApts.length > 0 && (
-                        <div className="space-y-2">
-                          <div className="text-xs font-semibold text-gray-500 uppercase">All Day</div>
-                          {allDayApts.map((apt) => (
-                            <AppointmentCard
-                              key={apt.id}
-                              appointment={{ ...apt, client_name: getCustomerName(apt) }}
-                              artists={artists}
-                              locations={locations}
-                              onClick={() => handleEditAppointment(apt)}
-                              detailed
-                              isMobile
-                              isOwnAppointment={isOwnAppointment(apt)}
-                              artistColor={getAptColor(apt)}
-                              appointmentTypeName={getAptTypeName(apt)}
-                            />
-                          ))}
-                        </div>
-                      )}
-                      {timedApts.length > 0 && (
-                        <div className="space-y-2">
-                          {allDayApts.length > 0 && (
-                            <div className="text-xs font-semibold text-gray-500 uppercase">Timed</div>
-                          )}
-                          {timedApts.map((apt) => (
-                            <AppointmentCard
-                              key={apt.id}
-                              appointment={{ ...apt, client_name: getCustomerName(apt) }}
-                              artists={artists}
-                              locations={locations}
-                              onClick={() => handleEditAppointment(apt)}
-                              detailed
-                              isMobile
-                              isOwnAppointment={isOwnAppointment(apt)}
-                              artistColor={getAptColor(apt)}
-                              appointmentTypeName={getAptTypeName(apt)}
-                            />
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })()}
+                <div className="h-[40vh] shrink-0" aria-hidden="true" />
               </div>
             )}
 
