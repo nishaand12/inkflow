@@ -49,6 +49,15 @@ import { getAvailabilityChipsForDay } from "@/utils/dayAvailability";
 
 const ARTIST_LANE_MIN_WIDTH = 140;
 
+// Synthetic swimlane for timed appointments that have no artist assigned
+// (e.g. shop-wide closures). Not a real artist record.
+const UNASSIGNED_LANE_ID = '__unassigned__';
+const SHOP_WIDE_LANE = {
+  id: UNASSIGNED_LANE_ID,
+  full_name: 'Shop-Wide',
+  calendar_color: '#6b7280',
+};
+
 // ─── Overlap layout ────────────────────────────────────────────────────────
 function layoutDayAppointments(apts) {
   const sorted = sortAppointmentsForCalendarDay(apts);
@@ -82,7 +91,11 @@ const ALL_DAY_COLLAPSED_LIMIT = 1;
 
 function getArtistsWithTimedAppointments(timedApts, artists) {
   const artistIds = new Set(timedApts.map((a) => a.artist_id).filter(Boolean));
-  return sortByFullNameThenId(artists.filter((a) => artistIds.has(a.id)));
+  const lanes = sortByFullNameThenId(artists.filter((a) => artistIds.has(a.id)));
+  // Surface unassigned timed appointments (e.g. shop-wide closures) in their
+  // own lane so they aren't silently dropped for lack of an artist.
+  const hasUnassigned = timedApts.some((a) => !a.artist_id);
+  return hasUnassigned ? [SHOP_WIDE_LANE, ...lanes] : lanes;
 }
 
 function TimeGridGutter({ grid, className = "" }) {
@@ -192,7 +205,7 @@ function ArtistSwimlaneHeader({ artist, artistColorMap }) {
       <div className="flex items-center justify-center gap-1.5">
         <span
           className="w-2.5 h-2.5 rounded-full shrink-0"
-          style={{ backgroundColor: artistColorMap[artist.id] }}
+          style={{ backgroundColor: artistColorMap[artist.id] || artist.calendar_color }}
         />
         <span className="text-xs font-semibold text-gray-800 truncate">
           {artist.full_name}
@@ -279,14 +292,18 @@ function ArtistSwimlaneColumn({
   getAptColor,
   getAptTypeName,
 }) {
-  const laneApts = timedApts.filter((a) => a.artist_id === artist.id);
+  const isUnassignedLane = artist.id === UNASSIGNED_LANE_ID;
+  const laneApts = isUnassignedLane
+    ? timedApts.filter((a) => !a.artist_id)
+    : timedApts.filter((a) => a.artist_id === artist.id);
+  const newAppointmentArtistId = isUnassignedLane ? null : artist.id;
 
   return (
     <div
       className="flex-1 min-w-[140px] relative border-l border-gray-100 first:border-l-0"
       style={{ height: grid.totalHeight }}
       onClick={(e) => {
-        if (e.target === e.currentTarget) onNewAppointment(day, artist.id);
+        if (e.target === e.currentTarget) onNewAppointment(day, newAppointmentArtistId);
       }}
     >
       <TimeGridLines grid={grid} />
@@ -646,7 +663,8 @@ export default function Calendar() {
     () => getDistinctArtistTypes(activeArtists),
     [activeArtists]
   );
-  const getAptColor = (apt) => artistColorMap[apt.artist_id] || '#4f46e5';
+  const getAptColor = (apt) =>
+    artistColorMap[apt.artist_id] || (apt.artist_id ? '#4f46e5' : SHOP_WIDE_LANE.calendar_color);
   const getAptTypeName = (apt) => appointmentTypes.find(t => t.id === apt.appointment_type_id)?.name || '';
 
   const getCustomerName = useCallback((apt) => {
