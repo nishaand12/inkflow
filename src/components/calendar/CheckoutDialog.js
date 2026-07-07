@@ -2,6 +2,16 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import { base44 } from "@/api/base44Client";
 import { useMutation, useQueryClient, useQuery } from "@tanstack/react-query";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -89,6 +99,7 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
   const [paymentMethod, setPaymentMethod] = useState('');
   const [tipAmount, setTipAmount] = useState('');
   const [checkoutMessage, setCheckoutMessage] = useState(null);
+  const [showZeroConfirm, setShowZeroConfirm] = useState(false);
   const [showManualAdd, setShowManualAdd] = useState(false);
   const [manualLine, setManualLine] = useState({ description: '', unit_price: '', quantity: 1, reporting_category_id: '', discount: '' });
 
@@ -317,8 +328,8 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
       if (hasOnlyNegativeLines && lineItems.length > 0) {
         throw new Error('Cannot check out with only negative-revenue items.');
       }
-      if (cartTotals.grandTotal + cartTotals.tipTotal <= 0 && !lineItems.some(li => isNegativeRevenueLine(li))) {
-        throw new Error('Total must be greater than zero.');
+      if (lineItems.length === 0) {
+        throw new Error('Add at least one item to check out.');
       }
 
       // Map dialog line shape (_revenue_sign) to the canonical saleLines shape.
@@ -376,8 +387,27 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
     },
   });
 
+  /** $0 sticker-price checkout (free consult, or discounted to zero) — excludes negative-revenue/refund carts. */
+  const isZeroCheckout =
+    lineItems.length > 0 &&
+    cartTotals.grandTotal + cartTotals.tipTotal <= 0 &&
+    !lineItems.some((li) => isNegativeRevenueLine(li));
+
   const handleManualCheckout = (e) => {
     e.preventDefault();
+    if (lineItems.length === 0) {
+      setCheckoutMessage({ type: 'error', text: 'Add at least one item to check out.' });
+      return;
+    }
+    if (isZeroCheckout) {
+      setShowZeroConfirm(true);
+      return;
+    }
+    checkoutMutation.mutate();
+  };
+
+  const confirmZeroCheckout = () => {
+    setShowZeroConfirm(false);
     checkoutMutation.mutate();
   };
 
@@ -390,6 +420,7 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
   const activeProducts = products.filter(p => p.is_active);
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl bg-white max-h-[95vh] overflow-y-auto">
         <DialogHeader>
@@ -751,5 +782,24 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
         </div>
       </DialogContent>
     </Dialog>
+
+    <AlertDialog open={showZeroConfirm} onOpenChange={setShowZeroConfirm}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Complete checkout at $0.00?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This will mark the appointment as completed with a $0.00 charge and no payment
+            recorded. Use this for free checkups or consultations. This cannot be undone.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction onClick={confirmZeroCheckout} className="bg-green-600 hover:bg-green-700">
+            Complete at $0.00
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+    </>
   );
 }

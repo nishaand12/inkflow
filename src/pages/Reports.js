@@ -161,7 +161,7 @@ export default function Reports() {
   const { data: customers = [] } = useQuery({
     queryKey: ["customers", studioId],
     queryFn: () => base44.entities.Customer.filter({ studio_id: studioId }),
-    enabled: !!studioId && activeTab === "sales",
+    enabled: !!studioId && (activeTab === "sales" || activeTab === "payments" || activeTab === "stripe"),
   });
 
   const { data: reportContext } = useQuery({
@@ -936,6 +936,7 @@ export default function Reports() {
                           amount: row.amount,
                           location: locationById[row.location_id]?.name || "",
                           sale_id: row.sale_id || "",
+                          customer_name: customerById[row.customer_id]?.name || "",
                           customer_id: row.customer_id || "",
                         })),
                         "payments_reconciliation"
@@ -991,6 +992,7 @@ export default function Reports() {
                               <tr>
                                 <th className="px-3 py-3 text-left text-sm font-semibold text-gray-900">Business date</th>
                                 <th className="px-3 py-3 text-left text-sm font-semibold text-gray-900">Time</th>
+                                <th className="px-3 py-3 text-left text-sm font-semibold text-gray-900">Customer</th>
                                 <th className="px-3 py-3 text-left text-sm font-semibold text-gray-900">Method</th>
                                 <th className="px-3 py-3 text-left text-sm font-semibold text-gray-900">Channel</th>
                                 <th className="px-3 py-3 text-left text-sm font-semibold text-gray-900">Purpose</th>
@@ -1003,6 +1005,7 @@ export default function Reports() {
                                 <tr key={row.id} className="hover:bg-gray-50">
                                   <td className="px-3 py-3 text-sm text-gray-900">{row.business_date}</td>
                                   <td className="px-3 py-3 text-sm text-gray-600">{formatDateTime(row.occurred_at || row.paid_at)}</td>
+                                  <td className="px-3 py-3 text-sm text-gray-900">{customerById[row.customer_id]?.name || "—"}</td>
                                   <td className="px-3 py-3 text-sm text-gray-900 font-medium">{row.tender_type || "—"}</td>
                                   <td className="px-3 py-3 text-sm text-gray-600 capitalize">
                                     {row.channel ? row.channel.replace("_", "-") : "—"}
@@ -1073,6 +1076,7 @@ export default function Reports() {
                         amount: row.amount,
                         purpose: row.purpose,
                         appointment_id: row.appointment_id,
+                        customer_name: customerById[row.customer_id]?.name || "",
                         customer_id: row.customer_id,
                         sale_id: row.sale_id,
                         stripe_payment_intent_id: row.stripe_payment_intent_id,
@@ -1132,6 +1136,7 @@ export default function Reports() {
                             <tr>
                               <th className="px-3 py-3 text-left text-sm font-semibold text-gray-900">Cash date</th>
                               <th className="px-3 py-3 text-left text-sm font-semibold text-gray-900">Occurred</th>
+                              <th className="px-3 py-3 text-left text-sm font-semibold text-gray-900">Customer</th>
                               <th className="px-3 py-3 text-left text-sm font-semibold text-gray-900">Purpose</th>
                               <th className="px-3 py-3 text-right text-sm font-semibold text-gray-900">Amount</th>
                               <th className="px-3 py-3 text-left text-sm font-semibold text-gray-900">Sale</th>
@@ -1142,6 +1147,7 @@ export default function Reports() {
                               <tr key={row.id} className="hover:bg-gray-50">
                                 <td className="px-3 py-3 text-sm text-gray-900">{row.business_date}</td>
                                 <td className="px-3 py-3 text-sm text-gray-600">{formatDateTime(row.occurred_at || row.paid_at)}</td>
+                                <td className="px-3 py-3 text-sm text-gray-900">{customerById[row.customer_id]?.name || "—"}</td>
                                 <td className="px-3 py-3 text-sm text-gray-600 capitalize">{row.purpose || "—"}</td>
                                 <td className="px-3 py-3 text-sm text-gray-900 text-right tabular-nums font-medium">{money(row.amount)}</td>
                                 <td className="px-3 py-3 text-sm text-gray-500 font-mono text-xs">{row.sale_id ? row.sale_id.slice(0, 8) : "—"}</td>
