@@ -1,34 +1,13 @@
 import React, { useMemo } from "react";
-import { format, isSameDay, isSameMonth, parseISO, isWithinInterval, startOfDay } from "date-fns";
+import { format, isSameDay, isSameMonth } from "date-fns";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getDaysToShow } from "@/utils/calendarViews";
 import { formatTimeRange12h } from "@/utils/index";
 import { hexToRgba } from "@/utils/artistColors";
+import { getAvailForDay, getWeeklyForDay } from "@/utils/dayAvailability";
 
 // ── Helpers ────────────────────────────────────────────────
-
-function getAvailForDay(day, availabilities, artistFilter) {
-  // Normalize to local midnight: in day view `day` carries a wall-clock time,
-  // which would fall outside the zero-width interval of a single-day entry
-  // (start_date === end_date, both parsed at 00:00).
-  const target = startOfDay(day);
-  return availabilities.filter((avail) => {
-    if (artistFilter && artistFilter !== "all" && avail.artist_id !== artistFilter) return false;
-    const startDate = parseISO(avail.start_date + "T00:00:00");
-    const endDate = parseISO(avail.end_date + "T00:00:00");
-    return isWithinInterval(target, { start: startDate, end: endDate });
-  });
-}
-
-function getWeeklyForDay(day, weeklySchedules, artistFilter) {
-  const dow = day.getDay();
-  return weeklySchedules.filter((ws) => {
-    if (!ws.is_active) return false;
-    if (artistFilter && artistFilter !== "all" && ws.artist_id !== artistFilter) return false;
-    return ws.day_of_week === dow;
-  });
-}
 
 /**
  * Build a unified list of card entries for a given day, sorted by artist name.

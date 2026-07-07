@@ -25,6 +25,12 @@ export default function CalendarTimedBlock({
   const typography = getAppointmentBlockTypography(height);
   const statusLabel = getAppointmentStatusLabel(apt.status);
 
+  // Let the title flow vertically over as many lines as the block height allows,
+  // clamping (with ellipsis) only when the text still exceeds the available space.
+  const lineHeightRatio = 1.2;
+  const availableTextHeight = height - typography.paddingTop - 2;
+  const maxLines = Math.max(1, Math.floor(availableTextHeight / (typography.fontSize * lineHeightRatio)));
+
   return (
     <div
       onClick={(e) => {
@@ -51,10 +57,15 @@ export default function CalendarTimedBlock({
         }}
       >
         <div
-          className="flex-1 min-w-0 truncate font-semibold text-gray-900"
+          className="flex-1 min-w-0 font-semibold text-gray-900"
           style={{
             fontSize: typography.fontSize,
-            lineHeight: typography.lineHeight,
+            lineHeight: lineHeightRatio,
+            display: "-webkit-box",
+            WebkitBoxOrient: "vertical",
+            WebkitLineClamp: maxLines,
+            overflow: "hidden",
+            wordBreak: "break-word",
           }}
         >
           {title}

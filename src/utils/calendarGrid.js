@@ -111,7 +111,7 @@ export function getInitialScrollTop(grid, containerHeight) {
 /** Scroll the app main content area so the grid's current-time row is in view. */
 export function scrollMainContentToGridTime(gridSectionEl, grid) {
   if (!gridSectionEl) return;
-  const scrollParent = gridSectionEl.closest(".overflow-auto");
+  const scrollParent = gridSectionEl.closest(".overflow-y-auto, .overflow-auto");
   if (!scrollParent) return;
 
   const nowTop = getNowLineTop(new Date(), grid);
