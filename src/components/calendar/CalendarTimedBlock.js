@@ -7,6 +7,8 @@ import {
   getAppointmentHeight,
   topFromTime,
 } from "@/utils/calendarGrid";
+import CalendarStatusIcon from "./CalendarStatusIcon";
+import { getAppointmentStatusLabel } from "@/utils/appointmentStatus";
 
 export default function CalendarTimedBlock({
   apt,
@@ -21,6 +23,7 @@ export default function CalendarTimedBlock({
   const durationMins = getAppointmentDurationMins(apt);
   const height = getAppointmentHeight(durationMins, grid);
   const typography = getAppointmentBlockTypography(height);
+  const statusLabel = getAppointmentStatusLabel(apt.status);
 
   return (
     <div
@@ -37,10 +40,10 @@ export default function CalendarTimedBlock({
         backgroundColor: hexToRgba(color, 0.15),
         borderLeft: `3px solid ${color}`,
       }}
-      title={title}
+      title={`${title} (${statusLabel})`}
     >
       <div
-        className="h-full overflow-hidden"
+        className="flex items-start gap-0.5 min-w-0"
         style={{
           paddingTop: typography.paddingTop,
           paddingLeft: typography.paddingX,
@@ -48,7 +51,7 @@ export default function CalendarTimedBlock({
         }}
       >
         <div
-          className="font-semibold text-gray-900 truncate w-full"
+          className="flex-1 min-w-0 truncate font-semibold text-gray-900"
           style={{
             fontSize: typography.fontSize,
             lineHeight: typography.lineHeight,
@@ -56,6 +59,10 @@ export default function CalendarTimedBlock({
         >
           {title}
         </div>
+        <CalendarStatusIcon
+          status={apt.status}
+          style={{ width: typography.iconSize, height: typography.iconSize }}
+        />
       </div>
     </div>
   );

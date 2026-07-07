@@ -36,12 +36,14 @@ import {
 } from "@/utils/listSort";
 import {
   createCalendarGrid,
-  formatHourLabel,
+  formatSlotLabel,
   getNowLineTop,
+  getTimeSlotsList,
   parseTimeToMinutes,
   scrollMainContentToGridTime,
 } from "@/utils/calendarGrid";
 import CalendarTimedBlock, { buildCalendarBlockTitle } from "../components/calendar/CalendarTimedBlock";
+import { CalendarStatusLegend } from "../components/calendar/CalendarStatusIcon";
 import CalendarDatePicker from "../components/calendar/CalendarDatePicker";
 
 const ARTIST_LANE_MIN_WIDTH = 140;
@@ -83,18 +85,24 @@ function getArtistsWithTimedAppointments(timedApts, artists) {
 }
 
 function TimeGridGutter({ grid, className = "" }) {
+  const slots = getTimeSlotsList(grid);
+
   return (
     <div
       className={`w-14 sm:w-16 shrink-0 relative select-none border-r border-gray-100 bg-white ${className}`}
       style={{ height: grid.totalHeight }}
     >
-      {grid.hoursList.map((hour, i) => (
+      {slots.map(({ hour, minute, top, isHour }) => (
         <div
-          key={hour}
-          className="absolute right-2 text-[11px] text-gray-400 font-medium leading-none"
-          style={{ top: i * grid.hourHeight - 7 }}
+          key={`${hour}-${minute}`}
+          className={`absolute right-2 text-[12px] leading-none ${
+            isHour
+              ? "text-gray-400 font-medium"
+              : "text-gray-300 font-normal"
+          }`}
+          style={{ top: top - 7 }}
         >
-          {formatHourLabel(hour)}
+          {formatSlotLabel(hour, minute)}
         </div>
       ))}
     </div>
@@ -864,6 +872,9 @@ export default function Calendar() {
               <div className="flex items-center justify-between">
                 <h2 className="text-xl sm:text-2xl font-bold text-gray-900">{headerLabel}</h2>
               </div>
+
+              {/* Status icon legend (desktop time grid) */}
+              {!isMobile && view !== 'month' && <CalendarStatusLegend />}
 
               {/* Artist color legend (desktop, non-month, non-day-swimlane) */}
               {!isMobile && view !== 'month' && !(isDaySwimlaneView && daySwimlaneArtists.length > 0) && artists.filter(a => a.is_active).length > 0 && (
