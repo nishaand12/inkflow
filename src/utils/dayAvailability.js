@@ -53,10 +53,79 @@ export function formatCompactHourRange(startStr, endStr) {
   return start || end || "";
 }
 
+const DAY_START_MIN = 0;
+const DAY_END_MIN = 24 * 60;
+
+/** "HH:MM" → minutes since midnight. Defaults to 0 on bad input. */
+function timeToMinutes(t) {
+  const [h, m] = String(t || "0:0").split(":").map(Number);
+  return (Number.isFinite(h) ? h : 0) * 60 + (Number.isFinite(m) ? m : 0);
+}
+
 /**
- * Availability chips for a single day, merging explicit availability rows and
- * recurring weekly schedules. Blocked / day-off rows are excluded. Sorted by
- * artist name. Each chip: { id, artistId, firstName, artistName, range, color, isAllDay }.
+ * The time interval an Availability / WeeklySchedule row covers, in minutes.
+ * All-day rows span the whole day. Returns null for a zero/invalid span.
+ */
+function rowInterval(row) {
+  if (row.is_all_day) return { start: DAY_START_MIN, end: DAY_END_MIN };
+  const start = timeToMinutes(row.start_time);
+  const end = timeToMinutes(row.end_time);
+  return end > start ? { start, end } : null;
+}
+
+/** Merge overlapping/adjacent intervals into a sorted, non-overlapping list. */
+function mergeIntervals(intervals) {
+  const sorted = [...intervals].sort((a, b) => a.start - b.start);
+  const merged = [];
+  for (const iv of sorted) {
+    const last = merged[merged.length - 1];
+    if (last && iv.start <= last.end) {
+      last.end = Math.max(last.end, iv.end);
+    } else {
+      merged.push({ ...iv });
+    }
+  }
+  return merged;
+}
+
+/** Subtract block intervals from base intervals; result is merged & sorted. */
+function subtractIntervals(base, blocks) {
+  const mergedBlocks = mergeIntervals(blocks);
+  let result = mergeIntervals(base);
+  for (const block of mergedBlocks) {
+    const next = [];
+    for (const iv of result) {
+      if (block.end <= iv.start || block.start >= iv.end) {
+        next.push(iv); // no overlap
+        continue;
+      }
+      if (block.start > iv.start) next.push({ start: iv.start, end: block.start });
+      if (block.end < iv.end) next.push({ start: block.end, end: iv.end });
+    }
+    result = next;
+  }
+  return result;
+}
+
+/** "HH:MM" for a minutes-since-midnight value (used to re-label consolidated ranges). */
+function minutesToTime(min) {
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+/**
+ * Availability chips for a single day, per artist.
+ *
+ * Precedence: explicit single-day Availability rows override that artist's
+ * recurring weekly schedule for the day. Time-off (is_blocked rows) is then
+ * subtracted from the resulting window(s):
+ *   - fully blocked  → a single "OFF" chip
+ *   - partially blocked → the remaining available range(s), consolidated
+ *   - no underlying availability → no chip
+ *
+ * Sorted by artist name. Each chip:
+ *   { id, artistId, firstName, artistName, range, color, isAllDay, isOff }.
  */
 export function getAvailabilityChipsForDay(
   day,
@@ -66,34 +135,52 @@ export function getAvailabilityChipsForDay(
   const dayWeekly = getWeeklyForDay(day, weeklySchedules, artistFilter);
   const findArtist = (id) => (artists || []).find((a) => a.id === id);
   const colorFor = (id) => (artistColorMap && artistColorMap[id]) || "#6366f1";
-  const chips = [];
 
+  // Group the day's rows by artist.
+  const byArtist = new Map();
+  const bucket = (artistId) => {
+    if (!byArtist.has(artistId)) byArtist.set(artistId, { explicit: [], blocks: [], weekly: [] });
+    return byArtist.get(artistId);
+  };
   for (const avail of dayAvails) {
-    if (avail.is_blocked) continue;
-    const artist = findArtist(avail.artist_id);
-    const fullName = artist?.full_name || "Unknown";
-    chips.push({
-      id: `av-${avail.id}`,
-      artistId: avail.artist_id,
-      firstName: firstNameOf(fullName),
-      artistName: fullName,
-      range: avail.is_all_day ? "All day" : formatCompactHourRange(avail.start_time, avail.end_time),
-      color: colorFor(avail.artist_id),
-      isAllDay: !!avail.is_all_day,
-    });
+    bucket(avail.artist_id)[avail.is_blocked ? "blocks" : "explicit"].push(avail);
+  }
+  for (const ws of dayWeekly) {
+    bucket(ws.artist_id).weekly.push(ws);
   }
 
-  for (const ws of dayWeekly) {
-    const artist = findArtist(ws.artist_id);
-    const fullName = artist?.full_name || "Unknown";
-    chips.push({
-      id: `ws-${ws.id}`,
-      artistId: ws.artist_id,
+  const chips = [];
+  for (const [artistId, rows] of byArtist) {
+    // Explicit single-day availability wins; otherwise fall back to weekly schedule.
+    const baseRows = rows.explicit.length > 0 ? rows.explicit : rows.weekly;
+    const base = baseRows.map(rowInterval).filter(Boolean);
+    if (base.length === 0) continue; // artist isn't working this day
+
+    const blocks = rows.blocks.map(rowInterval).filter(Boolean);
+    const available = subtractIntervals(base, blocks);
+
+    const fullName = findArtist(artistId)?.full_name || "Unknown";
+    const common = {
+      artistId,
       firstName: firstNameOf(fullName),
       artistName: fullName,
-      range: formatCompactHourRange(ws.start_time, ws.end_time),
-      color: colorFor(ws.artist_id),
-      isAllDay: false,
+      color: colorFor(artistId),
+    };
+
+    if (available.length === 0) {
+      chips.push({ ...common, id: `off-${artistId}`, range: "OFF", isAllDay: false, isOff: true });
+      continue;
+    }
+
+    available.forEach((iv, i) => {
+      const isAllDay = iv.start === DAY_START_MIN && iv.end === DAY_END_MIN;
+      chips.push({
+        ...common,
+        id: `av-${artistId}-${i}`,
+        range: isAllDay ? "All day" : formatCompactHourRange(minutesToTime(iv.start), minutesToTime(iv.end)),
+        isAllDay,
+        isOff: false,
+      });
     });
   }
 

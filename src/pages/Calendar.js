@@ -669,7 +669,10 @@ export default function Calendar() {
   // ── Filtering ───────────────────────────────────────────────────────────
   const filteredAppointments = useMemo(() => appointments.filter(apt => {
     if (isArtist && !isAdmin) {
-      if (!userArtist || apt.artist_id !== userArtist.id) return false;
+      // Appointments with no artist are shop-wide (e.g. holidays / closures)
+      // and visible to everyone; otherwise an artist only sees their own.
+      const isShopWide = !apt.artist_id;
+      if (!isShopWide && (!userArtist || apt.artist_id !== userArtist.id)) return false;
     }
 
     const aptType = appointmentTypes.find(t => t.id === apt.appointment_type_id);
