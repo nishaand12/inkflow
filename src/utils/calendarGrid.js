@@ -1,5 +1,6 @@
-export const HOUR_HEIGHT = 180;
-export const CALENDAR_APPOINTMENT_FONT_SIZE = 10;
+export const HOUR_HEIGHT = 240;
+export const CALENDAR_SLOT_MINUTES = 5;
+export const CALENDAR_APPOINTMENT_FONT_SIZE = 12;
 export const SHORT_APPT_THRESHOLD_MINS = 20;
 export const DEFAULT_CALENDAR_START_HOUR = 0;
 export const DEFAULT_CALENDAR_END_HOUR = 24;
@@ -8,6 +9,29 @@ export function formatHourLabel(h) {
   if (h === 0 || h === 24) return "12 AM";
   if (h === 12) return "12 PM";
   return h < 12 ? `${h} AM` : `${h - 12} PM`;
+}
+
+export function formatSlotLabel(hour, minute) {
+  if (minute === 0) return formatHourLabel(hour);
+  return `:${String(minute).padStart(2, "0")}`;
+}
+
+export function getTimeSlotsList(grid) {
+  const slots = [];
+  const totalMinutes = grid.gridHours * 60;
+
+  for (let offset = 0; offset < totalMinutes; offset += CALENDAR_SLOT_MINUTES) {
+    const hour = grid.startHour + Math.floor(offset / 60);
+    const minute = offset % 60;
+    slots.push({
+      hour,
+      minute,
+      top: (offset / 60) * grid.hourHeight,
+      isHour: minute === 0,
+    });
+  }
+
+  return slots;
 }
 
 export function parseTimeToMinutes(timeStr) {
@@ -54,20 +78,16 @@ export function getAppointmentHeight(durationMins, grid) {
   return Math.max(1, (durationMins / 60) * grid.hourHeight - 1);
 }
 
-/** Typography scales up with block height; never below CALENDAR_APPOINTMENT_FONT_SIZE. */
+/** Typography never below CALENDAR_APPOINTMENT_FONT_SIZE (12px). */
 export function getAppointmentBlockTypography(blockHeightPx) {
-  let fontSize = CALENDAR_APPOINTMENT_FONT_SIZE;
-  if (blockHeightPx >= 72) {
-    fontSize = 12;
-  } else if (blockHeightPx >= 36) {
-    fontSize = 11;
-  }
+  const isCompact = blockHeightPx < 28;
 
   return {
-    fontSize,
-    paddingTop: blockHeightPx < 14 ? 0 : fontSize >= 12 ? 4 : 2,
-    paddingX: blockHeightPx < 14 ? 3 : 4,
+    fontSize: CALENDAR_APPOINTMENT_FONT_SIZE,
+    paddingTop: isCompact ? 2 : 4,
+    paddingX: isCompact ? 2 : 4,
     lineHeight: 1,
+    iconSize: isCompact ? 10 : 12,
   };
 }
 
