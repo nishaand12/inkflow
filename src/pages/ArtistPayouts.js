@@ -30,7 +30,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { format } from "date-fns";
+import { format, subDays } from "date-fns";
 import { DollarSign, Plus } from "lucide-react";
 import { normalizeUserRole } from "@/utils/roles";
 
@@ -46,10 +46,46 @@ function entryLabel(type) {
   return "Adjustment";
 }
 
+function inDateRange(occurredOn, start, end) {
+  if (!occurredOn) return false;
+  return occurredOn >= start && occurredOn <= end;
+}
+
+function computeBalances(artists, artistById, entries) {
+  const map = {};
+  for (const artist of artists) {
+    map[artist.id] = {
+      artist_id: artist.id,
+      artist_name: artist.full_name || "Unknown",
+      balance: 0,
+      earned: 0,
+      paid: 0,
+    };
+  }
+  for (const entry of entries) {
+    if (!map[entry.artist_id]) {
+      map[entry.artist_id] = {
+        artist_id: entry.artist_id,
+        artist_name: artistById[entry.artist_id]?.full_name || "Unknown",
+        balance: 0,
+        earned: 0,
+        paid: 0,
+      };
+    }
+    const amount = Number(entry.amount) || 0;
+    map[entry.artist_id].balance += amount;
+    if (amount >= 0) map[entry.artist_id].earned += amount;
+    else map[entry.artist_id].paid += Math.abs(amount);
+  }
+  return Object.values(map);
+}
+
 export default function ArtistPayouts() {
   const queryClient = useQueryClient();
   const [user, setUser] = useState(null);
   const [showDialog, setShowDialog] = useState(false);
+  const [startDate, setStartDate] = useState(format(subDays(new Date(), 7), "yyyy-MM-dd"));
+  const [endDate, setEndDate] = useState(format(new Date(), "yyyy-MM-dd"));
   const [form, setForm] = useState({
     artist_id: "",
     amount: "",
@@ -99,43 +135,31 @@ export default function ArtistPayouts() {
     return m;
   }, [artists]);
 
+  const periodEntries = useMemo(
+    () => ledgerEntries.filter((e) => inDateRange(e.occurred_on, startDate, endDate)),
+    [ledgerEntries, startDate, endDate]
+  );
+
   const balances = useMemo(() => {
-    const map = {};
-    for (const artist of artists) {
-      map[artist.id] = {
-        artist_id: artist.id,
-        artist_name: artist.full_name || "Unknown",
-        balance: 0,
-        earned: 0,
-        paid: 0,
-      };
-    }
-    for (const entry of ledgerEntries) {
-      if (!map[entry.artist_id]) {
-        map[entry.artist_id] = {
-          artist_id: entry.artist_id,
-          artist_name: artistById[entry.artist_id]?.full_name || "Unknown",
-          balance: 0,
-          earned: 0,
-          paid: 0,
-        };
-      }
-      const amount = Number(entry.amount) || 0;
-      map[entry.artist_id].balance += amount;
-      if (amount >= 0) map[entry.artist_id].earned += amount;
-      else map[entry.artist_id].paid += Math.abs(amount);
-    }
-    return Object.values(map).sort((a, b) => b.balance - a.balance);
-  }, [artists, artistById, ledgerEntries]);
+    const allTimeByArtist = Object.fromEntries(
+      computeBalances(artists, artistById, ledgerEntries).map((b) => [b.artist_id, b.balance])
+    );
+    return computeBalances(artists, artistById, periodEntries)
+      .map((row) => ({
+        ...row,
+        totalBalance: allTimeByArtist[row.artist_id] ?? 0,
+      }))
+      .sort((a, b) => b.totalBalance - a.totalBalance);
+  }, [artists, artistById, ledgerEntries, periodEntries]);
 
   const recentLedgerEntries = useMemo(
     () =>
-      [...ledgerEntries].sort((a, b) => {
+      [...periodEntries].sort((a, b) => {
         const dateCompare = (b.occurred_on || "").localeCompare(a.occurred_on || "");
         if (dateCompare !== 0) return dateCompare;
         return (b.created_at || "").localeCompare(a.created_at || "");
       }),
-    [ledgerEntries]
+    [periodEntries]
   );
 
   const visibleBalances = useMemo(
@@ -234,6 +258,32 @@ export default function ArtistPayouts() {
         <Card className="bg-white border-none shadow-lg">
           <CardHeader>
             <CardTitle>Artist Balances</CardTitle>
+            <p className="text-sm text-gray-500 font-normal">
+              Earned, Paid, and Balance Owed reflect the selected date range. Total Balance Owed is
+              across all periods.
+            </p>
+            <div className="flex flex-wrap gap-4 items-end pt-2">
+              <div className="space-y-1">
+                <Label htmlFor="start-date">Start date</Label>
+                <Input
+                  id="start-date"
+                  type="date"
+                  value={startDate}
+                  max={endDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="end-date">End date</Label>
+                <Input
+                  id="end-date"
+                  type="date"
+                  value={endDate}
+                  min={startDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                />
+              </div>
+            </div>
           </CardHeader>
           <CardContent>
             {loadingLedger ? (
@@ -248,6 +298,7 @@ export default function ArtistPayouts() {
                     <TableHead className="text-right">Earned</TableHead>
                     <TableHead className="text-right">Paid</TableHead>
                     <TableHead className="text-right">Balance Owed</TableHead>
+                    <TableHead className="text-right">Total Balance Owed</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -256,8 +307,9 @@ export default function ArtistPayouts() {
                       <TableCell className="font-medium">{row.artist_name}</TableCell>
                       <TableCell className="text-right tabular-nums">{money(row.earned)}</TableCell>
                       <TableCell className="text-right tabular-nums">{money(row.paid)}</TableCell>
+                      <TableCell className="text-right tabular-nums">{money(row.balance)}</TableCell>
                       <TableCell className="text-right tabular-nums font-bold text-indigo-900">
-                        {money(row.balance)}
+                        {money(row.totalBalance)}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -276,7 +328,11 @@ export default function ArtistPayouts() {
           </CardHeader>
           <CardContent>
             {visibleLedgerEntries.length === 0 ? (
-              <p className="text-gray-500">No ledger entries yet. Generate a settlement to add earnings.</p>
+              <p className="text-gray-500">
+                {ledgerEntries.length === 0
+                  ? "No ledger entries yet. Generate a settlement to add earnings."
+                  : "No ledger entries in the selected date range."}
+              </p>
             ) : (
               <Table>
                 <TableHeader>
