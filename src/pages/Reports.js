@@ -45,14 +45,13 @@ function dailyTotalsRowsToCsv(rows, locationById, includeLocation) {
       ? { location: locationById[row.location_id]?.name || row.location_id }
       : {}),
     sale_count: row.sale_count,
-    sales: row.merchandise_total,
-    tax: row.tax_total,
-    discounts: row.discount_total,
-    tips: row.tip_total,
-    in_person: row.in_person_total,
-    online: row.online_total,
-    refunds_in_person: row.refunds_in_person,
-    refunds_online: row.refunds_online,
+    gross_sales: row.gross_sales,
+    tattoo_split: row.tattoo_split,
+    piercing_split: row.piercing_split,
+    product_sales: row.product_other,
+    refunds: -(Number(row.refunds_in_person) || 0),
+    shop_revenue: row.shop_total,
+    plastic: row.plastic_total,
   }));
 }
 
@@ -447,14 +446,14 @@ export default function Reports() {
           </Card>
           <Card className="bg-white border-none shadow-md">
             <CardContent className="p-4">
-              <p className="text-xs text-gray-500">Sales (reconciled)</p>
-              <p className="text-2xl font-bold text-gray-900">{money(periodSummary.merchandise_total)}</p>
+              <p className="text-xs text-gray-500">Gross sales (reconciled)</p>
+              <p className="text-2xl font-bold text-gray-900">{money(periodSummary.gross_sales)}</p>
             </CardContent>
           </Card>
           <Card className="bg-white border-none shadow-md">
             <CardContent className="p-4">
-              <p className="text-xs text-gray-500">Tax (reconciled)</p>
-              <p className="text-2xl font-bold text-gray-900">{money(periodSummary.tax_total)}</p>
+              <p className="text-xs text-gray-500">Shop revenue (reconciled)</p>
+              <p className="text-2xl font-bold text-indigo-700">{money(periodSummary.shop_total)}</p>
             </CardContent>
           </Card>
           <Card className="bg-white border-none shadow-md">
@@ -483,7 +482,11 @@ export default function Reports() {
                 <div>
                   <CardTitle>Daily Totals</CardTitle>
                   <p className="text-sm text-gray-500 font-normal mt-1">
-                    One row per closed reconciliation day in the selected range.
+                    One row per closed reconciliation day. All revenue columns include tax.
+                    Gross sales = everything collected (service + tax + product, excluding tips).
+                    Split columns show the shop&apos;s take net of discounts and artist splits;
+                    Shop revenue = tattoo + piercing + product − refunds. Plastic = all revenue
+                    collected in person that day.
                   </p>
                 </div>
                 <Button
@@ -517,19 +520,18 @@ export default function Reports() {
                             <th className="px-3 py-3 text-left text-sm font-semibold text-gray-900">Location</th>
                           )}
                           <th className="px-3 py-3 text-right text-sm font-semibold text-gray-900"># Sales</th>
-                          <th className="px-3 py-3 text-right text-sm font-semibold text-gray-900">Sales</th>
-                          <th className="px-3 py-3 text-right text-sm font-semibold text-gray-900">Tax</th>
-                          <th className="px-3 py-3 text-right text-sm font-semibold text-gray-900">Discounts</th>
-                          <th className="px-3 py-3 text-right text-sm font-semibold text-gray-900">Tips</th>
-                          <th className="px-3 py-3 text-right text-sm font-semibold text-gray-900">In-person</th>
-                          <th className="px-3 py-3 text-right text-sm font-semibold text-gray-900">Online</th>
+                          <th className="px-3 py-3 text-right text-sm font-semibold text-gray-900">Gross sales</th>
+                          <th className="px-3 py-3 text-right text-sm font-semibold text-gray-900">Tattoo split</th>
+                          <th className="px-3 py-3 text-right text-sm font-semibold text-gray-900">Piercing split</th>
+                          <th className="px-3 py-3 text-right text-sm font-semibold text-gray-900">Product sales</th>
                           <th className="px-3 py-3 text-right text-sm font-semibold text-gray-900">Refunds</th>
+                          <th className="px-3 py-3 text-right text-sm font-semibold text-gray-900">Shop revenue</th>
+                          <th className="px-3 py-3 text-right text-sm font-semibold text-gray-900">Plastic</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-200">
                         {dailyRows.map((row) => {
-                          const refunds =
-                            (Number(row.refunds_in_person) || 0) + (Number(row.refunds_online) || 0);
+                          const refunds = Number(row.refunds_in_person) || 0;
                           return (
                             <tr key={row.reconciliation_id} className="hover:bg-gray-50">
                               <td className="px-3 py-3 text-sm">
@@ -546,31 +548,63 @@ export default function Reports() {
                                 </td>
                               )}
                               <td className="px-3 py-3 text-sm text-gray-600 text-right">{row.sale_count}</td>
-                              <td className="px-3 py-3 text-sm text-gray-900 text-right tabular-nums">
-                                {money(row.merchandise_total)}
+                              <td className="px-3 py-3 text-sm text-gray-900 text-right font-medium tabular-nums">
+                                {money(row.gross_sales)}
                               </td>
                               <td className="px-3 py-3 text-sm text-gray-900 text-right tabular-nums">
-                                {money(row.tax_total)}
-                              </td>
-                              <td className="px-3 py-3 text-sm text-red-600 text-right tabular-nums">
-                                {money(row.discount_total)}
+                                {money(row.tattoo_split)}
                               </td>
                               <td className="px-3 py-3 text-sm text-gray-900 text-right tabular-nums">
-                                {money(row.tip_total)}
+                                {money(row.piercing_split)}
                               </td>
                               <td className="px-3 py-3 text-sm text-gray-900 text-right tabular-nums">
-                                {money(row.in_person_total)}
-                              </td>
-                              <td className="px-3 py-3 text-sm text-gray-900 text-right tabular-nums">
-                                {money(row.online_total)}
+                                {money(row.product_other)}
                               </td>
                               <td className="px-3 py-3 text-sm text-amber-800 text-right tabular-nums">
-                                {money(refunds)}
+                                {refunds > 0 ? `-${money(refunds)}` : money(0)}
+                              </td>
+                              <td className="px-3 py-3 text-sm text-indigo-800 text-right font-semibold tabular-nums">
+                                {money(row.shop_total)}
+                              </td>
+                              <td className="px-3 py-3 text-sm text-gray-900 text-right tabular-nums">
+                                {money(row.plastic_total)}
                               </td>
                             </tr>
                           );
                         })}
                       </tbody>
+                      <tfoot className="bg-gray-50 border-t-2 border-gray-200">
+                        <tr>
+                          <td className="px-3 py-3 text-sm font-semibold text-gray-900">Period total</td>
+                          {showMultiLocationTab && <td className="px-3 py-3" />}
+                          <td className="px-3 py-3 text-sm font-semibold text-gray-900 text-right">
+                            {periodSummary.sale_count ?? 0}
+                          </td>
+                          <td className="px-3 py-3 text-sm font-semibold text-gray-900 text-right tabular-nums">
+                            {money(periodSummary.gross_sales)}
+                          </td>
+                          <td className="px-3 py-3 text-sm font-semibold text-gray-900 text-right tabular-nums">
+                            {money(periodSummary.tattoo_split)}
+                          </td>
+                          <td className="px-3 py-3 text-sm font-semibold text-gray-900 text-right tabular-nums">
+                            {money(periodSummary.piercing_split)}
+                          </td>
+                          <td className="px-3 py-3 text-sm font-semibold text-gray-900 text-right tabular-nums">
+                            {money(periodSummary.product_other)}
+                          </td>
+                          <td className="px-3 py-3 text-sm font-semibold text-amber-800 text-right tabular-nums">
+                            {(Number(periodSummary.refunds_in_person) || 0) > 0
+                              ? `-${money(periodSummary.refunds_in_person)}`
+                              : money(0)}
+                          </td>
+                          <td className="px-3 py-3 text-sm font-semibold text-indigo-800 text-right tabular-nums">
+                            {money(periodSummary.shop_total)}
+                          </td>
+                          <td className="px-3 py-3 text-sm font-semibold text-gray-900 text-right tabular-nums">
+                            {money(periodSummary.plastic_total)}
+                          </td>
+                        </tr>
+                      </tfoot>
                     </table>
                   </div>
                 )}
@@ -585,7 +619,8 @@ export default function Reports() {
                   <div>
                     <CardTitle>Revenue by Category</CardTitle>
                     <p className="text-sm text-gray-500 font-normal mt-1">
-                      Sum of closed reconciliation snapshots (gross / total collected).
+                      Sum of closed reconciliation snapshots. All amounts include tax; Shop split
+                      is the shop&apos;s share after artist splits.
                     </p>
                   </div>
                   <div className="flex flex-col sm:flex-row sm:items-center gap-3">
@@ -606,7 +641,8 @@ export default function Reports() {
                           categoryRows.map((r) => ({
                             category: r.category_name,
                             items: r.item_count,
-                            gross: r.gross_total,
+                            gross_incl_tax: r.gross_total,
+                            shop_split: r.shop_split,
                           })),
                           "revenue_by_category"
                         )
@@ -633,7 +669,8 @@ export default function Reports() {
                         <tr>
                           <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Category</th>
                           <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Items Sold</th>
-                          <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Revenue (gross)</th>
+                          <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Gross (incl. tax)</th>
+                          <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Shop split</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-200">
@@ -644,9 +681,26 @@ export default function Reports() {
                             <td className="px-4 py-3 text-sm text-gray-900 text-right font-bold tabular-nums">
                               {money(row.gross_total)}
                             </td>
+                            <td className="px-4 py-3 text-sm text-indigo-800 text-right font-semibold tabular-nums">
+                              {money(row.shop_split)}
+                            </td>
                           </tr>
                         ))}
                       </tbody>
+                      <tfoot className="bg-gray-50 border-t-2 border-gray-200">
+                        <tr>
+                          <td className="px-4 py-3 text-sm font-semibold text-gray-900">Total</td>
+                          <td className="px-4 py-3 text-sm font-semibold text-gray-900 text-right tabular-nums">
+                            {categoryRows.reduce((s, r) => s + (Number(r.item_count) || 0), 0)}
+                          </td>
+                          <td className="px-4 py-3 text-sm font-semibold text-gray-900 text-right tabular-nums">
+                            {money(categoryRows.reduce((s, r) => s + (Number(r.gross_total) || 0), 0))}
+                          </td>
+                          <td className="px-4 py-3 text-sm font-semibold text-indigo-800 text-right tabular-nums">
+                            {money(categoryRows.reduce((s, r) => s + (Number(r.shop_split) || 0), 0))}
+                          </td>
+                        </tr>
+                      </tfoot>
                     </table>
                   </div>
                 )}
@@ -660,7 +714,8 @@ export default function Reports() {
                 <div>
                   <CardTitle>By Artist</CardTitle>
                   <p className="text-sm text-gray-500 font-normal mt-1">
-                    Service, product, tips, and splits from closed reconciliation snapshots.
+                    From closed reconciliation snapshots. All amounts include tax; Artist owed =
+                    artist share + tips.
                   </p>
                 </div>
                 <Button
@@ -671,9 +726,8 @@ export default function Reports() {
                       artistRows.map((row) => ({
                         artist: artistById[row.artist_id]?.full_name || row.artist_id || "Unassigned",
                         sale_count: row.sale_count,
-                        service: row.service_total,
-                        tax: row.tax_total,
-                        product: row.product_total,
+                        service_incl_tax: row.service_incl_tax,
+                        products_incl_tax: row.product_incl_tax,
                         tips: row.tip_total,
                         artist_share: row.artist_share,
                         shop_revenue: row.shop_revenue,
@@ -702,9 +756,8 @@ export default function Reports() {
                         <tr>
                           <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Artist</th>
                           <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900"># Sales</th>
-                          <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Service</th>
-                          <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Tax</th>
-                          <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Products</th>
+                          <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Service (incl. tax)</th>
+                          <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Products (incl. tax)</th>
                           <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Tips</th>
                           <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Artist share</th>
                           <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Shop revenue</th>
@@ -718,9 +771,12 @@ export default function Reports() {
                               {artistById[row.artist_id]?.full_name || "Unassigned"}
                             </td>
                             <td className="px-4 py-3 text-sm text-gray-600 text-right tabular-nums">{row.sale_count}</td>
-                            <td className="px-4 py-3 text-sm text-gray-900 text-right tabular-nums">{money(row.service_total)}</td>
-                            <td className="px-4 py-3 text-sm text-gray-900 text-right tabular-nums">{money(row.tax_total)}</td>
-                            <td className="px-4 py-3 text-sm text-gray-900 text-right tabular-nums">{money(row.product_total)}</td>
+                            <td className="px-4 py-3 text-sm text-gray-900 text-right tabular-nums">
+                              {money(row.service_incl_tax ?? row.service_total)}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-900 text-right tabular-nums">
+                              {money(row.product_incl_tax ?? row.product_total)}
+                            </td>
                             <td className="px-4 py-3 text-sm text-green-800 text-right tabular-nums">{money(row.tip_total)}</td>
                             <td className="px-4 py-3 text-sm text-green-800 text-right tabular-nums">{money(row.artist_share)}</td>
                             <td className="px-4 py-3 text-sm text-indigo-800 text-right tabular-nums">{money(row.shop_revenue)}</td>

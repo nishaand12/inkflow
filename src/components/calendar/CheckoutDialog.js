@@ -343,10 +343,10 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
           artistId: appointment.artist_id,
           appointmentTypeSplitEnabled: isAppointmentTypeSplitEnabled(artist),
         });
-        const { service, product } = saleServiceProductNet(mappedLines);
+        const { service, product, serviceTax } = saleServiceProductNet(mappedLines);
         artistShare = computeAppointmentShares(
           splitResolution,
-          { service, product },
+          { service, product, serviceTax },
           cartTotals.taxTotal
         ).artistShare;
       }

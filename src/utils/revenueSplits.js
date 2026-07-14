@@ -120,7 +120,11 @@ export function resolveRevenueSplitRule(
   };
 }
 
-/** Portion of appointment tax allocated to service lines (products are 100% shop). */
+/**
+ * Fallback proration of tax onto service lines, for legacy amounts that lack
+ * per-line tax detail. Only exact when every line shares one tax rate — when
+ * line data is available pass `serviceTax` to computeAppointmentShares instead.
+ */
 export function allocateServiceTax({ service, product }, taxAmount) {
   const svc = Math.max(0, Number(service) || 0);
   const prod = Math.max(0, Number(product) || 0);
@@ -132,14 +136,21 @@ export function allocateServiceTax({ service, product }, taxAmount) {
 
 /**
  * Artist/shop shares for settlement and reporting.
- * Percent splits apply to service + service tax (artists remit HST on their share).
+ * Percent splits apply to service + service tax (artists remit HST on their share);
+ * product revenue and product tax are 100% shop, tips are 100% artist.
  * Fixed-amount splits are unchanged: exact dollar payout, capped at pre-tax service.
+ *
+ * Pass `amounts.serviceTax` (from saleServiceProductNet) when line detail exists;
+ * otherwise the total tax is prorated across service/product as a fallback.
  */
 export function computeAppointmentShares(splitResolution, amounts, taxAmount) {
   const service = Math.max(0, Number(amounts?.service) || 0);
   const product = Math.max(0, Number(amounts?.product) || 0);
   const tax = Math.max(0, Number(taxAmount) || 0);
-  const serviceTax = allocateServiceTax({ service, product }, tax);
+  const exactServiceTax = Number(amounts?.serviceTax);
+  const serviceTax = Number.isFinite(exactServiceTax)
+    ? Math.min(Math.max(0, exactServiceTax), tax)
+    : allocateServiceTax({ service, product }, tax);
   const totalCollected = service + product + tax;
 
   let artistShare;

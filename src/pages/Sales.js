@@ -290,8 +290,8 @@ export default function Sales() {
           artistId,
           appointmentTypeSplitEnabled: isAppointmentTypeSplitEnabled(artist),
         });
-        const { service, product } = saleServiceProductNet(lineItems);
-        artistShare = computeAppointmentShares(splitResolution, { service, product }, totals.taxTotal).artistShare;
+        const { service, product, serviceTax } = saleServiceProductNet(lineItems);
+        artistShare = computeAppointmentShares(splitResolution, { service, product, serviceTax }, totals.taxTotal).artistShare;
       }
 
       const { data, error } = await supabase.rpc("finalize_sale", {

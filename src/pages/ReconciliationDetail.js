@@ -222,21 +222,42 @@ export default function ReconciliationDetail() {
         .map((c) => ({
           label: c.category_name,
           gross: Number(c.gross_total) || 0,
+          shopSplit: Number(c.shop_split) || 0,
           count: Number(c.item_count) || 0,
         }))
         .sort((a, b) => b.gross - a.gross);
     }
+    // Shop split per category: each sale's artist_share is allocated across its
+    // service lines proportional to the line's tax-inclusive total; non-service
+    // lines are 100% shop. Mirrors snapshot_reconciliation_report.
+    const svcInclBySale = {};
+    for (const li of lineItems) {
+      if (li.line_type === "service") {
+        svcInclBySale[li.sale_id] = (svcInclBySale[li.sale_id] || 0) + (Number(li.line_total) || 0);
+      }
+    }
+    const shareBySale = Object.fromEntries(sales.map((s) => [s.id, Number(s.artist_share) || 0]));
     const map = {};
     for (const li of lineItems) {
       const { key, label } = categoryFor(li);
-      if (!map[key]) map[key] = { label, gross: 0, count: 0 };
-      map[key].gross += Number(li.line_total) || 0;
+      if (!map[key]) map[key] = { label, gross: 0, shopSplit: 0, count: 0 };
+      const lineTotal = Number(li.line_total) || 0;
+      let shop = lineTotal;
+      if (li.line_type === "service") {
+        const svcIncl = svcInclBySale[li.sale_id] || 0;
+        if (svcIncl > 0) shop -= (shareBySale[li.sale_id] || 0) * (lineTotal / svcIncl);
+      }
+      map[key].gross += lineTotal;
+      map[key].shopSplit += shop;
       map[key].count += Number(li.quantity) || 1;
     }
     return Object.values(map).sort((a, b) => b.gross - a.gross);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isClosed, snapshot, lineItems, reportingOnly]);
+  }, [isClosed, snapshot, lineItems, sales, reportingOnly]);
 
+  // All revenue figures are tax-inclusive: the shop splits the collected
+  // amount (tax included) with the artist, so service/product columns carry
+  // their own tax and service + product = artistOwed + shopRevenue − tips.
   const perSaleRows = useMemo(() => {
     if (isClosed && snapshot?.sales) {
       return snapshot.sales
@@ -244,9 +265,8 @@ export default function ReconciliationDetail() {
           id: s.id,
           sale_date: s.sale_date,
           artist_id: s.artist_id,
-          service: Number(s.service) || 0,
-          tax: Number(s.tax) || 0,
-          product: Number(s.product) || 0,
+          service: Number(s.service_incl_tax ?? s.service) || 0,
+          product: Number(s.product_incl_tax ?? s.product) || 0,
           tips: Number(s.tips) || 0,
           artistOwed: Number(s.artist_owed) || 0,
           shopRevenue: Number(s.shop_revenue) || 0,
@@ -256,14 +276,20 @@ export default function ReconciliationDetail() {
     return sales
       .map((s) => {
         const lis = lineItemsBySale[s.id] || [];
-        const service = lis
+        const serviceNet = lis
           .filter((li) => li.line_type === "service")
           .reduce((sum, li) => sum + (Number(li.net_amount) || 0), 0);
-        const product = lis
+        const productNet = lis
           .filter((li) => li.line_type !== "service")
           .reduce((sum, li) => sum + (Number(li.net_amount) || 0), 0);
+        const serviceLineTax = lis
+          .filter((li) => li.line_type === "service")
+          .reduce((sum, li) => sum + (Number(li.tax_amount) || 0), 0);
         const lineTax = lis.reduce((sum, li) => sum + (Number(li.tax_amount) || 0), 0);
         const tax = Math.max(Number(s.tax_total) || 0, lineTax);
+        const serviceTax = Math.min(Math.max(serviceLineTax, 0), tax);
+        const service = serviceNet + serviceTax;
+        const product = productNet + (tax - serviceTax);
         const settlementShare = Number(s.artist_share) || 0;
         const tips = Number(s.tip_total) || 0;
         const artistOwed = settlementShare + tips;
@@ -273,7 +299,6 @@ export default function ReconciliationDetail() {
           sale_date: s.sale_date,
           artist_id: s.artist_id,
           service,
-          tax,
           product,
           tips,
           artistOwed,
@@ -288,9 +313,8 @@ export default function ReconciliationDetail() {
       return snapshot.artists
         .map((a) => ({
           artist_id: a.artist_id,
-          service: Number(a.service_total) || 0,
-          tax: Number(a.tax_total) || 0,
-          product: Number(a.product_total) || 0,
+          service: Number(a.service_incl_tax ?? a.service_total) || 0,
+          product: Number(a.product_incl_tax ?? a.product_total) || 0,
           tips: Number(a.tip_total) || 0,
           artistOwed: Number(a.artist_owed) || 0,
           shopRevenue: Number(a.shop_revenue) || 0,
@@ -302,10 +326,9 @@ export default function ReconciliationDetail() {
     for (const row of perSaleRows) {
       const aid = row.artist_id || "unknown";
       if (!map[aid]) {
-        map[aid] = { artist_id: aid, service: 0, tax: 0, product: 0, tips: 0, artistOwed: 0, shopRevenue: 0, count: 0 };
+        map[aid] = { artist_id: aid, service: 0, product: 0, tips: 0, artistOwed: 0, shopRevenue: 0, count: 0 };
       }
       map[aid].service += row.service;
-      map[aid].tax += row.tax;
       map[aid].product += row.product;
       map[aid].tips += row.tips;
       map[aid].artistOwed += row.artistOwed;
@@ -385,12 +408,8 @@ export default function ReconciliationDetail() {
               <CardContent>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   <div className="rounded-lg border border-gray-100 p-4 bg-gray-50/80">
-                    <p className="text-xs text-gray-500 uppercase tracking-wide">Sales</p>
+                    <p className="text-xs text-gray-500 uppercase tracking-wide">Gross sales (incl. tax)</p>
                     <p className="text-xl font-bold text-gray-900">{money(revenueTotals.subtotal + revenueTotals.tax)}</p>
-                  </div>
-                  <div className="rounded-lg border border-gray-100 p-4 bg-gray-50/80">
-                    <p className="text-xs text-gray-500 uppercase tracking-wide">Tax (incl.)</p>
-                    <p className="text-xl font-bold text-gray-900">{money(revenueTotals.tax)}</p>
                   </div>
                   <div className="rounded-lg border border-gray-100 p-4 bg-red-50/60">
                     <p className="text-xs text-gray-500 uppercase tracking-wide">Discounts</p>
@@ -401,7 +420,7 @@ export default function ReconciliationDetail() {
                     <p className="text-xl font-bold text-green-800">{money(revenueTotals.tip)}</p>
                   </div>
                   <div className="rounded-lg border border-gray-100 p-4 bg-indigo-50/80 border-indigo-100">
-                    <p className="text-xs text-gray-500 uppercase tracking-wide">In-person (system)</p>
+                    <p className="text-xs text-gray-500 uppercase tracking-wide">In-Shop (Terminal + Cash)</p>
                     <p className="text-lg font-semibold text-indigo-900">{money(reconciliation.in_person_total)}</p>
                   </div>
                   <div className="rounded-lg border border-gray-100 p-4 bg-gray-50/80">
@@ -492,7 +511,10 @@ export default function ReconciliationDetail() {
                     <Tags className="w-5 h-5 text-gray-500" />
                     Totals by reporting category
                   </CardTitle>
-                  <p className="text-sm text-gray-500 font-normal">From checkout line items (tax-inclusive totals).</p>
+                  <p className="text-sm text-gray-500 font-normal">
+                    From checkout line items. All amounts include tax; Shop split is the
+                    shop&apos;s share of each category after artist splits.
+                  </p>
                 </CardHeader>
                 <CardContent>
                   {loadingBreakdowns ? (
@@ -505,7 +527,8 @@ export default function ReconciliationDetail() {
                         <TableRow>
                           <TableHead>Reporting category</TableHead>
                           <TableHead className="text-right">Items</TableHead>
-                          <TableHead className="text-right">Gross</TableHead>
+                          <TableHead className="text-right">Gross (incl. tax)</TableHead>
+                          <TableHead className="text-right">Shop split (incl. tax)</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -514,8 +537,21 @@ export default function ReconciliationDetail() {
                             <TableCell className="font-medium">{row.label}</TableCell>
                             <TableCell className="text-right">{row.count}</TableCell>
                             <TableCell className="text-right tabular-nums">{money(row.gross)}</TableCell>
+                            <TableCell className="text-right tabular-nums text-indigo-800">{money(row.shopSplit)}</TableCell>
                           </TableRow>
                         ))}
+                        <TableRow className="bg-gray-50 font-semibold">
+                          <TableCell>Total</TableCell>
+                          <TableCell className="text-right">
+                            {totalsByCategory.reduce((s, r) => s + r.count, 0)}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums">
+                            {money(totalsByCategory.reduce((s, r) => s + r.gross, 0))}
+                          </TableCell>
+                          <TableCell className="text-right tabular-nums text-indigo-800">
+                            {money(totalsByCategory.reduce((s, r) => s + r.shopSplit, 0))}
+                          </TableCell>
+                        </TableRow>
                       </TableBody>
                     </Table>
                   )}
@@ -527,7 +563,8 @@ export default function ReconciliationDetail() {
               <CardHeader>
                 <CardTitle>Totals by artist</CardTitle>
                 <p className="text-sm text-gray-500 font-normal">
-                  Product sales are 100% shop revenue; tips are owed 100% to the artist.
+                  All amounts include tax. Products are 100% shop revenue; tips are owed 100% to the
+                  artist. Service + Products = Artist owed + Shop revenue − Tips.
                 </p>
               </CardHeader>
               <CardContent>
@@ -542,12 +579,11 @@ export default function ReconciliationDetail() {
                         <TableRow>
                           <TableHead>Artist</TableHead>
                           <TableHead className="text-right"># Sales</TableHead>
-                          <TableHead className="text-right">Service</TableHead>
-                          <TableHead className="text-right">Tax</TableHead>
-                          <TableHead className="text-right">Products</TableHead>
+                          <TableHead className="text-right">Service (incl. tax)</TableHead>
+                          <TableHead className="text-right">Products (incl. tax)</TableHead>
                           <TableHead className="text-right">Tips</TableHead>
-                          <TableHead className="text-right">Artist owed</TableHead>
-                          <TableHead className="text-right">Shop revenue</TableHead>
+                          <TableHead className="text-right">Artist owed (incl. tax)</TableHead>
+                          <TableHead className="text-right">Shop revenue (incl. tax)</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -558,7 +594,6 @@ export default function ReconciliationDetail() {
                             </TableCell>
                             <TableCell className="text-right">{row.count}</TableCell>
                             <TableCell className="text-right tabular-nums">{money(row.service)}</TableCell>
-                            <TableCell className="text-right tabular-nums">{money(row.tax)}</TableCell>
                             <TableCell className="text-right tabular-nums">{money(row.product)}</TableCell>
                             <TableCell className="text-right tabular-nums text-green-800">{money(row.tips)}</TableCell>
                             <TableCell className="text-right tabular-nums text-green-800">{money(row.artistOwed)}</TableCell>
@@ -575,7 +610,9 @@ export default function ReconciliationDetail() {
             <Card className="bg-white border-none shadow-lg">
               <CardHeader>
                 <CardTitle>Per-sale lines</CardTitle>
-                <p className="text-sm text-gray-500 font-normal">Each sale whose payment landed on this business day.</p>
+                <p className="text-sm text-gray-500 font-normal">
+                  Each sale whose payment landed on this business day. All amounts include tax.
+                </p>
               </CardHeader>
               <CardContent>
                 {loadingBreakdowns ? (
@@ -589,8 +626,8 @@ export default function ReconciliationDetail() {
                         <TableRow>
                           <TableHead>Sale date</TableHead>
                           <TableHead>Artist</TableHead>
-                          <TableHead className="text-right">Service</TableHead>
-                          <TableHead className="text-right">Products</TableHead>
+                          <TableHead className="text-right">Service (incl. tax)</TableHead>
+                          <TableHead className="text-right">Products (incl. tax)</TableHead>
                           <TableHead className="text-right">Tips</TableHead>
                           <TableHead className="text-right">Artist owed</TableHead>
                           <TableHead className="text-right">Shop revenue</TableHead>
