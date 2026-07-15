@@ -255,6 +255,11 @@ export default function ReconciliationDetail() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isClosed, snapshot, lineItems, sales, reportingOnly]);
 
+  const totalShopSplitInclTax = useMemo(
+    () => totalsByCategory.reduce((s, r) => s + r.shopSplit, 0),
+    [totalsByCategory]
+  );
+
   // All revenue figures are tax-inclusive: the shop splits the collected
   // amount (tax included) with the artist, so service/product columns carry
   // their own tax and service + product = artistOwed + shopRevenue − tips.
@@ -410,6 +415,10 @@ export default function ReconciliationDetail() {
                   <div className="rounded-lg border border-gray-100 p-4 bg-gray-50/80">
                     <p className="text-xs text-gray-500 uppercase tracking-wide">Gross sales (incl. tax)</p>
                     <p className="text-xl font-bold text-gray-900">{money(revenueTotals.subtotal + revenueTotals.tax)}</p>
+                  </div>
+                  <div className="rounded-lg border border-indigo-100 p-4 bg-indigo-50/80">
+                    <p className="text-xs text-gray-500 uppercase tracking-wide">Shop split (incl. tax)</p>
+                    <p className="text-xl font-bold text-indigo-900">{money(totalShopSplitInclTax)}</p>
                   </div>
                   <div className="rounded-lg border border-gray-100 p-4 bg-red-50/60">
                     <p className="text-xs text-gray-500 uppercase tracking-wide">Discounts</p>
