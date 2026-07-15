@@ -69,16 +69,33 @@ export function computeSaleTotals(lines, tip = 0) {
   };
 }
 
-/** Service vs product net split for a cart (drives artist commission). */
+/**
+ * Service vs product net + tax split for a cart (drives artist commission).
+ * serviceTax/productTax come from each line's own rate, so mixed-rate carts
+ * (tax-exempt gift cards, zero-rated services) allocate correctly.
+ */
 export function saleServiceProductNet(lines) {
   let service = 0;
   let product = 0;
+  let serviceTax = 0;
+  let productTax = 0;
   for (const li of lines) {
     const net = lineNetAmount(li);
-    if (li.line_type === "service") service += net;
-    else product += net;
+    const tax = lineTaxAmount(li);
+    if (li.line_type === "service") {
+      service += net;
+      serviceTax += tax;
+    } else {
+      product += net;
+      productTax += tax;
+    }
   }
-  return { service: Math.max(0, service), product: Math.max(0, product) };
+  return {
+    service: Math.max(0, service),
+    product: Math.max(0, product),
+    serviceTax: Math.max(0, serviceTax),
+    productTax: Math.max(0, productTax),
+  };
 }
 
 /** Build the p_lines jsonb payload for finalize_sale. */

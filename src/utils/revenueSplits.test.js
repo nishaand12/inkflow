@@ -30,6 +30,47 @@ describe("computeAppointmentShares", () => {
     expect(shopShare).toBeCloseTo(90.4);
   });
 
+  it("uses exact per-line service tax when provided instead of prorating", () => {
+    // Tax-exempt service + taxed product: proration would leak product tax
+    // into the artist base; the exact serviceTax keeps product tax 100% shop.
+    const { artistShare, shopShare } = computeAppointmentShares(
+      percentSplit,
+      { service: 100, product: 100, serviceTax: 0 },
+      13
+    );
+    expect(artistShare).toBeCloseTo(60);
+    expect(shopShare).toBeCloseTo(153);
+  });
+
+  it("splits exact service tax and leaves product tax with the shop", () => {
+    // service $100 @13% tax, product $50 tax-exempt -> serviceTax 13, total tax 13
+    const { artistShare, shopShare } = computeAppointmentShares(
+      percentSplit,
+      { service: 100, product: 50, serviceTax: 13 },
+      13
+    );
+    expect(artistShare).toBeCloseTo(67.8); // 60% of 113
+    expect(shopShare).toBeCloseTo(95.2); // 163 collected - 67.80
+  });
+
+  it("artist and shop shares always partition the gross collected", () => {
+    const { artistShare, shopShare } = computeAppointmentShares(
+      percentSplit,
+      { service: 120, product: 80, serviceTax: 15.6 },
+      26
+    );
+    expect(artistShare + shopShare).toBeCloseTo(120 + 80 + 26);
+  });
+
+  it("falls back to proration when serviceTax is not supplied", () => {
+    const { artistShare } = computeAppointmentShares(
+      percentSplit,
+      { service: 200, product: 50 },
+      32.5
+    );
+    expect(artistShare).toBeCloseTo(0.6 * (200 + 26));
+  });
+
   it("keeps fixed-amount payout unchanged and assigns remainder (incl. tax) to shop", () => {
     const fixedSplit = resolveRevenueSplitRule(
       [

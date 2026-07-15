@@ -3,6 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import Stripe from "npm:stripe@17";
 import { mergeStripeDepositPaidMetadata } from "../_shared/stripeDepositPaymentMetadata.ts";
 import { buildPaymentLedgerFields } from "../_shared/paymentLedger.ts";
+import { computeArtistShareForLines } from "../_shared/revenueSplits.ts";
 
 const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY")!;
 const STRIPE_WEBHOOK_SECRET = Deno.env.get("STRIPE_WEBHOOK_SECRET")!;
@@ -93,7 +94,7 @@ serve(async (req) => {
         const { data: aptRow } = appointmentId
           ? await supabase
             .from("appointments")
-            .select("id, location_id, artist_id, customer_id, appointment_date, status, studio:studios(timezone)")
+            .select("id, location_id, artist_id, customer_id, appointment_type_id, appointment_date, status, studio:studios(timezone)")
             .eq("id", appointmentId)
             .maybeSingle()
           : { data: null };
@@ -172,6 +173,42 @@ serve(async (req) => {
                   (Number(line.line_total) < 0 ? -1 : 1),
               }));
 
+              // Online checkout recognizes revenue like a manual checkout, so
+              // accrue the artist's split now (deposits never reach this path).
+              let artistShare = 0;
+              if (aptRow?.artist_id) {
+                const [{ data: artistRow }, { data: splitRules, error: rulesErr }] =
+                  await Promise.all([
+                    supabase
+                      .from("artists")
+                      .select("appointment_type_split_enabled")
+                      .eq("id", aptRow.artist_id)
+                      .maybeSingle(),
+                    supabase
+                      .from("artist_split_rules")
+                      .select(
+                        "artist_id, appointment_type_id, is_active, split_mode, split_value, split_percent",
+                      )
+                      .eq("studio_id", studioIdMeta)
+                      .eq("is_active", true),
+                  ]);
+                if (rulesErr) {
+                  console.error("artist_split_rules fetch failed:", rulesErr);
+                  throw new Error(`artist_split_rules fetch failed: ${rulesErr.message}`);
+                }
+                artistShare = computeArtistShareForLines(
+                  splitRules ?? [],
+                  {
+                    appointmentTypeId: aptRow?.appointment_type_id ?? null,
+                    artistId: aptRow.artist_id,
+                    appointmentTypeSplitEnabled: Boolean(
+                      artistRow?.appointment_type_split_enabled,
+                    ),
+                  },
+                  pLines,
+                );
+              }
+
               const { data: saleId, error: finalizeErr } = await supabase.rpc(
                 "finalize_sale_system",
                 {
@@ -183,7 +220,7 @@ serve(async (req) => {
                     appointment_id: appointmentId,
                     sale_date: aptRow?.appointment_date || null,
                     tip_total: tipAmount,
-                    artist_share: 0,
+                    artist_share: artistShare,
                   },
                   p_lines: pLines,
                   p_payment: null,
