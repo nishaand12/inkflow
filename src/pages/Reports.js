@@ -277,6 +277,25 @@ export default function Reports() {
     [artists]
   );
 
+  // Counter / scrub staff are excluded from the artist filter and the By Artist report.
+  const reportArtists = useMemo(
+    () => artists.filter((a) => !isSupportStaffArtistType(a.artist_type)),
+    [artists]
+  );
+
+  const supportStaffIds = useMemo(
+    () =>
+      new Set(
+        artists.filter((a) => isSupportStaffArtistType(a.artist_type)).map((a) => a.id)
+      ),
+    [artists]
+  );
+
+  const visibleArtistRows = useMemo(
+    () => artistRows.filter((row) => !supportStaffIds.has(row.artist_id)),
+    [artistRows, supportStaffIds]
+  );
+
   const unreconciledDays = useMemo(
     () =>
       computeUnreconciledDays({
@@ -386,7 +405,7 @@ export default function Reports() {
                     <SelectTrigger><SelectValue placeholder="All Artists" /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Artists</SelectItem>
-                      {artists.map((a) => (
+                      {reportArtists.map((a) => (
                         <SelectItem key={a.id} value={a.id}>{a.full_name}</SelectItem>
                       ))}
                     </SelectContent>
@@ -723,7 +742,7 @@ export default function Reports() {
                   className="shrink-0"
                   onClick={() =>
                     exportToCSV(
-                      artistRows.map((row) => ({
+                      visibleArtistRows.map((row) => ({
                         artist: artistById[row.artist_id]?.full_name || row.artist_id || "Unassigned",
                         sale_count: row.sale_count,
                         service_incl_tax: row.service_incl_tax,
@@ -736,7 +755,7 @@ export default function Reports() {
                       "revenue_by_artist"
                     )
                   }
-                  disabled={artistRows.length === 0}
+                  disabled={visibleArtistRows.length === 0}
                 >
                   <Download className="w-4 h-4 mr-2" /> Export CSV
                 </Button>
@@ -744,7 +763,7 @@ export default function Reports() {
               <CardContent>
                 {loadingArtist ? (
                   <p className="text-center py-12 text-gray-500">Loading…</p>
-                ) : artistRows.length === 0 ? (
+                ) : visibleArtistRows.length === 0 ? (
                   <div className="text-center py-12">
                     <Users className="w-12 h-12 text-gray-300 mx-auto mb-3" />
                     <p className="text-gray-500">No artist totals for closed days in this range.</p>
@@ -765,7 +784,7 @@ export default function Reports() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-200">
-                        {artistRows.map((row) => (
+                        {visibleArtistRows.map((row) => (
                           <tr key={row.artist_id || "unknown"} className="hover:bg-gray-50">
                             <td className="px-4 py-3 text-sm text-gray-900 font-medium">
                               {artistById[row.artist_id]?.full_name || "Unassigned"}

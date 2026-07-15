@@ -33,6 +33,7 @@ import {
 import { format, subDays } from "date-fns";
 import { DollarSign, Plus } from "lucide-react";
 import { normalizeUserRole } from "@/utils/roles";
+import { isSupportStaffArtistType } from "@/utils/artistTypes";
 
 function money(n) {
   const v = Number(n) || 0;
@@ -86,6 +87,7 @@ export default function ArtistPayouts() {
   const [showDialog, setShowDialog] = useState(false);
   const [startDate, setStartDate] = useState(format(subDays(new Date(), 7), "yyyy-MM-dd"));
   const [endDate, setEndDate] = useState(format(new Date(), "yyyy-MM-dd"));
+  const [filterArtist, setFilterArtist] = useState("all");
   const [form, setForm] = useState({
     artist_id: "",
     amount: "",
@@ -135,6 +137,20 @@ export default function ArtistPayouts() {
     return m;
   }, [artists]);
 
+  // Payouts only concern tattoo artists / piercers — never counter or scrub staff.
+  const payoutArtists = useMemo(
+    () => artists.filter((a) => !isSupportStaffArtistType(a.artist_type)),
+    [artists]
+  );
+
+  const supportStaffIds = useMemo(
+    () =>
+      new Set(
+        artists.filter((a) => isSupportStaffArtistType(a.artist_type)).map((a) => a.id)
+      ),
+    [artists]
+  );
+
   const periodEntries = useMemo(
     () => ledgerEntries.filter((e) => inDateRange(e.occurred_on, startDate, endDate)),
     [ledgerEntries, startDate, endDate]
@@ -142,15 +158,16 @@ export default function ArtistPayouts() {
 
   const balances = useMemo(() => {
     const allTimeByArtist = Object.fromEntries(
-      computeBalances(artists, artistById, ledgerEntries).map((b) => [b.artist_id, b.balance])
+      computeBalances(payoutArtists, artistById, ledgerEntries).map((b) => [b.artist_id, b.balance])
     );
-    return computeBalances(artists, artistById, periodEntries)
+    return computeBalances(payoutArtists, artistById, periodEntries)
+      .filter((row) => !supportStaffIds.has(row.artist_id))
       .map((row) => ({
         ...row,
         totalBalance: allTimeByArtist[row.artist_id] ?? 0,
       }))
       .sort((a, b) => b.totalBalance - a.totalBalance);
-  }, [artists, artistById, ledgerEntries, periodEntries]);
+  }, [payoutArtists, artistById, ledgerEntries, periodEntries, supportStaffIds]);
 
   const recentLedgerEntries = useMemo(
     () =>
@@ -162,18 +179,28 @@ export default function ArtistPayouts() {
     [periodEntries]
   );
 
-  const visibleBalances = useMemo(
-    () => (isAdmin ? balances : balances.filter((b) => b.artist_id === userArtist?.id)),
-    [isAdmin, balances, userArtist]
-  );
+  const visibleBalances = useMemo(() => {
+    const scoped = isAdmin
+      ? balances
+      : balances.filter((b) => b.artist_id === userArtist?.id);
+    if (isAdmin && filterArtist !== "all") {
+      return scoped.filter((b) => b.artist_id === filterArtist);
+    }
+    return scoped;
+  }, [isAdmin, balances, userArtist, filterArtist]);
 
-  const visibleLedgerEntries = useMemo(
-    () =>
-      isAdmin
-        ? recentLedgerEntries
-        : recentLedgerEntries.filter((e) => e.artist_id === userArtist?.id),
-    [isAdmin, recentLedgerEntries, userArtist]
-  );
+  const visibleLedgerEntries = useMemo(() => {
+    const withoutSupportStaff = recentLedgerEntries.filter(
+      (e) => !supportStaffIds.has(e.artist_id)
+    );
+    const scoped = isAdmin
+      ? withoutSupportStaff
+      : withoutSupportStaff.filter((e) => e.artist_id === userArtist?.id);
+    if (isAdmin && filterArtist !== "all") {
+      return scoped.filter((e) => e.artist_id === filterArtist);
+    }
+    return scoped;
+  }, [isAdmin, recentLedgerEntries, userArtist, filterArtist, supportStaffIds]);
 
   const recordPayout = useMutation({
     mutationFn: async () => {
@@ -283,6 +310,24 @@ export default function ArtistPayouts() {
                   onChange={(e) => setEndDate(e.target.value)}
                 />
               </div>
+              {isAdmin && (
+                <div className="space-y-1">
+                  <Label>Artist</Label>
+                  <Select value={filterArtist} onValueChange={setFilterArtist}>
+                    <SelectTrigger className="min-w-[180px]">
+                      <SelectValue placeholder="All artists" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All artists</SelectItem>
+                      {payoutArtists.map((artist) => (
+                        <SelectItem key={artist.id} value={artist.id}>
+                          {artist.full_name || "Unknown"}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
             </div>
           </CardHeader>
           <CardContent>
@@ -398,7 +443,7 @@ export default function ArtistPayouts() {
                     <SelectValue placeholder="Choose artist" />
                   </SelectTrigger>
                   <SelectContent>
-                    {artists.map((artist) => (
+                    {payoutArtists.map((artist) => (
                       <SelectItem key={artist.id} value={artist.id}>
                         {artist.full_name || "Unknown"}
                       </SelectItem>
