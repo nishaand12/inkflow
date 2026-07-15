@@ -6,6 +6,9 @@
 
 import { pickPreferredWorkStationId } from "./workStationSelection";
 
+/** Step size for public booking and reschedule slot generation. */
+export const BOOKING_SLOT_MINUTES = 5;
+
 export const timeToMinutes = (t) => {
   const [h, m] = String(t).split(":").map(Number);
   return h * 60 + m;
@@ -114,7 +117,7 @@ export function computeArtistSlots({
     const availStart = timeToMinutes(avail.start_time);
     const availEnd = timeToMinutes(avail.end_time);
 
-    for (let slotStart = availStart; slotStart + durationMinutes <= availEnd; slotStart += 30) {
+    for (let slotStart = availStart; slotStart + durationMinutes <= availEnd; slotStart += BOOKING_SLOT_MINUTES) {
       const slotEnd = slotStart + durationMinutes;
 
       const isBlocked = blockedSlots.some((b) => {
