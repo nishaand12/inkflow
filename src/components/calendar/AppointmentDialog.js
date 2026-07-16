@@ -24,7 +24,7 @@ import TimePicker12h from "./TimePicker12h";
 import { normalizeUserRole } from "@/utils/roles";
 import { addMinutesToTime, formatDuration, formatTime12h, DEFAULT_BOOKING_START_TIME, DEFAULT_APPOINTMENT_END_TIME } from "@/utils/index";
 import { getAppointmentTypeDisplaySections } from "@/utils/reportingCategories";
-import { CHECKOUT_PAYMENT_METHOD_OPTIONS, CHECKOUT_PAYMENT_METHOD_VALUES } from "@/utils/checkoutPaymentMethods";
+import { useCheckoutPaymentMethods } from "@/utils/useCheckoutPaymentMethods";
 import { filterArtistsSelectableForBooking } from "@/utils/artistTypes";
 import { getAppointmentStatusLabel } from "@/utils/appointmentStatus";
 import {
@@ -314,6 +314,9 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
   const canEditLocation = () => {
     return canEdit();
   };
+
+  const { options: paymentMethodOptions, values: paymentMethodValues } =
+    useCheckoutPaymentMethods(currentUser?.studio_id);
 
   const { data: customers = EMPTY_ARRAY } = useQuery({
     queryKey: ['customers', currentUser?.studio_id],
@@ -1093,9 +1096,9 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     const meta = parseDepositMetadata(manualDepositRow.metadata);
     setDepositEditError(null);
     setDepositDraftMethod(
-      CHECKOUT_PAYMENT_METHOD_VALUES.includes(manualDepositRow.tender_type)
+      paymentMethodValues.includes(manualDepositRow.tender_type)
         ? manualDepositRow.tender_type
-        : (CHECKOUT_PAYMENT_METHOD_VALUES.includes(meta.method) ? meta.method : 'Cash')
+        : (paymentMethodValues.includes(meta.method) ? meta.method : 'Cash')
     );
     setDepositDraftAmount(
       manualDepositRow.amount != null ? String(Number(manualDepositRow.amount)) : ''
@@ -1115,7 +1118,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
         throw new Error('Enter a valid amount greater than 0.');
       }
       const amount = Math.round(parsedAmount * 100) / 100;
-      if (!CHECKOUT_PAYMENT_METHOD_VALUES.includes(depositDraftMethod)) {
+      if (!paymentMethodValues.includes(depositDraftMethod)) {
         throw new Error('Choose a valid payment method.');
       }
       const note = depositDraftNote.trim().slice(0, 500);
@@ -1168,7 +1171,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
               type="button"
               onClick={() => {
                 setPaymentMethodError(null);
-                setPaymentMethodDraft(CHECKOUT_PAYMENT_METHOD_VALUES.includes(current) ? current : "");
+                setPaymentMethodDraft(paymentMethodValues.includes(current) ? current : "");
                 setEditingPaymentMethod(true);
               }}
               className="text-xs text-emerald-700 underline hover:text-emerald-900"
@@ -1188,7 +1191,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
               <SelectValue placeholder="Method" />
             </SelectTrigger>
             <SelectContent>
-              {CHECKOUT_PAYMENT_METHOD_OPTIONS.map(({ value, label }) => (
+              {paymentMethodOptions.map(({ value, label }) => (
                 <SelectItem key={value} value={value}>{label}</SelectItem>
               ))}
             </SelectContent>
@@ -1936,7 +1939,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                              {CHECKOUT_PAYMENT_METHOD_OPTIONS.map(({ value, label }) => (
+                              {paymentMethodOptions.map(({ value, label }) => (
                                 <SelectItem key={value} value={value}>{label}</SelectItem>
                               ))}
                             </SelectContent>
@@ -2039,7 +2042,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                                     <SelectValue />
                                   </SelectTrigger>
                                   <SelectContent>
-                                    {CHECKOUT_PAYMENT_METHOD_OPTIONS.map(({ value, label }) => (
+                                    {paymentMethodOptions.map(({ value, label }) => (
                                       <SelectItem key={value} value={value}>{label}</SelectItem>
                                     ))}
                                   </SelectContent>
@@ -2179,7 +2182,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                              {CHECKOUT_PAYMENT_METHOD_OPTIONS.map(({ value, label }) => (
+                              {paymentMethodOptions.map(({ value, label }) => (
                                 <SelectItem key={value} value={value}>{label}</SelectItem>
                               ))}
                             </SelectContent>

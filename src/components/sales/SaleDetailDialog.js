@@ -4,10 +4,7 @@ import { format, parseISO } from "date-fns";
 import { Loader2 } from "lucide-react";
 import { supabase } from "@/utils/supabase";
 import { normalizeUserRole } from "@/utils/roles";
-import {
-  CHECKOUT_PAYMENT_METHOD_OPTIONS,
-  CHECKOUT_PAYMENT_METHOD_VALUES,
-} from "@/utils/checkoutPaymentMethods";
+import { useCheckoutPaymentMethods } from "@/utils/useCheckoutPaymentMethods";
 import { buildCheckoutSummaryFromSale } from "@/utils/saleLines";
 import {
   Dialog,
@@ -48,6 +45,8 @@ export default function SaleDetailDialog({
   saleDate,
 }) {
   const queryClient = useQueryClient();
+  const { options: paymentMethodOptions, values: paymentMethodValues } =
+    useCheckoutPaymentMethods(studioId);
   const [editingPaymentMethod, setEditingPaymentMethod] = useState(false);
   const [paymentMethodDraft, setPaymentMethodDraft] = useState("");
   const [paymentMethodError, setPaymentMethodError] = useState(null);
@@ -123,7 +122,7 @@ export default function SaleDetailDialog({
                 onClick={() => {
                   setPaymentMethodError(null);
                   setPaymentMethodDraft(
-                    CHECKOUT_PAYMENT_METHOD_VALUES.includes(currentPaymentMethod)
+                    paymentMethodValues.includes(currentPaymentMethod)
                       ? currentPaymentMethod
                       : ""
                   );
@@ -147,7 +146,7 @@ export default function SaleDetailDialog({
               <SelectValue placeholder="Method" />
             </SelectTrigger>
             <SelectContent>
-              {CHECKOUT_PAYMENT_METHOD_OPTIONS.map(({ value, label }) => (
+              {paymentMethodOptions.map(({ value, label }) => (
                 <SelectItem key={value} value={value}>{label}</SelectItem>
               ))}
             </SelectContent>
