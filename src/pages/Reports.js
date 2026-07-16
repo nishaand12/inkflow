@@ -13,7 +13,7 @@ import {
   fetchSalesReport,
   fetchStripeDepositsReport,
 } from "@/api/reports";
-import { CHECKOUT_PAYMENT_METHOD_OPTIONS } from "@/utils/checkoutPaymentMethods";
+import { useCheckoutPaymentMethods } from "@/utils/useCheckoutPaymentMethods";
 import SaleDetailDialog from "@/components/sales/SaleDetailDialog";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -31,6 +31,11 @@ import {
 import { Download, DollarSign, Clock, AlertTriangle, BarChart3, Users, TrendingUp, Globe, ShoppingBag, ChevronLeft, ChevronRight, CreditCard } from "lucide-react";
 import { format, parseISO, startOfMonth, endOfMonth } from "date-fns";
 import { normalizeUserRole } from "@/utils/roles";
+import { DEFAULT_TENDER_GROUP_DEFS } from "@/utils/reportTenderGroups";
+import {
+  buildCategoryOrderIndex,
+  sortRowsByCategoryOrder,
+} from "@/utils/reportingCategories";
 import { getArtistTypeLabel, isSupportStaffArtistType } from "@/utils/artistTypes";
 import { sumExplicitAvailableHoursInRange } from "@/utils/explicitAvailabilityHours";
 
@@ -38,21 +43,28 @@ function money(n) {
   return `$${(Number(n) || 0).toFixed(2)}`;
 }
 
-function dailyTotalsRowsToCsv(rows, locationById, includeLocation) {
-  return rows.map((row) => ({
-    date: row.business_date,
-    ...(includeLocation
-      ? { location: locationById[row.location_id]?.name || row.location_id }
-      : {}),
-    sale_count: row.sale_count,
-    gross_sales: row.gross_sales,
-    tattoo_split: row.tattoo_split,
-    piercing_split: row.piercing_split,
-    product_sales: row.product_other,
-    refunds: -(Number(row.refunds_in_person) || 0),
-    shop_revenue: row.shop_total,
-    plastic: row.plastic_total,
-  }));
+function tenderGroupAmounts(groups) {
+  return Object.fromEntries((groups ?? []).map((g) => [g.key, Number(g.amount) || 0]));
+}
+
+function dailyTotalsRowsToCsv(rows, locationById, includeLocation, groupDefs) {
+  return rows.map((row) => {
+    const groupAmounts = tenderGroupAmounts(row.tender_groups);
+    return {
+      date: row.business_date,
+      ...(includeLocation
+        ? { location: locationById[row.location_id]?.name || row.location_id }
+        : {}),
+      sale_count: row.sale_count,
+      gross_sales: row.gross_sales,
+      tattoo_split: row.tattoo_split,
+      piercing_split: row.piercing_split,
+      product_sales: row.product_other,
+      refunds: -(Number(row.refunds_in_person) || 0),
+      shop_revenue: row.shop_total,
+      ...Object.fromEntries(groupDefs.map((def) => [def.key, groupAmounts[def.key] ?? 0])),
+    };
+  });
 }
 
 function exportToCSV(data, filename) {
@@ -72,13 +84,6 @@ function exportToCSV(data, filename) {
 
 const SALES_PAGE_SIZE = 25;
 const PAYMENTS_PAGE_SIZE = 50;
-
-// Tender options for the Payments reconciliation filter: in-person tenders plus
-// online (Stripe) payments, which are stored with tender_type = "Stripe".
-const PAYMENT_TENDER_OPTIONS = [
-  ...CHECKOUT_PAYMENT_METHOD_OPTIONS,
-  { value: "Stripe", label: "Stripe (online)" },
-];
 
 function formatDateTime(iso) {
   if (!iso) return "—";
@@ -125,6 +130,14 @@ export default function Reports() {
 
   const studioId = user?.studio_id;
   const dateRangeValid = !!startDate && !!endDate && startDate <= endDate;
+
+  // Payments filter: in-person tenders (built-ins + custom) plus online
+  // (Stripe) payments, stored with tender_type = "Stripe".
+  const { options: checkoutMethodOptions } = useCheckoutPaymentMethods(studioId);
+  const paymentTenderOptions = useMemo(
+    () => [...checkoutMethodOptions, { value: "Stripe", label: "Stripe (online)" }],
+    [checkoutMethodOptions]
+  );
 
   const { data: artists = [] } = useQuery({
     queryKey: ["artists", studioId],
@@ -189,7 +202,7 @@ export default function Reports() {
     enabled: !!studioId && dateRangeValid,
   });
 
-  const { data: categoryRows = [], isLoading: loadingCategory } = useQuery({
+  const { data: rawCategoryRows = [], isLoading: loadingCategory } = useQuery({
     queryKey: ["categoryReport", startDate, endDate, filterLocation, categoryRollupMode],
     queryFn: () =>
       fetchCategoryReport({
@@ -200,6 +213,24 @@ export default function Reports() {
       }),
     enabled: !!studioId && dateRangeValid && activeTab === "category",
   });
+
+  const { data: reportingCategoriesList = [] } = useQuery({
+    queryKey: ["reportingCategories", studioId],
+    queryFn: () => base44.entities.ReportingCategory.filter({ studio_id: studioId }),
+    enabled: !!studioId && activeTab === "category",
+  });
+
+  // Rows follow the display order configured on the Categories page; rows for
+  // deleted/legacy categories go last, alphabetically.
+  const categoryRows = useMemo(() => {
+    const orderIndex = buildCategoryOrderIndex(reportingCategoriesList);
+    return sortRowsByCategoryOrder(
+      rawCategoryRows,
+      orderIndex,
+      (r) => (r.category_key?.startsWith("id:") ? r.category_key.slice(3) : null),
+      (r) => r.category_name
+    );
+  }, [rawCategoryRows, reportingCategoriesList]);
 
   const { data: artistRows = [], isLoading: loadingArtist } = useQuery({
     queryKey: ["artistReport", startDate, endDate, filterLocation, filterArtist],
@@ -266,6 +297,18 @@ export default function Reports() {
   const dailyRows = dailyTotalsReport?.rows ?? [];
   const periodSummary = dailyTotalsReport?.period_summary ?? {};
   const unreconciledDayCount = dailyTotalsReport?.unreconciled_day_count ?? 0;
+
+  // One money column per tender group (default: Plastic / Cash / Other), as
+  // configured per studio via reporting_tender_groups.
+  const tenderGroupDefs = useMemo(() => {
+    const defs = dailyTotalsReport?.tender_group_defs;
+    return defs?.length ? defs : DEFAULT_TENDER_GROUP_DEFS;
+  }, [dailyTotalsReport]);
+
+  const periodTenderGroups = useMemo(
+    () => tenderGroupAmounts(dailyTotalsReport?.period_summary?.tender_groups),
+    [dailyTotalsReport]
+  );
 
   const locationById = useMemo(
     () => Object.fromEntries(locations.map((l) => [l.id, l])),
@@ -504,15 +547,17 @@ export default function Reports() {
                     One row per closed reconciliation day. All revenue columns include tax.
                     Gross sales = everything collected (service + tax + product, excluding tips).
                     Split columns show the shop&apos;s take net of discounts and artist splits;
-                    Shop revenue = tattoo + piercing + product − refunds. Plastic = all revenue
-                    collected in person that day.
+                    Shop revenue = tattoo + piercing + product − refunds. The payment columns
+                    break down the money collected in person that day by tender group
+                    (Plastic = card terminal tenders). Stripe (online) payments are excluded —
+                    see the Stripe Deposits tab.
                   </p>
                 </div>
                 <Button
                   variant="outline"
                   onClick={() =>
                     exportToCSV(
-                      dailyTotalsRowsToCsv(dailyRows, locationById, showMultiLocationTab),
+                      dailyTotalsRowsToCsv(dailyRows, locationById, showMultiLocationTab, tenderGroupDefs),
                       "daily_totals"
                     )
                   }
@@ -545,12 +590,17 @@ export default function Reports() {
                           <th className="px-3 py-3 text-right text-sm font-semibold text-gray-900">Product sales</th>
                           <th className="px-3 py-3 text-right text-sm font-semibold text-gray-900">Refunds</th>
                           <th className="px-3 py-3 text-right text-sm font-semibold text-gray-900">Shop revenue</th>
-                          <th className="px-3 py-3 text-right text-sm font-semibold text-gray-900">Plastic</th>
+                          {tenderGroupDefs.map((def) => (
+                            <th key={def.key} className="px-3 py-3 text-right text-sm font-semibold text-gray-900">
+                              {def.label}
+                            </th>
+                          ))}
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-200">
                         {dailyRows.map((row) => {
                           const refunds = Number(row.refunds_in_person) || 0;
+                          const groupAmounts = tenderGroupAmounts(row.tender_groups);
                           return (
                             <tr key={row.reconciliation_id} className="hover:bg-gray-50">
                               <td className="px-3 py-3 text-sm">
@@ -585,9 +635,11 @@ export default function Reports() {
                               <td className="px-3 py-3 text-sm text-indigo-800 text-right font-semibold tabular-nums">
                                 {money(row.shop_total)}
                               </td>
-                              <td className="px-3 py-3 text-sm text-gray-900 text-right tabular-nums">
-                                {money(row.plastic_total)}
-                              </td>
+                              {tenderGroupDefs.map((def) => (
+                                <td key={def.key} className="px-3 py-3 text-sm text-gray-900 text-right tabular-nums">
+                                  {money(groupAmounts[def.key])}
+                                </td>
+                              ))}
                             </tr>
                           );
                         })}
@@ -619,9 +671,11 @@ export default function Reports() {
                           <td className="px-3 py-3 text-sm font-semibold text-indigo-800 text-right tabular-nums">
                             {money(periodSummary.shop_total)}
                           </td>
-                          <td className="px-3 py-3 text-sm font-semibold text-gray-900 text-right tabular-nums">
-                            {money(periodSummary.plastic_total)}
-                          </td>
+                          {tenderGroupDefs.map((def) => (
+                            <td key={def.key} className="px-3 py-3 text-sm font-semibold text-gray-900 text-right tabular-nums">
+                              {money(periodTenderGroups[def.key])}
+                            </td>
+                          ))}
                         </tr>
                       </tfoot>
                     </table>
@@ -639,7 +693,8 @@ export default function Reports() {
                     <CardTitle>Revenue by Category</CardTitle>
                     <p className="text-sm text-gray-500 font-normal mt-1">
                       Sum of closed reconciliation snapshots. All amounts include tax; Shop split
-                      is the shop&apos;s share after artist splits.
+                      is the shop&apos;s share after artist splits. Rows follow the display order
+                      set on the Categories page.
                     </p>
                   </div>
                   <div className="flex flex-col sm:flex-row sm:items-center gap-3">
@@ -983,7 +1038,7 @@ export default function Reports() {
                       <SelectTrigger className="w-[180px]"><SelectValue placeholder="All Methods" /></SelectTrigger>
                       <SelectContent>
                         <SelectItem value="all">All Methods</SelectItem>
-                        {PAYMENT_TENDER_OPTIONS.map((o) => (
+                        {paymentTenderOptions.map((o) => (
                           <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
                         ))}
                       </SelectContent>

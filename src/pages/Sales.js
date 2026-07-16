@@ -15,7 +15,7 @@ import {
   getCategoryPathLabel,
   getLeafCategoryOptions,
 } from "@/utils/reportingCategories";
-import { CHECKOUT_PAYMENT_METHOD_OPTIONS } from "@/utils/checkoutPaymentMethods";
+import { useCheckoutPaymentMethods } from "@/utils/useCheckoutPaymentMethods";
 import {
   DEFAULT_SERVICE_TAX_RATE,
   computeSaleTotals,
@@ -92,6 +92,7 @@ export default function Sales() {
   }, []);
 
   const studioId = user?.studio_id;
+  const { options: paymentMethodOptions } = useCheckoutPaymentMethods(studioId);
   const userRole = user
     ? normalizeUserRole(user.user_role || (user.role === "admin" ? "Admin" : "Front_Desk"))
     : null;
@@ -511,7 +512,7 @@ export default function Sales() {
                 <Select value={paymentMethod} onValueChange={setPaymentMethod}>
                   <SelectTrigger className="text-sm"><SelectValue placeholder="Method" /></SelectTrigger>
                   <SelectContent>
-                    {CHECKOUT_PAYMENT_METHOD_OPTIONS.map(({ value, label }) => (<SelectItem key={value} value={value}>{label}</SelectItem>))}
+                    {paymentMethodOptions.map(({ value, label }) => (<SelectItem key={value} value={value}>{label}</SelectItem>))}
                   </SelectContent>
                 </Select>
               </div>

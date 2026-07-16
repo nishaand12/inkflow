@@ -256,6 +256,19 @@ export async function fetchReconciliationDetailSnapshot(reconciliationId) {
   return data;
 }
 
+/**
+ * Studio overrides for report tender grouping (reporting_tender_groups).
+ * Empty for studios on the default Plastic / Cash / Other grouping.
+ */
+export async function fetchTenderGroupConfig({ studioId }) {
+  const { data, error } = await supabase
+    .from("reporting_tender_groups")
+    .select("*")
+    .eq("studio_id", studioId);
+  if (error) throw error;
+  return data || [];
+}
+
 /** Filtered payments for an open reconciliation day */
 export async function fetchPaymentsForReconciliationDay({ studioId, businessDate, locationId }) {
   const { data, error } = await supabase

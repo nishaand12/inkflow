@@ -137,6 +137,38 @@ export function flattenCategoryTree(allCategories, role) {
 }
 
 /**
+ * Position of each category in the configured tree order (display_order, then
+ * name, parents before children). Used to order report rows exactly as laid
+ * out on the Categories page.
+ * @param {ReportingCategoryLike[]} allCategories
+ * @param {string} [role]
+ * @returns {Map<string, number>} category id -> tree position
+ */
+export function buildCategoryOrderIndex(allCategories, role = CATEGORY_ROLE_REPORTING) {
+  const rows = flattenCategoryTree(allCategories, role);
+  return new Map(rows.map((r, i) => [r.node.id, i]));
+}
+
+/**
+ * Sort report rows carrying a reporting category reference into the configured
+ * category order; rows for unknown/legacy categories go last, by label.
+ * @template T
+ * @param {T[]} rows
+ * @param {Map<string, number>} orderIndex - from buildCategoryOrderIndex
+ * @param {(row: T) => string|null|undefined} getCategoryId
+ * @param {(row: T) => string} getLabel
+ * @returns {T[]}
+ */
+export function sortRowsByCategoryOrder(rows, orderIndex, getCategoryId, getLabel) {
+  return [...(rows || [])].sort((a, b) => {
+    const ia = orderIndex.get(getCategoryId(a) || "") ?? Infinity;
+    const ib = orderIndex.get(getCategoryId(b) || "") ?? Infinity;
+    if (ia !== ib) return ia - ib;
+    return String(getLabel(a) || "").localeCompare(String(getLabel(b) || ""));
+  });
+}
+
+/**
  * @param {ReportingCategoryLike[]} allCategories
  * @param {string} role
  * @returns {Map<string, ReportingCategoryLike[]>} parentId -> ordered children (root uses '')

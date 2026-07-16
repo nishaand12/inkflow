@@ -5,7 +5,13 @@ import {
   fetchPaymentsForReconciliationDay,
   fetchReconciliationDetailSnapshot,
   fetchSalesForReconciliationDay,
+  fetchTenderGroupConfig,
 } from "@/api/reports";
+import {
+  groupTenderAmounts,
+  mergeTenderGroupDefs,
+  sortTendersForDisplay,
+} from "@/utils/reportTenderGroups";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -22,8 +28,10 @@ import { ArrowLeft, Wallet, Lock, Calendar, CreditCard, Tags, Globe } from "luci
 import { normalizeUserRole } from "@/utils/roles";
 import {
   CATEGORY_ROLE_REPORTING,
+  buildCategoryOrderIndex,
   filterCategoriesByRole,
   getCategoryPathLabel,
+  sortRowsByCategoryOrder,
 } from "@/utils/reportingCategories";
 
 function money(n) {
@@ -81,7 +89,7 @@ export default function ReconciliationDetail() {
   const { data: reportingCategories = [] } = useQuery({
     queryKey: ["reportingCategories", studioId],
     queryFn: () => base44.entities.ReportingCategory.filter({ studio_id: studioId }),
-    enabled: !!studioId && !isClosed,
+    enabled: !!studioId,
   });
 
   const { data: snapshot, isLoading: loadingSnapshot } = useQuery({
@@ -140,40 +148,54 @@ export default function ReconciliationDetail() {
     return m;
   }, [lineItems]);
 
-  // --- Cash: totals by tender, split by channel (ties to reconciliation) ---
-  const tenderBreakdown = useMemo(() => {
+  // Studio overrides for tender grouping (empty = default Plastic/Cash/Other).
+  const { data: tenderGroupConfig = [] } = useQuery({
+    queryKey: ["tenderGroupConfig", studioId],
+    queryFn: () => fetchTenderGroupConfig({ studioId }),
+    enabled: !!studioId,
+  });
+
+  // --- Cash: in-person totals by tender (ties to reconciliation), in the
+  // method display order configured on the Categories page. Online (Stripe)
+  // payments — deposits included — live in the Stripe Deposits report.
+  const inPersonTenders = useMemo(() => {
     if (isClosed && snapshot) {
-      const inPerson = (snapshot.tenders ?? [])
-        .map((t) => ({
-          tender_type: t.tender_type,
-          amount: Number(t.system_amount) || 0,
-        }))
-        .sort((a, b) => b.amount - a.amount);
-      const onlineTotal = Number(reconciliation?.online_total) || 0;
-      const online =
-        onlineTotal > 0 ? [{ tender_type: "Stripe", amount: onlineTotal }] : [];
-      return { inPerson, online };
+      const rows = (snapshot.tenders ?? []).map((t) => ({
+        tender_type: t.tender_type,
+        amount: Number(t.system_amount) || 0,
+        group_key: t.group_key,
+        group_label: t.group_label,
+        sort_order: t.sort_order,
+        display_order: t.display_order,
+      }));
+      return sortTendersForDisplay(rows, tenderGroupConfig);
     }
-    const inPerson = {};
-    const online = {};
+    const byTender = {};
     for (const p of dayPayments) {
-      const bucket = p.channel === "online" ? online : inPerson;
+      if (p.channel === "online") continue;
       const key = p.tender_type || "Unspecified";
-      bucket[key] = (bucket[key] || 0) + (Number(p.amount) || 0);
+      byTender[key] = (byTender[key] || 0) + (Number(p.amount) || 0);
     }
-    const toRows = (obj) =>
-      Object.entries(obj)
-        .map(([tender_type, amount]) => ({ tender_type, amount }))
-        .sort((a, b) => b.amount - a.amount);
-    return { inPerson: toRows(inPerson), online: toRows(online) };
-  }, [isClosed, snapshot, dayPayments, reconciliation?.online_total]);
+    const rows = Object.entries(byTender).map(([tender_type, amount]) => ({ tender_type, amount }));
+    return sortTendersForDisplay(rows, tenderGroupConfig);
+  }, [isClosed, snapshot, dayPayments, tenderGroupConfig]);
+
+  // Per-group cards (default: Plastic / Cash / Other), always shown even at $0.
+  const tenderGroupCards = useMemo(() => {
+    const groups = groupTenderAmounts(inPersonTenders, tenderGroupConfig);
+    const amounts = Object.fromEntries(groups.map((g) => [g.key, g.amount]));
+    return mergeTenderGroupDefs(groups, tenderGroupConfig).map((def) => ({
+      ...def,
+      amount: amounts[def.key] || 0,
+    }));
+  }, [inPersonTenders, tenderGroupConfig]);
 
   const futureDepositTotal = useMemo(() => {
     if (isClosed && snapshot?.summary) {
       return Number(snapshot.summary.future_deposits_total) || 0;
     }
     return dayPayments
-      .filter((p) => p.purpose === "deposit" && !p.sale_id)
+      .filter((p) => p.purpose === "deposit" && !p.sale_id && p.channel !== "online")
       .reduce((s, p) => s + (Number(p.amount) || 0), 0);
   }, [isClosed, snapshot, dayPayments]);
 
@@ -216,16 +238,22 @@ export default function ReconciliationDetail() {
     return { key: `name:${label}`, label };
   };
 
+  // Rows follow the category display order configured on the Categories page;
+  // rows for deleted/legacy categories go last, alphabetically.
   const totalsByCategory = useMemo(() => {
+    const orderIndex = buildCategoryOrderIndex(reportingCategories);
+    const sortRows = (rows) =>
+      sortRowsByCategoryOrder(rows, orderIndex, (r) => r.categoryId, (r) => r.label);
     if (isClosed && snapshot?.categories) {
-      return snapshot.categories
-        .map((c) => ({
+      return sortRows(
+        snapshot.categories.map((c) => ({
+          categoryId: c.reporting_category_id,
           label: c.category_name,
           gross: Number(c.gross_total) || 0,
           shopSplit: Number(c.shop_split) || 0,
           count: Number(c.item_count) || 0,
         }))
-        .sort((a, b) => b.gross - a.gross);
+      );
     }
     // Shop split per category: each sale's artist_share is allocated across its
     // service lines proportional to the line's tax-inclusive total; non-service
@@ -240,7 +268,9 @@ export default function ReconciliationDetail() {
     const map = {};
     for (const li of lineItems) {
       const { key, label } = categoryFor(li);
-      if (!map[key]) map[key] = { label, gross: 0, shopSplit: 0, count: 0 };
+      if (!map[key]) {
+        map[key] = { categoryId: li.reporting_category_id || null, label, gross: 0, shopSplit: 0, count: 0 };
+      }
       const lineTotal = Number(li.line_total) || 0;
       let shop = lineTotal;
       if (li.line_type === "service") {
@@ -251,9 +281,9 @@ export default function ReconciliationDetail() {
       map[key].shopSplit += shop;
       map[key].count += Number(li.quantity) || 1;
     }
-    return Object.values(map).sort((a, b) => b.gross - a.gross);
+    return sortRows(Object.values(map));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isClosed, snapshot, lineItems, sales, reportingOnly]);
+  }, [isClosed, snapshot, lineItems, sales, reportingOnly, reportingCategories]);
 
   const totalShopSplitInclTax = useMemo(
     () => totalsByCategory.reduce((s, r) => s + r.shopSplit, 0),
@@ -428,31 +458,23 @@ export default function ReconciliationDetail() {
                     <p className="text-xs text-gray-500 uppercase tracking-wide">Tips</p>
                     <p className="text-xl font-bold text-green-800">{money(revenueTotals.tip)}</p>
                   </div>
-                  <div className="rounded-lg border border-gray-100 p-4 bg-indigo-50/80 border-indigo-100">
-                    <p className="text-xs text-gray-500 uppercase tracking-wide">In-Shop (Terminal + Cash)</p>
-                    <p className="text-lg font-semibold text-indigo-900">{money(reconciliation.in_person_total)}</p>
-                  </div>
-                  <div className="rounded-lg border border-gray-100 p-4 bg-gray-50/80">
-                    <p className="text-xs text-gray-500 uppercase tracking-wide">POS reported</p>
-                    <p className="text-lg font-semibold text-gray-900">
-                      {reconciliation.pos_reported_total != null ? money(reconciliation.pos_reported_total) : "—"}
-                    </p>
-                  </div>
+                  {tenderGroupCards.map((group) => (
+                    <div key={group.key} className="rounded-lg border p-4 bg-indigo-50/80 border-indigo-100">
+                      <p className="text-xs text-gray-500 uppercase tracking-wide">{group.label}</p>
+                      <p className="text-lg font-semibold text-indigo-900">{money(group.amount)}</p>
+                    </div>
+                  ))}
                   <div className={`rounded-lg border p-4 ${Math.abs(Number(reconciliation.variance) || 0) < 0.005 ? "bg-green-50/80 border-green-100" : "bg-red-50/70 border-red-100"}`}>
                     <p className="text-xs text-gray-500 uppercase tracking-wide">Variance</p>
                     <p className={`text-lg font-semibold ${Math.abs(Number(reconciliation.variance) || 0) < 0.005 ? "text-green-800" : "text-red-700"}`}>
                       {reconciliation.variance != null ? money(reconciliation.variance) : "—"}
                     </p>
                   </div>
-                  <div className="rounded-lg border border-gray-100 p-4 bg-gray-50/80">
-                    <p className="text-xs text-gray-500 uppercase tracking-wide">Online (Stripe)</p>
-                    <p className="text-lg font-semibold text-gray-900">{money(reconciliation.online_total)}</p>
-                  </div>
                 </div>
                 {futureDepositTotal > 0 && (
                   <p className="text-xs text-gray-500 mt-3">
-                    Includes {money(futureDepositTotal)} of deposits taken for future appointments (counted in the
-                    day&apos;s cash but not yet recognized as revenue above).
+                    Includes {money(futureDepositTotal)} of deposits taken in person for future appointments
+                    (counted in the day&apos;s cash but not yet recognized as revenue above).
                   </p>
                 )}
               </CardContent>
@@ -470,7 +492,7 @@ export default function ReconciliationDetail() {
                 <CardContent>
                   {loadingBreakdowns ? (
                     <p className="text-gray-500">Loading breakdown…</p>
-                  ) : tenderBreakdown.inPerson.length === 0 ? (
+                  ) : inPersonTenders.length === 0 ? (
                     <p className="text-gray-500">No in-person payments.</p>
                   ) : (
                     <Table>
@@ -481,7 +503,7 @@ export default function ReconciliationDetail() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {tenderBreakdown.inPerson.map((row) => (
+                        {inPersonTenders.map((row) => (
                           <TableRow key={row.tender_type}>
                             <TableCell className="font-medium">{row.tender_type}</TableCell>
                             <TableCell className="text-right tabular-nums font-semibold">{money(row.amount)}</TableCell>
@@ -494,23 +516,10 @@ export default function ReconciliationDetail() {
                       </TableBody>
                     </Table>
                   )}
-                  {tenderBreakdown.online.length > 0 && (
-                    <div className="mt-4">
-                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-1">
-                        <Globe className="w-3.5 h-3.5" /> Online (reconciled against Stripe)
-                      </p>
-                      <Table>
-                        <TableBody>
-                          {tenderBreakdown.online.map((row) => (
-                            <TableRow key={row.tender_type}>
-                              <TableCell className="font-medium">{row.tender_type}</TableCell>
-                              <TableCell className="text-right tabular-nums">{money(row.amount)}</TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </div>
-                  )}
+                  <p className="text-xs text-gray-500 mt-4 flex items-center gap-1">
+                    <Globe className="w-3.5 h-3.5 shrink-0" /> Online (Stripe) payments and deposits are not part
+                    of this day&apos;s totals — see Reports → Stripe Deposits.
+                  </p>
                 </CardContent>
               </Card>
 
@@ -522,7 +531,8 @@ export default function ReconciliationDetail() {
                   </CardTitle>
                   <p className="text-sm text-gray-500 font-normal">
                     From checkout line items. All amounts include tax; Shop split is the
-                    shop&apos;s share of each category after artist splits.
+                    shop&apos;s share of each category after artist splits. Ordered as set on
+                    the Categories page.
                   </p>
                 </CardHeader>
                 <CardContent>

@@ -24,7 +24,7 @@ import {
   getCategoryPathLabel,
   getLeafCategoryOptions,
 } from "@/utils/reportingCategories";
-import { CHECKOUT_PAYMENT_METHOD_OPTIONS } from "@/utils/checkoutPaymentMethods";
+import { useCheckoutPaymentMethods } from "@/utils/useCheckoutPaymentMethods";
 import { formatTimeRange12h } from "@/utils/index";
 import { buildFinalizeLines, saleServiceProductNet, computeSaleTotals, normalizeCartLines, lineTotal } from "@/utils/saleLines";
 import {
@@ -102,6 +102,8 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
   const [showZeroConfirm, setShowZeroConfirm] = useState(false);
   const [showManualAdd, setShowManualAdd] = useState(false);
   const [manualLine, setManualLine] = useState({ description: '', unit_price: '', quantity: 1, reporting_category_id: '', discount: '' });
+
+  const { options: paymentMethodOptions } = useCheckoutPaymentMethods(studio?.id);
 
   const { data: products = [] } = useQuery({
     queryKey: ['products', studio?.id],
@@ -707,7 +709,7 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
               <Select value={paymentMethod} onValueChange={setPaymentMethod}>
                 <SelectTrigger className="text-sm"><SelectValue placeholder="Method" /></SelectTrigger>
                 <SelectContent>
-                  {CHECKOUT_PAYMENT_METHOD_OPTIONS.map(({ value, label }) => (
+                  {paymentMethodOptions.map(({ value, label }) => (
                     <SelectItem key={value} value={value}>{label}</SelectItem>
                   ))}
                 </SelectContent>

@@ -12,10 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Wallet, Lock, Loader2, RefreshCw, FileText } from "lucide-react";
 import { format } from "date-fns";
 import { normalizeUserRole } from "@/utils/roles";
-import { CHECKOUT_PAYMENT_METHOD_VALUES } from "@/utils/checkoutPaymentMethods";
-
-/** In-person tender columns the POS batch reports (Stripe is online, reconciled elsewhere). */
-const IN_PERSON_TENDERS = CHECKOUT_PAYMENT_METHOD_VALUES;
+import { useCheckoutPaymentMethods } from "@/utils/useCheckoutPaymentMethods";
 
 function money(n) {
   return `$${(Number(n) || 0).toFixed(2)}`;
@@ -35,6 +32,9 @@ export default function Settlements() {
   }, []);
 
   const studioId = user?.studio_id;
+  // In-person tender columns the POS batch reports (built-ins + custom methods;
+  // Stripe is online, reconciled elsewhere).
+  const { values: inPersonTenders } = useCheckoutPaymentMethods(studioId);
 
   const { data: locations = [] } = useQuery({
     queryKey: ["locations", studioId],
@@ -72,7 +72,7 @@ export default function Settlements() {
   const tenderView = useMemo(() => {
     const byType = {};
     for (const t of tenderRows) byType[t.tender_type] = t;
-    const types = Array.from(new Set([...IN_PERSON_TENDERS, ...tenderRows.map((t) => t.tender_type)]));
+    const types = Array.from(new Set([...inPersonTenders, ...tenderRows.map((t) => t.tender_type)]));
     return types.map((type) => {
       const row = byType[type];
       const system = Number(row?.system_amount) || 0;
@@ -88,7 +88,7 @@ export default function Settlements() {
         variance: pos != null ? system - pos : null,
       };
     });
-  }, [tenderRows, posInputs]);
+  }, [tenderRows, posInputs, inPersonTenders]);
 
   const posReportedTotal = useMemo(
     () => tenderView.reduce((s, t) => s + (t.pos_amount != null ? t.pos_amount : 0), 0),
