@@ -606,6 +606,8 @@ export default function Reports() {
                               <td className="px-3 py-3 text-sm">
                                 <Link
                                   to={`/reconciliation/${row.reconciliation_id}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
                                   className="text-indigo-700 font-medium hover:underline"
                                 >
                                   {row.business_date}
