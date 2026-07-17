@@ -72,12 +72,12 @@ export default function SplitTenderFields({
       </div>
 
       <div className="rounded-md border border-gray-200 overflow-hidden">
-        <table className="w-full text-xs">
+        <table className="w-full text-xs md:table-fixed">
           <thead className="bg-gray-50">
             <tr>
-              <th className="px-2 py-1.5 text-left font-medium text-gray-600">Method</th>
-              <th className="px-2 py-1.5 text-right font-medium text-gray-600 w-24">Amount</th>
-              <th className="px-2 py-1.5 text-right font-medium text-gray-600 w-20">Tip</th>
+              <th className="px-2 py-1.5 text-left font-medium text-gray-600 md:w-[33%]">Method</th>
+              <th className="px-2 py-1.5 text-right font-medium text-gray-600 w-24 md:w-[33%]">Amount</th>
+              <th className="px-2 py-1.5 text-right font-medium text-gray-600 w-20 md:w-[33%]">Tip</th>
               <th className="w-8" />
             </tr>
           </thead>
@@ -94,7 +94,7 @@ export default function SplitTenderFields({
                       onValueChange={(v) => updateRow(row.id, "method", v)}
                       disabled={disabled}
                     >
-                      <SelectTrigger className="h-8 text-xs">
+                      <SelectTrigger className="h-8 w-full text-xs">
                         <SelectValue placeholder="Method" />
                       </SelectTrigger>
                       <SelectContent>
@@ -113,7 +113,7 @@ export default function SplitTenderFields({
                       disabled={disabled}
                       onChange={(e) => updateRow(row.id, "amount", e.target.value)}
                       placeholder="0.00"
-                      className="h-8 text-xs text-right"
+                      className="h-8 w-full text-xs text-right"
                     />
                   </td>
                   <td className="px-2 py-1.5">
@@ -125,7 +125,7 @@ export default function SplitTenderFields({
                       disabled={disabled}
                       onChange={(e) => updateRow(row.id, "tip", e.target.value)}
                       placeholder="0"
-                      className="h-8 text-xs text-right"
+                      className="h-8 w-full text-xs text-right"
                     />
                   </td>
                   <td className="px-1 py-1.5">
