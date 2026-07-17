@@ -8,13 +8,17 @@ import { ChevronLeft, ChevronRight, Plus, SlidersHorizontal, ChevronDown, Chevro
 import {
   format,
   startOfMonth, endOfMonth, eachDayOfInterval,
-  isSameMonth, isSameDay,
+  isSameMonth, isSameDay, isValid,
   addMonths, subMonths, startOfWeek, endOfWeek, addDays, parseISO
 } from "date-fns";
 import AppointmentDialog from "../components/calendar/AppointmentDialog";
 import AppointmentCard from "../components/calendar/AppointmentCard";
 import { normalizeUserRole } from "@/utils/roles";
 import { useIsMobile } from "@/hooks/use-mobile";
+import {
+  useWorkspaceFilters,
+  useWorkspaceUrlSync,
+} from "@/hooks/useWorkspaceFilters";
 import { ARTIST_PALETTE, hexToRgba } from "@/utils/artistColors";
 import {
   CATEGORY_ROLE_APPOINTMENT_KIND,
@@ -48,6 +52,17 @@ import CalendarDatePicker from "../components/calendar/CalendarDatePicker";
 import { getAvailabilityChipsForDay } from "@/utils/dayAvailability";
 
 const ARTIST_LANE_MIN_WIDTH = 140;
+
+const CALENDAR_URL_PARAMS = {
+  date: "calendarDate",
+  view: "calendarView",
+  location: "locationId",
+  artist: "artistId",
+  status: "status",
+  type: "typeCategory",
+  workstation: "workStationId",
+  specificType: "specificTypeId",
+};
 
 // Synthetic swimlane for timed appointments that have no artist assigned
 // (e.g. shop-wide closures). Not a real artist record.
@@ -488,18 +503,62 @@ function MobileDayDrawer({
 export default function Calendar() {
   const isMobile = useIsMobile();
   const gridSectionRef = useRef(null);
-  const [currentDate, setCurrentDate]             = useState(new Date());
-  const [view, setView]                           = useState('day');
-  // Standard filters
-  const [selectedTypeCategory, setSelectedTypeCategory] = useState('all');
-  const [statusFilter, setStatusFilter]           = useState('all');
-  const [selectedArtist, setSelectedArtist]       = useState('all');
-  // Advanced filters
+  const { filters, setFilters } = useWorkspaceFilters();
+  useWorkspaceUrlSync(CALENDAR_URL_PARAMS);
+
+  const currentDate = useMemo(() => {
+    const parsed = parseISO(`${filters.calendarDate}T00:00:00`);
+    return isValid(parsed) ? parsed : new Date();
+  }, [filters.calendarDate]);
+
+  const setCurrentDate = useCallback((value) => {
+    setFilters((prev) => {
+      const prevDate = parseISO(`${prev.calendarDate}T00:00:00`);
+      const base = isValid(prevDate) ? prevDate : new Date();
+      const nextDate = typeof value === "function" ? value(base) : value;
+      if (!(nextDate instanceof Date) || !isValid(nextDate)) return {};
+      return { calendarDate: format(nextDate, "yyyy-MM-dd") };
+    });
+  }, [setFilters]);
+
+  const view = filters.calendarView;
+  const setView = useCallback((value) => {
+    setFilters({ calendarView: value });
+  }, [setFilters]);
+
+  const selectedTypeCategory = filters.typeCategory;
+  const setSelectedTypeCategory = useCallback((value) => {
+    setFilters({ typeCategory: value });
+  }, [setFilters]);
+
+  const statusFilter = filters.status;
+  const setStatusFilter = useCallback((value) => {
+    setFilters({ status: value });
+  }, [setFilters]);
+
+  const selectedArtist = filters.artistId;
+  const setSelectedArtist = useCallback((value) => {
+    setFilters({ artistId: value });
+  }, [setFilters]);
+
+  const selectedLocation = filters.locationId;
+  const setSelectedLocation = useCallback((value) => {
+    setFilters({ locationId: value });
+  }, [setFilters]);
+
+  const workStationFilter = filters.workStationId;
+  const setWorkStationFilter = useCallback((value) => {
+    setFilters({ workStationId: value });
+  }, [setFilters]);
+
+  const specificTypeFilter = filters.specificTypeId;
+  const setSpecificTypeFilter = useCallback((value) => {
+    setFilters({ specificTypeId: value });
+  }, [setFilters]);
+
+  // Advanced filters (UI chrome + search stay page-local)
   const [showAdvanced, setShowAdvanced]           = useState(false);
   const [customerSearch, setCustomerSearch]       = useState('');
-  const [selectedLocation, setSelectedLocation]   = useState('all');
-  const [workStationFilter, setWorkStationFilter] = useState('all');
-  const [specificTypeFilter, setSpecificTypeFilter] = useState('all');
 
   const [showAppointmentDialog, setShowAppointmentDialog] = useState(false);
   const [selectedAppointment, setSelectedAppointment]     = useState(null);

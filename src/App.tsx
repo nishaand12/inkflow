@@ -43,6 +43,7 @@ import DepositSuccess from "./pages/DepositSuccess";
 import DepositCancelled from "./pages/DepositCancelled";
 import PaymentSuccess from "./pages/PaymentSuccess";
 import PaymentCancelled from "./pages/PaymentCancelled";
+import { WorkspaceFiltersProvider } from "./hooks/useWorkspaceFilters";
 
 const AppShell = ({ session }) => {
   if (!session) {
@@ -50,9 +51,11 @@ const AppShell = ({ session }) => {
   }
 
   return (
-    <Layout>
-      <Outlet />
-    </Layout>
+    <WorkspaceFiltersProvider>
+      <Layout>
+        <Outlet />
+      </Layout>
+    </WorkspaceFiltersProvider>
   );
 };
 

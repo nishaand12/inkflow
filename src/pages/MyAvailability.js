@@ -21,17 +21,54 @@ import {
 import { getArtistColor } from "@/utils/artistColors";
 import { navigateNext, navigatePrev, getViewTitle } from "@/utils/calendarViews";
 import { useIsMobile } from "@/hooks/use-mobile";
+import {
+  toAvailabilityView,
+  useWorkspaceFilters,
+  useWorkspaceUrlSync,
+} from "@/hooks/useWorkspaceFilters";
+import { format, isValid, parseISO } from "date-fns";
 
 const ROLES_WITH_MY_AVAILABILITY = ["Artist", "Owner", "Admin", "Front_Desk"];
 
+const AVAILABILITY_URL_PARAMS = {
+  date: "calendarDate",
+  view: "calendarView",
+  artist: "artistId",
+};
+
 export default function MyAvailability() {
   const isMobile = useIsMobile();
-  const [currentDate, setCurrentDate] = useState(new Date());
-  const [view, setView] = useState(() => (isMobile ? "day" : "month"));
+  const { filters, setFilters } = useWorkspaceFilters();
+  useWorkspaceUrlSync(AVAILABILITY_URL_PARAMS);
+
+  const currentDate = useMemo(() => {
+    const parsed = parseISO(`${filters.calendarDate}T00:00:00`);
+    return isValid(parsed) ? parsed : new Date();
+  }, [filters.calendarDate]);
+
+  const setCurrentDate = useCallback((value) => {
+    setFilters((prev) => {
+      const prevDate = parseISO(`${prev.calendarDate}T00:00:00`);
+      const base = isValid(prevDate) ? prevDate : new Date();
+      const nextDate = typeof value === "function" ? value(base) : value;
+      if (!(nextDate instanceof Date) || !isValid(nextDate)) return {};
+      return { calendarDate: format(nextDate, "yyyy-MM-dd") };
+    });
+  }, [setFilters]);
+
+  const view = toAvailabilityView(filters.calendarView);
+  const setView = useCallback((value) => {
+    setFilters({ calendarView: value });
+  }, [setFilters]);
+
+  const artistFilter = filters.artistId;
+  const setArtistFilter = useCallback((value) => {
+    setFilters({ artistId: value });
+  }, [setFilters]);
+
   const [showDialog, setShowDialog] = useState(false);
   const [selectedDate, setSelectedDate] = useState(null);
   const [selectedAvailability, setSelectedAvailability] = useState(null);
-  const [artistFilter, setArtistFilter] = useState("all");
   const queryClient = useQueryClient();
 
   // Force off month view on mobile
