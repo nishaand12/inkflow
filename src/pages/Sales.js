@@ -30,6 +30,15 @@ import {
   isAppointmentTypeSplitEnabled,
   computeAppointmentShares,
 } from "@/utils/revenueSplits";
+import SplitTenderFields from "../components/checkout/SplitTenderFields";
+import {
+  buildPaymentPayload,
+  createTenderRow,
+  joinPaymentMethods,
+  roundMoney,
+  sumTenderTips,
+  validateSplitTenders,
+} from "@/utils/splitTender";
 import SaleDetailDialog from "../components/sales/SaleDetailDialog";
 import CustomerSearch from "../components/customers/CustomerSearch";
 import CustomerDialog from "../components/customers/CustomerDialog";
@@ -78,8 +87,7 @@ export default function Sales() {
   const [showAdvancedSearch, setShowAdvancedSearch] = useState(false);
   const [artistId, setArtistId] = useState("");
   const [lineItems, setLineItems] = useState([]);
-  const [tipAmount, setTipAmount] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState("Cash");
+  const [tenderRows, setTenderRows] = useState(() => [createTenderRow({ method: "Cash" })]);
   const [message, setMessage] = useState(null);
   const [showManualAdd, setShowManualAdd] = useState(false);
   const [manualLine, setManualLine] = useState({ description: "", unit_price: "", quantity: 1, reporting_category_id: "", discount: "" });
@@ -148,11 +156,11 @@ export default function Sales() {
     return map;
   }, [todayLineItems]);
 
-  const paymentBySale = useMemo(() => {
+  const paymentsBySale = useMemo(() => {
     const map = {};
     for (const p of todayPayments) {
-      if (!p.sale_id || map[p.sale_id]) continue;
-      map[p.sale_id] = p;
+      if (!p.sale_id) continue;
+      (map[p.sale_id] ||= []).push(p);
     }
     return map;
   }, [todayPayments]);
@@ -162,9 +170,9 @@ export default function Sales() {
       todaySales.map((sale) => ({
         sale,
         lineItems: lineItemsBySale[sale.id] || [],
-        payment: paymentBySale[sale.id] || null,
+        payments: paymentsBySale[sale.id] || [],
       })),
-    [todaySales, lineItemsBySale, paymentBySale]
+    [todaySales, lineItemsBySale, paymentsBySale]
   );
 
   const todaySalesTotal = useMemo(
@@ -263,7 +271,21 @@ export default function Sales() {
   const updateLineField = (key, field, value) =>
     setLineItems((prev) => prev.map((li) => (li._key === key ? { ...li, [field]: value } : li)));
 
-  const totals = useMemo(() => computeSaleTotals(lineItems, tipAmount), [lineItems, tipAmount]);
+  const tipTotal = sumTenderTips(tenderRows);
+  const totals = useMemo(() => computeSaleTotals(lineItems, tipTotal), [lineItems, tipTotal]);
+  const balanceDue = roundMoney(totals.grandTotal);
+
+  // Keep a single tender row's amount in sync with merchandise total.
+  useEffect(() => {
+    if (tenderRows.length !== 1) return;
+    const expected = balanceDue > 0 ? String(balanceDue) : "";
+    if (tenderRows[0].amount === expected) return;
+    setTenderRows((prev) => {
+      if (prev.length !== 1) return prev;
+      if (prev[0].amount === expected) return prev;
+      return [{ ...prev[0], amount: expected }];
+    });
+  }, [balanceDue, tenderRows.length]);
 
   const saleMutation = useMutation({
     mutationFn: async () => {
@@ -272,6 +294,9 @@ export default function Sales() {
       const hasPositive = lineItems.some((li) => lineSign(li) > 0);
       if (!hasPositive) throw new Error("Cannot check out with only negative-revenue items.");
       if (totals.totalWithTip <= 0) throw new Error("Total must be greater than zero.");
+
+      const validation = validateSplitTenders(tenderRows, balanceDue);
+      if (!validation.ok) throw new Error(validation.error);
 
       // Stock validation for product lines.
       for (const li of lineItems) {
@@ -301,11 +326,11 @@ export default function Sales() {
           artist_id: artistId || null,
           customer_id: selectedCustomer?.id || null,
           appointment_id: null,
-          tip_total: totals.tipTotal,
+          tip_total: tipTotal,
           artist_share: artistShare,
         },
         p_lines: buildFinalizeLines(lineItems, resolveReportingCategoryName),
-        p_payment: { tender_type: paymentMethod, channel: "in_person", amount: totals.totalWithTip },
+        p_payment: buildPaymentPayload(tenderRows),
       });
       if (error) throw new Error(error.message || "Sale failed.");
       return data;
@@ -314,7 +339,7 @@ export default function Sales() {
       queryClient.invalidateQueries({ queryKey: ["products", studioId] });
       queryClient.invalidateQueries({ queryKey: ["sales", studioId, today] });
       setLineItems([]);
-      setTipAmount("");
+      setTenderRows([createTenderRow({ method: "Cash" })]);
       setSelectedCustomer(null);
       setArtistId("");
       setMessage({ type: "success", text: "Sale recorded." });
@@ -502,26 +527,18 @@ export default function Sales() {
               </table>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label className="text-xs">Tip</Label>
-                <Input type="number" min="0" step="0.01" value={tipAmount} onChange={(e) => setTipAmount(e.target.value)} placeholder="0.00" className="text-sm" />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs">Payment Method</Label>
-                <Select value={paymentMethod} onValueChange={setPaymentMethod}>
-                  <SelectTrigger className="text-sm"><SelectValue placeholder="Method" /></SelectTrigger>
-                  <SelectContent>
-                    {paymentMethodOptions.map(({ value, label }) => (<SelectItem key={value} value={value}>{label}</SelectItem>))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
+            <SplitTenderFields
+              rows={tenderRows}
+              onChange={setTenderRows}
+              paymentMethodOptions={paymentMethodOptions}
+              balanceDue={balanceDue}
+              disabled={saleMutation.isPending}
+            />
 
             <div className="bg-gray-50 rounded-lg p-3 space-y-1 text-sm">
               <div className="flex justify-between font-medium text-gray-800"><span>Net (pre-tax):</span><span>${totals.subtotal.toFixed(2)}</span></div>
               <div className="flex justify-between"><span className="text-gray-500">Tax:</span><span>${totals.taxTotal.toFixed(2)}</span></div>
-              {totals.tipTotal > 0 && <div className="flex justify-between text-green-700"><span>Tip:</span><span>${totals.tipTotal.toFixed(2)}</span></div>}
+              {tipTotal > 0 && <div className="flex justify-between text-green-700"><span>Tip:</span><span>${tipTotal.toFixed(2)}</span></div>}
               <div className="flex justify-between font-bold text-lg border-t border-gray-300 pt-1 mt-1"><span>Amount Due:</span><span>${totals.totalWithTip.toFixed(2)}</span></div>
             </div>
 
@@ -568,15 +585,16 @@ export default function Sales() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {todaySalesRows.map(({ sale, lineItems: items, payment }) => {
+                    {todaySalesRows.map(({ sale, lineItems: items, payments }) => {
                       const customer = customers.find((c) => c.id === sale.customer_id);
                       const location = locations.find((l) => l.id === sale.location_id);
                       const artist = artists.find((a) => a.id === sale.artist_id);
+                      const paymentLabel = joinPaymentMethods(payments.map((p) => p.tender_type)) || "—";
                       return (
                         <tr
                           key={sale.id}
                           className="hover:bg-gray-50/80 cursor-pointer"
-                          onClick={() => setSelectedSaleRow({ sale, lineItems: items, payment })}
+                          onClick={() => setSelectedSaleRow({ sale, lineItems: items, payments })}
                         >
                           <td className="px-3 py-2.5 text-xs text-gray-600 whitespace-nowrap tabular-nums">
                             {formatSaleTime(sale.created_at)}
@@ -591,7 +609,7 @@ export default function Sales() {
                             {customer?.name || "Walk-in"}
                           </td>
                           <td className="px-3 py-2.5 text-xs text-gray-600 hidden md:table-cell">
-                            {payment?.tender_type || "—"}
+                            {paymentLabel}
                             {Number(sale.tip_total) > 0 && (
                               <span className="text-green-700 ml-1">+{money(sale.tip_total)} tip</span>
                             )}
@@ -614,7 +632,7 @@ export default function Sales() {
           onOpenChange={(isOpen) => { if (!isOpen) setSelectedSaleRow(null); }}
           sale={selectedSaleRow?.sale}
           lineItems={selectedSaleRow?.lineItems || []}
-          payment={selectedSaleRow?.payment}
+          payments={selectedSaleRow?.payments || []}
           customer={customers.find((c) => c.id === selectedSaleRow?.sale?.customer_id)}
           location={locations.find((l) => l.id === selectedSaleRow?.sale?.location_id)}
           artist={artists.find((a) => a.id === selectedSaleRow?.sale?.artist_id)}

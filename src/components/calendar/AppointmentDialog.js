@@ -39,6 +39,7 @@ import {
   buildCheckoutSummaryFromLegacyCharges,
   buildCheckoutSummaryFromSale,
 } from "@/utils/saleLines";
+import { joinPaymentMethods } from "@/utils/splitTender";
 
 // Stable empty array to prevent new references on each render
 const EMPTY_ARRAY = [];
@@ -215,7 +216,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
   const [inPersonDepositAmountInput, setInPersonDepositAmountInput] = useState("");
   const [recordInPersonLoading, setRecordInPersonLoading] = useState(false);
   const [editingPaymentMethod, setEditingPaymentMethod] = useState(false);
-  const [paymentMethodDraft, setPaymentMethodDraft] = useState("");
+  const [paymentMethodDrafts, setPaymentMethodDrafts] = useState([]);
   const [paymentMethodError, setPaymentMethodError] = useState(null);
   const [editingDeposit, setEditingDeposit] = useState(false);
   const [depositDraftMethod, setDepositDraftMethod] = useState("Cash");
@@ -266,8 +267,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
 
   // Health Notes are often filled in at the end of the day/week, after checkout.
   // Allow any studio user to update just the Health Notes on a checked-out
-  // (completed) appointment without unlocking it — unlocking would delete the
-  // checkout line items (products/discounts) and clear sale totals.
+  // (completed) appointment without unlocking it.
   const canEditHealthNotes = () => {
     if (!currentUser) return false;
     if (canEdit()) return true; // full editors can already edit everything
@@ -1012,31 +1012,62 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     }
   });
 
+  // Paid balance payment row(s) for post-checkout tender edits (split tender = 1–2 rows).
+  const { data: balancePaymentRows = EMPTY_ARRAY } = useQuery({
+    queryKey: ['appointmentBalancePayments', appointment?.id],
+    enabled: !!(open && appointment?.id && appointment.status === 'completed'),
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('payments')
+        .select('id, amount, tender_type, status, metadata, purpose')
+        .eq('appointment_id', appointment.id)
+        .in('purpose', ['balance', 'retail'])
+        .eq('status', 'paid')
+        .order('created_at', { ascending: true });
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
   /**
-   * Update the tender after checkout. Writes the cash-ledger row(s) first (this is
-   * what Daily Reconciliation sums by tender_type), then the denormalized field on
-   * the appointment. Manual tenders are always in-person, so force channel too.
+   * Update tender type(s) after checkout without unlocking. Each balance payment
+   * row gets its own dropdown; amounts and tips are left untouched. Writes the
+   * cash-ledger rows first, then the denormalized comma-joined appointment field.
    */
   const updatePaymentMethodMutation = useMutation({
-    mutationFn: async (newMethod) => {
+    mutationFn: async (drafts) => {
       if (!appointment?.id) throw new Error('No appointment.');
-      const { error: payErr } = await supabase
-        .from('payments')
-        .update({ tender_type: newMethod, channel: 'in_person' })
-        .eq('appointment_id', appointment.id)
-        .in('purpose', ['balance', 'retail']);
-      if (payErr) throw new Error(payErr.message || 'Could not update the payment ledger.');
+      if (!balancePaymentRows.length) throw new Error('No checkout payments to update.');
+      if (drafts.length !== balancePaymentRows.length) {
+        throw new Error('Payment method count mismatch.');
+      }
+      if (drafts.some((m) => !paymentMethodValues.includes(m))) {
+        throw new Error('Choose a valid payment method for each tender.');
+      }
+      if (new Set(drafts).size !== drafts.length) {
+        throw new Error('Each payment method can only be used once.');
+      }
 
+      for (let i = 0; i < balancePaymentRows.length; i++) {
+        const { error: payErr } = await supabase
+          .from('payments')
+          .update({ tender_type: drafts[i], channel: 'in_person' })
+          .eq('id', balancePaymentRows[i].id);
+        if (payErr) throw new Error(payErr.message || 'Could not update the payment ledger.');
+      }
+
+      const joined = joinPaymentMethods(drafts);
       const { error: aptErr } = await supabase
         .from('appointments')
-        .update({ payment_method: newMethod })
+        .update({ payment_method: joined })
         .eq('id', appointment.id);
       if (aptErr) throw new Error(aptErr.message || 'Could not update the appointment.');
-      return newMethod;
+      return joined;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['appointments'] });
       queryClient.invalidateQueries({ queryKey: ['checkoutSale', appointment?.id] });
+      queryClient.invalidateQueries({ queryKey: ['appointmentBalancePayments', appointment?.id] });
       queryClient.invalidateQueries({ queryKey: ['reconciliations'] });
       queryClient.invalidateQueries({ queryKey: ['reconciliationTenders'] });
       setEditingPaymentMethod(false);
@@ -1152,7 +1183,10 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
   });
 
   const renderCheckoutPaymentField = () => {
-    const current = appointment.payment_method || "";
+    const current =
+      joinPaymentMethods(balancePaymentRows.map((p) => p.tender_type)) ||
+      appointment.payment_method ||
+      "";
     if (!canEditCheckoutPayment()) {
       return (
         <div>
@@ -1167,17 +1201,23 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
           <span className="text-emerald-600">Payment:</span>
           <div className="flex items-center gap-2">
             <p className="font-medium text-emerald-900">{current || "N/A"}</p>
-            <button
-              type="button"
-              onClick={() => {
-                setPaymentMethodError(null);
-                setPaymentMethodDraft(paymentMethodValues.includes(current) ? current : "");
-                setEditingPaymentMethod(true);
-              }}
-              className="text-xs text-emerald-700 underline hover:text-emerald-900"
-            >
-              Edit
-            </button>
+            {balancePaymentRows.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setPaymentMethodError(null);
+                  setPaymentMethodDrafts(
+                    balancePaymentRows.map((p) =>
+                      paymentMethodValues.includes(p.tender_type) ? p.tender_type : ""
+                    )
+                  );
+                  setEditingPaymentMethod(true);
+                }}
+                className="text-xs text-emerald-700 underline hover:text-emerald-900"
+              >
+                Edit
+              </button>
+            )}
           </div>
         </div>
       );
@@ -1185,25 +1225,41 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     return (
       <div className="col-span-2">
         <span className="text-emerald-600">Payment:</span>
-        <div className="flex items-center gap-2 mt-1">
-          <Select value={paymentMethodDraft} onValueChange={setPaymentMethodDraft}>
-            <SelectTrigger className="h-8 text-sm bg-white w-36">
-              <SelectValue placeholder="Method" />
-            </SelectTrigger>
-            <SelectContent>
-              {paymentMethodOptions.map(({ value, label }) => (
-                <SelectItem key={value} value={value}>{label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+        <div className="flex items-center gap-2 mt-1 flex-wrap">
+          {paymentMethodDrafts.map((draft, idx) => {
+            const used = new Set(paymentMethodDrafts.filter((_, i) => i !== idx));
+            const options = paymentMethodOptions.filter(
+              ({ value }) => value === draft || !used.has(value)
+            );
+            return (
+              <Select
+                key={balancePaymentRows[idx]?.id || idx}
+                value={draft || undefined}
+                onValueChange={(v) => {
+                  setPaymentMethodDrafts((prev) => prev.map((m, i) => (i === idx ? v : m)));
+                }}
+              >
+                <SelectTrigger className="h-8 text-sm bg-white w-36">
+                  <SelectValue placeholder={`Method ${idx + 1}`} />
+                </SelectTrigger>
+                <SelectContent>
+                  {options.map(({ value, label }) => (
+                    <SelectItem key={value} value={value}>{label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            );
+          })}
           <Button
             type="button"
             size="sm"
             className="h-8 bg-emerald-600 hover:bg-emerald-700"
-            disabled={!paymentMethodDraft || updatePaymentMethodMutation.isPending}
+            disabled={
+              paymentMethodDrafts.some((m) => !m) || updatePaymentMethodMutation.isPending
+            }
             onClick={() => {
               setPaymentMethodError(null);
-              updatePaymentMethodMutation.mutate(paymentMethodDraft);
+              updatePaymentMethodMutation.mutate(paymentMethodDrafts);
             }}
           >
             {updatePaymentMethodMutation.isPending ? "Saving…" : "Save"}
@@ -1224,7 +1280,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
         </div>
         {paymentMethodError && <p className="text-xs text-red-600 mt-1">{paymentMethodError}</p>}
         <p className="text-[10px] text-emerald-700 mt-1">
-          Updates the payment ledger. Rebuild Daily Reconciliation to refresh tender totals.
+          Updates tender types only (amounts unchanged). Rebuild Daily Reconciliation to refresh tender totals.
         </p>
       </div>
     );
@@ -1485,45 +1541,15 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
    * Unhook a completed visit from revenue: reports only count completed appointments, but
    * appointment_charges rows persist. Without deleting them, a second checkout would double-count.
    */
-  const handleUnlockAppointment = async () => {
+  /**
+   * Open checkout to edit a completed visit. Does not void the sale or change
+   * status — Cancel leaves the appointment completed with prior data intact.
+   * Completing checkout again replaces the sale/payments via finalize_sale.
+   */
+  const handleUnlockAppointment = () => {
     if (!appointment) return;
-    if (
-      !window.confirm(
-        "Unlock this appointment? All checkout line items will be deleted, sale totals cleared, and status set to Scheduled. It will not appear in revenue reports until checked out again. Deposits already collected are unchanged."
-      )
-    ) {
-      return;
-    }
     setSaveError(null);
-    try {
-      const { error: voidErr } = await supabase.rpc("void_appointment_sale", {
-        p_appointment_id: appointment.id,
-      });
-      if (voidErr) throw voidErr;
-
-      const sanitizeUuid = (v) => (v === "" || v == null ? null : v);
-      const data = {
-        ...formData,
-        studio_id: currentUser?.studio_id,
-        appointment_type_id: sanitizeUuid(formData.appointment_type_id),
-        customer_id: sanitizeUuid(formData.customer_id),
-        work_station_id: sanitizeUuid(formData.work_station_id),
-        artist_id: sanitizeUuid(formData.artist_id),
-        location_id: sanitizeUuid(formData.location_id),
-        health_fields: appointment?.health_fields ?? {},
-        status: "scheduled",
-        charge_amount: 0,
-        tax_amount: 0,
-        discount_amount: 0,
-        payment_method: null,
-      };
-
-      await updateMutation.mutateAsync({ id: appointment.id, data });
-      queryClient.invalidateQueries({ queryKey: ["appointmentCharges"] });
-      queryClient.invalidateQueries({ queryKey: ["sales"] });
-    } catch (e) {
-      setSaveError(e?.message || "Could not unlock appointment.");
-    }
+    setShowCheckoutDialog(true);
   };
 
   /**
@@ -2574,11 +2600,10 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                     type="button"
                     variant="outline"
                     onClick={handleUnlockAppointment}
-                    disabled={updateMutation.isPending}
                     className="w-full sm:w-auto text-sm"
                   >
                     <Unlock className="w-4 h-4 mr-2" />
-                    Unlock
+                    Unlock / Edit Checkout
                   </Button>
                 )}
               </div>
@@ -2654,12 +2679,8 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
 
       <CheckoutDialog
         open={showCheckoutDialog}
-        onOpenChange={(isOpen) => {
-          setShowCheckoutDialog(isOpen);
-          if (!isOpen) {
-            onOpenChange(false);
-          }
-        }}
+        onOpenChange={setShowCheckoutDialog}
+        onCheckoutComplete={() => onOpenChange(false)}
         appointment={appointment}
         artists={artists}
         locations={locations}

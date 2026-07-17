@@ -6,6 +6,7 @@ import { supabase } from "@/utils/supabase";
 import { normalizeUserRole } from "@/utils/roles";
 import { useCheckoutPaymentMethods } from "@/utils/useCheckoutPaymentMethods";
 import { buildCheckoutSummaryFromSale } from "@/utils/saleLines";
+import { joinPaymentMethods } from "@/utils/splitTender";
 import {
   Dialog,
   DialogContent,
@@ -36,6 +37,8 @@ export default function SaleDetailDialog({
   onOpenChange,
   sale,
   lineItems = [],
+  payments = [],
+  /** @deprecated use payments */
   payment,
   customer,
   location,
@@ -48,13 +51,19 @@ export default function SaleDetailDialog({
   const { options: paymentMethodOptions, values: paymentMethodValues } =
     useCheckoutPaymentMethods(studioId);
   const [editingPaymentMethod, setEditingPaymentMethod] = useState(false);
-  const [paymentMethodDraft, setPaymentMethodDraft] = useState("");
+  const [paymentMethodDrafts, setPaymentMethodDrafts] = useState([]);
   const [paymentMethodError, setPaymentMethodError] = useState(null);
-  const [localPayment, setLocalPayment] = useState(payment);
+  const [localPayments, setLocalPayments] = useState(payments);
+
+  const resolvedPayments = useMemo(() => {
+    if (localPayments?.length) return localPayments;
+    if (payment) return [payment];
+    return [];
+  }, [localPayments, payment]);
 
   useEffect(() => {
-    setLocalPayment(payment);
-  }, [payment]);
+    setLocalPayments(payments?.length ? payments : payment ? [payment] : []);
+  }, [payments, payment]);
 
   const userRole = useMemo(() => {
     if (!user) return null;
@@ -69,7 +78,7 @@ export default function SaleDetailDialog({
     return buildCheckoutSummaryFromSale(sale, lineItems, null);
   }, [sale, lineItems]);
 
-  const currentPaymentMethod = localPayment?.tender_type || "";
+  const currentPaymentLabel = joinPaymentMethods(resolvedPayments.map((p) => p.tender_type)) || "N/A";
 
   useEffect(() => {
     setEditingPaymentMethod(false);
@@ -77,19 +86,32 @@ export default function SaleDetailDialog({
   }, [sale?.id, open]);
 
   const updatePaymentMethodMutation = useMutation({
-    mutationFn: async (newMethod) => {
+    mutationFn: async (drafts) => {
       if (!sale?.id) throw new Error("No sale selected.");
-      const { error } = await supabase
-        .from("payments")
-        .update({ tender_type: newMethod, channel: "in_person" })
-        .eq("sale_id", sale.id)
-        .eq("purpose", "retail")
-        .eq("status", "paid");
-      if (error) throw new Error(error.message || "Could not update the payment ledger.");
-      return newMethod;
+      if (!resolvedPayments.length) throw new Error("No payments to update.");
+      if (drafts.length !== resolvedPayments.length) {
+        throw new Error("Payment method count mismatch.");
+      }
+      if (drafts.some((m) => !paymentMethodValues.includes(m))) {
+        throw new Error("Choose a valid payment method for each tender.");
+      }
+      if (new Set(drafts).size !== drafts.length) {
+        throw new Error("Each payment method can only be used once.");
+      }
+
+      for (let i = 0; i < resolvedPayments.length; i++) {
+        const { error } = await supabase
+          .from("payments")
+          .update({ tender_type: drafts[i], channel: "in_person" })
+          .eq("id", resolvedPayments[i].id);
+        if (error) throw new Error(error.message || "Could not update the payment ledger.");
+      }
+      return drafts;
     },
-    onSuccess: (newMethod) => {
-      setLocalPayment((prev) => (prev ? { ...prev, tender_type: newMethod } : prev));
+    onSuccess: (drafts) => {
+      setLocalPayments((prev) =>
+        (prev || []).map((p, i) => ({ ...p, tender_type: drafts[i] }))
+      );
       queryClient.invalidateQueries({ queryKey: ["salePayments", studioId] });
       queryClient.invalidateQueries({ queryKey: ["sales", studioId, saleDate] });
       queryClient.invalidateQueries({ queryKey: ["reconciliations"] });
@@ -101,12 +123,22 @@ export default function SaleDetailDialog({
     },
   });
 
+  const beginEditPayment = () => {
+    setPaymentMethodError(null);
+    setPaymentMethodDrafts(
+      resolvedPayments.map((p) =>
+        paymentMethodValues.includes(p.tender_type) ? p.tender_type : ""
+      )
+    );
+    setEditingPaymentMethod(true);
+  };
+
   const renderPaymentField = () => {
     if (!canEditPayment) {
       return (
         <div>
           <span className="text-emerald-600">Payment:</span>
-          <p className="font-medium text-emerald-900">{currentPaymentMethod || "N/A"}</p>
+          <p className="font-medium text-emerald-900">{currentPaymentLabel}</p>
         </div>
       );
     }
@@ -115,19 +147,11 @@ export default function SaleDetailDialog({
         <div>
           <span className="text-emerald-600">Payment:</span>
           <div className="flex items-center gap-2">
-            <p className="font-medium text-emerald-900">{currentPaymentMethod || "N/A"}</p>
-            {localPayment && (
+            <p className="font-medium text-emerald-900">{currentPaymentLabel}</p>
+            {resolvedPayments.length > 0 && (
               <button
                 type="button"
-                onClick={() => {
-                  setPaymentMethodError(null);
-                  setPaymentMethodDraft(
-                    paymentMethodValues.includes(currentPaymentMethod)
-                      ? currentPaymentMethod
-                      : ""
-                  );
-                  setEditingPaymentMethod(true);
-                }}
+                onClick={beginEditPayment}
                 className="text-xs text-emerald-700 underline hover:text-emerald-900"
               >
                 Edit
@@ -141,24 +165,40 @@ export default function SaleDetailDialog({
       <div className="col-span-2">
         <span className="text-emerald-600">Payment:</span>
         <div className="flex items-center gap-2 mt-1 flex-wrap">
-          <Select value={paymentMethodDraft} onValueChange={setPaymentMethodDraft}>
-            <SelectTrigger className="h-8 text-sm bg-white w-36">
-              <SelectValue placeholder="Method" />
-            </SelectTrigger>
-            <SelectContent>
-              {paymentMethodOptions.map(({ value, label }) => (
-                <SelectItem key={value} value={value}>{label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          {paymentMethodDrafts.map((draft, idx) => {
+            const used = new Set(paymentMethodDrafts.filter((_, i) => i !== idx));
+            const options = paymentMethodOptions.filter(
+              ({ value }) => value === draft || !used.has(value)
+            );
+            return (
+              <Select
+                key={resolvedPayments[idx]?.id || idx}
+                value={draft || undefined}
+                onValueChange={(v) => {
+                  setPaymentMethodDrafts((prev) => prev.map((m, i) => (i === idx ? v : m)));
+                }}
+              >
+                <SelectTrigger className="h-8 text-sm bg-white w-36">
+                  <SelectValue placeholder={`Method ${idx + 1}`} />
+                </SelectTrigger>
+                <SelectContent>
+                  {options.map(({ value, label }) => (
+                    <SelectItem key={value} value={value}>{label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            );
+          })}
           <Button
             type="button"
             size="sm"
             className="h-8 bg-emerald-600 hover:bg-emerald-700"
-            disabled={!paymentMethodDraft || updatePaymentMethodMutation.isPending}
+            disabled={
+              paymentMethodDrafts.some((m) => !m) || updatePaymentMethodMutation.isPending
+            }
             onClick={() => {
               setPaymentMethodError(null);
-              updatePaymentMethodMutation.mutate(paymentMethodDraft);
+              updatePaymentMethodMutation.mutate(paymentMethodDrafts);
             }}
           >
             {updatePaymentMethodMutation.isPending ? "Saving…" : "Save"}
@@ -179,7 +219,7 @@ export default function SaleDetailDialog({
         </div>
         {paymentMethodError && <p className="text-xs text-red-600 mt-1">{paymentMethodError}</p>}
         <p className="text-[10px] text-emerald-700 mt-1">
-          Updates the payment ledger. Rebuild Daily Reconciliation to refresh tender totals.
+          Updates tender types only (amounts unchanged). Rebuild Daily Reconciliation to refresh tender totals.
         </p>
       </div>
     );

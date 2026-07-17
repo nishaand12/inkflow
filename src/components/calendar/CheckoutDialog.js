@@ -32,18 +32,15 @@ import {
   isAppointmentTypeSplitEnabled,
   computeAppointmentShares,
 } from "@/utils/revenueSplits";
-
-const LEGACY_PAYMENT_METHOD_MAP = {
-  Card: "Other",
-  POS: "Other",
-  "POS Terminal": "Other",
-};
-
-function normalizePaymentMethodForSelect(raw) {
-  if (!raw) return "";
-  if (raw === "Stripe") return "";
-  return LEGACY_PAYMENT_METHOD_MAP[raw] || raw;
-}
+import SplitTenderFields from "@/components/checkout/SplitTenderFields";
+import {
+  buildPaymentPayload,
+  createTenderRow,
+  roundMoney,
+  sumTenderTips,
+  tenderRowsFromPayments,
+  validateSplitTenders,
+} from "@/utils/splitTender";
 
 const DEFAULT_SERVICE_TAX_RATE = 0.13;
 
@@ -90,18 +87,28 @@ function initialServiceLineUnitPrice(appointment, aptType) {
   return 0;
 }
 
-export default function CheckoutDialog({ open, onOpenChange, appointment, artists, locations, appointmentTypes, customers, studio }) {
+export default function CheckoutDialog({
+  open,
+  onOpenChange,
+  onCheckoutComplete,
+  appointment,
+  artists,
+  locations,
+  appointmentTypes,
+  customers,
+  studio,
+}) {
   const queryClient = useQueryClient();
   const barcodeInputRef = useRef(null);
   const [barcodeBuffer, setBarcodeBuffer] = useState('');
 
   const [lineItems, setLineItems] = useState([]);
-  const [paymentMethod, setPaymentMethod] = useState('');
-  const [tipAmount, setTipAmount] = useState('');
+  const [tenderRows, setTenderRows] = useState(() => [createTenderRow()]);
   const [checkoutMessage, setCheckoutMessage] = useState(null);
   const [showZeroConfirm, setShowZeroConfirm] = useState(false);
   const [showManualAdd, setShowManualAdd] = useState(false);
   const [manualLine, setManualLine] = useState({ description: '', unit_price: '', quantity: 1, reporting_category_id: '', discount: '' });
+  const [priorCheckoutLoaded, setPriorCheckoutLoaded] = useState(false);
 
   const { options: paymentMethodOptions } = useCheckoutPaymentMethods(studio?.id);
 
@@ -133,8 +140,70 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
     [reportingCategories]
   );
 
+  // Prior sale (completed or soft-voided after unlock) for re-checkout preload.
+  const { data: priorCheckout } = useQuery({
+    queryKey: ['priorCheckout', appointment?.id],
+    enabled: open && !!appointment?.id,
+    queryFn: async () => {
+      const { data: sales, error } = await supabase
+        .from('sales')
+        .select('id, status, tip_total')
+        .eq('appointment_id', appointment.id)
+        .in('status', ['completed', 'voided'])
+        .order('created_at', { ascending: false })
+        .limit(1);
+      if (error) throw error;
+      const sale = sales?.[0];
+      if (!sale) return null;
+
+      const [{ data: lines, error: lineErr }, { data: payments, error: payErr }] = await Promise.all([
+        supabase
+          .from('sale_line_items')
+          .select('*')
+          .eq('sale_id', sale.id)
+          .order('created_at', { ascending: true }),
+        supabase
+          .from('payments')
+          .select('id, amount, tender_type, status, metadata, purpose')
+          .eq('sale_id', sale.id)
+          .in('purpose', ['balance', 'retail'])
+          .in('status', ['paid', 'voided'])
+          .order('created_at', { ascending: true }),
+      ]);
+      if (lineErr) throw lineErr;
+      if (payErr) throw payErr;
+      return { sale, lines: lines || [], payments: payments || [] };
+    },
+  });
+
   useEffect(() => {
-    if (appointment && open) {
+    if (!appointment || !open) {
+      setPriorCheckoutLoaded(false);
+      return;
+    }
+
+    // Wait for prior-checkout query to settle once so we don't flash defaults then overwrite.
+    if (priorCheckout === undefined) return;
+
+    if (priorCheckout?.lines?.length) {
+      setLineItems(
+        priorCheckout.lines.map((li, idx) => ({
+          _key: `prior-${li.id || idx}`,
+          line_type: li.line_type || 'product',
+          description: li.description || 'Line item',
+          quantity: Number(li.quantity) || 1,
+          unit_price: Number(li.unit_price) || 0,
+          discount_amount: Number(li.discount_amount) || 0,
+          reporting_category_id: li.reporting_category_id || '',
+          reporting_category_name: li.reporting_category_name || '',
+          product_id: li.product_id || null,
+          tax_rate: li.tax_rate != null ? Number(li.tax_rate) : (li.line_type === 'service' ? DEFAULT_SERVICE_TAX_RATE : 0),
+          tax_inclusive: Boolean(li.tax_inclusive),
+          _revenue_sign: Number(li.revenue_sign) < 0 ? 'negative' : 'positive',
+        }))
+      );
+      setTenderRows(tenderRowsFromPayments(priorCheckout.payments));
+    } else {
       const initialLines = [];
       const aptType = appointmentTypes?.find(t => t.id === appointment.appointment_type_id);
       if (aptType) {
@@ -154,13 +223,14 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
         });
       }
       setLineItems(initialLines);
-      setPaymentMethod(normalizePaymentMethodForSelect(appointment.payment_method));
-      setTipAmount(appointment.tip_amount ? String(appointment.tip_amount) : '');
-      setCheckoutMessage(null);
-      setShowManualAdd(false);
-      setManualLine({ description: '', unit_price: '', quantity: 1, reporting_category_id: '', discount: '' });
+      setTenderRows([createTenderRow()]);
     }
-  }, [appointment, open, appointmentTypes]);
+
+    setCheckoutMessage(null);
+    setShowManualAdd(false);
+    setManualLine({ description: '', unit_price: '', quantity: 1, reporting_category_id: '', discount: '' });
+    setPriorCheckoutLoaded(true);
+  }, [appointment, open, appointmentTypes, priorCheckout]);
 
   useEffect(() => {
     if (open && barcodeInputRef.current) {
@@ -308,9 +378,10 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
     return null;
   };
 
+  const tipTotal = sumTenderTips(tenderRows);
   const cartTotals = useMemo(
-    () => computeSaleTotals(normalizeCartLines(lineItems), tipAmount),
-    [lineItems, tipAmount]
+    () => computeSaleTotals(normalizeCartLines(lineItems), tipTotal),
+    [lineItems, tipTotal]
   );
   const allTaxInclusive = lineItems.length > 0 && lineItems.every((li) => li.tax_inclusive);
 
@@ -318,8 +389,27 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
   /** Only reduce balance when deposit was actually collected (walk-ins often have no paid deposit). */
   const depositCredited =
     appointment?.deposit_status === "paid" ? depositOnFile : 0;
-  const amountDueBeforeTip = Math.max(0, cartTotals.grandTotal - depositCredited);
-  const amountDue = amountDueBeforeTip + cartTotals.tipTotal;
+  const amountDueBeforeTip = Math.max(0, roundMoney(cartTotals.grandTotal - depositCredited));
+  const amountDue = roundMoney(amountDueBeforeTip + tipTotal);
+
+  /** $0 sticker-price checkout (free consult, or discounted to zero) — excludes negative-revenue/refund carts. */
+  const isZeroCheckout =
+    lineItems.length > 0 &&
+    cartTotals.grandTotal + tipTotal <= 0 &&
+    !lineItems.some((li) => isNegativeRevenueLine(li));
+
+  // Keep a single tender row's amount in sync with balance due (most common path).
+  useEffect(() => {
+    if (!priorCheckoutLoaded || !open) return;
+    if (tenderRows.length !== 1) return;
+    const expected = amountDueBeforeTip > 0 ? String(amountDueBeforeTip) : "";
+    if (tenderRows[0].amount === expected) return;
+    setTenderRows((prev) => {
+      if (prev.length !== 1) return prev;
+      if (prev[0].amount === expected) return prev;
+      return [{ ...prev[0], amount: expected }];
+    });
+  }, [amountDueBeforeTip, priorCheckoutLoaded, open, tenderRows.length]);
 
   const checkoutMutation = useMutation({
     mutationFn: async () => {
@@ -332,6 +422,14 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
       }
       if (lineItems.length === 0) {
         throw new Error('Add at least one item to check out.');
+      }
+
+      const zeroCheckout =
+        cartTotals.grandTotal + tipTotal <= 0 &&
+        !lineItems.some((li) => isNegativeRevenueLine(li));
+      if (!zeroCheckout) {
+        const validation = validateSplitTenders(tenderRows, amountDueBeforeTip);
+        if (!validation.ok) throw new Error(validation.error);
       }
 
       // Map dialog line shape (_revenue_sign) to the canonical saleLines shape.
@@ -353,10 +451,7 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
         ).artistShare;
       }
 
-      // Balance collected now at checkout (deposit already recorded separately).
-      const paymentPayload = amountDue > 0
-        ? { tender_type: paymentMethod || 'Other', channel: 'in_person', amount: amountDue }
-        : null;
+      const paymentPayload = buildPaymentPayload(tenderRows);
 
       const { data, error } = await supabase.rpc('finalize_sale', {
         p_sale: {
@@ -365,7 +460,7 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
           customer_id: appointment.customer_id || null,
           appointment_id: appointment.id,
           sale_date: appointment.appointment_date || null,
-          tip_total: cartTotals.tipTotal,
+          tip_total: tipTotal,
           artist_share: artistShare,
         },
         p_lines: buildFinalizeLines(mappedLines, resolveReportingCategoryName),
@@ -379,21 +474,19 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
       queryClient.invalidateQueries({ queryKey: ['appointmentCharges'] });
       queryClient.invalidateQueries({ queryKey: ['sales'] });
       queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: ['priorCheckout', appointment?.id] });
+      queryClient.invalidateQueries({ queryKey: ['checkoutSale', appointment?.id] });
+      queryClient.invalidateQueries({ queryKey: ['appointmentBalancePayments', appointment?.id] });
       if (studio?.id) {
         queryClient.invalidateQueries({ queryKey: ['products', studio.id] });
       }
       onOpenChange(false);
+      onCheckoutComplete?.();
     },
     onError: (err) => {
       setCheckoutMessage({ type: 'error', text: err.message || 'Checkout failed.' });
     },
   });
-
-  /** $0 sticker-price checkout (free consult, or discounted to zero) — excludes negative-revenue/refund carts. */
-  const isZeroCheckout =
-    lineItems.length > 0 &&
-    cartTotals.grandTotal + cartTotals.tipTotal <= 0 &&
-    !lineItems.some((li) => isNegativeRevenueLine(li));
 
   const handleManualCheckout = (e) => {
     e.preventDefault();
@@ -403,6 +496,11 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
     }
     if (isZeroCheckout) {
       setShowZeroConfirm(true);
+      return;
+    }
+    const validation = validateSplitTenders(tenderRows, amountDueBeforeTip);
+    if (!validation.ok) {
+      setCheckoutMessage({ type: 'error', text: validation.error });
       return;
     }
     checkoutMutation.mutate();
@@ -415,6 +513,7 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
 
   if (!appointment) return null;
 
+  const isEditingCheckout = appointment.status === 'completed';
   const artist = artists?.find(a => a.id === appointment.artist_id);
   const appointmentType = appointmentTypes?.find(t => t.id === appointment.appointment_type_id);
   const customer = customers?.find(c => c.id === appointment.customer_id);
@@ -428,10 +527,12 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
         <DialogHeader>
           <DialogTitle className="text-lg sm:text-xl font-bold flex items-center gap-2">
             <CheckCircle className="w-5 h-5 text-green-600" />
-            Check Out Appointment
+            {isEditingCheckout ? 'Edit Checkout' : 'Check Out Appointment'}
           </DialogTitle>
           <DialogDescription className="text-sm">
-            Apply per-line discounts (before tax), then complete payment. A paid deposit reduces the balance; unpaid deposits do not.
+            {isEditingCheckout
+              ? 'Update line items and payment. Cancel keeps the existing checkout. Saving replaces the previous sale and payments.'
+              : 'Apply per-line discounts (before tax), then complete payment. A paid deposit reduces the balance; unpaid deposits do not.'}
           </DialogDescription>
         </DialogHeader>
 
@@ -674,48 +775,27 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <Label className="text-xs">Tax</Label>
-              <div className="text-sm font-medium tabular-nums border rounded-md px-2 py-1.5 bg-gray-50">
-                ${cartTotals.taxTotal.toFixed(2)}
-              </div>
-              <p className="text-[10px] text-gray-500 leading-snug">
-                Per line after that line&apos;s discount. Service lines use {DEFAULT_SERVICE_TAX_RATE * 100}% unless exempt;
-                products use their own rate. <strong>Tax-inclusive</strong> lines include tax in the price (tax shown is extracted);
-                <strong> tax-exclusive</strong> adds tax on top. Manual items use 0% tax.
-              </p>
+          <div className="space-y-1">
+            <Label className="text-xs">Tax</Label>
+            <div className="text-sm font-medium tabular-nums border rounded-md px-2 py-1.5 bg-gray-50">
+              ${cartTotals.taxTotal.toFixed(2)}
             </div>
-            <div className="space-y-1">
-              <Label className="text-xs">Tip</Label>
-              <Input
-                type="number"
-                min="0"
-                step="0.01"
-                value={tipAmount}
-                onChange={(e) => setTipAmount(e.target.value)}
-                placeholder="0.00"
-                className="text-sm"
-              />
-              <p className="text-[10px] text-gray-500 leading-snug">
-                Tips are not taxed or split with the studio; they are owed 100% to the assigned artist.
-              </p>
-            </div>
+            <p className="text-[10px] text-gray-500 leading-snug">
+              Per line after that line&apos;s discount. Service lines use {DEFAULT_SERVICE_TAX_RATE * 100}% unless exempt;
+              products use their own rate. <strong>Tax-inclusive</strong> lines include tax in the price (tax shown is extracted);
+              <strong> tax-exclusive</strong> adds tax on top. Manual items use 0% tax.
+            </p>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div className="space-y-1">
-              <Label className="text-xs">Payment Method</Label>
-              <Select value={paymentMethod} onValueChange={setPaymentMethod}>
-                <SelectTrigger className="text-sm"><SelectValue placeholder="Method" /></SelectTrigger>
-                <SelectContent>
-                  {paymentMethodOptions.map(({ value, label }) => (
-                    <SelectItem key={value} value={value}>{label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
+          {!isZeroCheckout && (
+            <SplitTenderFields
+              rows={tenderRows}
+              onChange={setTenderRows}
+              paymentMethodOptions={paymentMethodOptions}
+              balanceDue={amountDueBeforeTip}
+              disabled={checkoutMutation.isPending}
+            />
+          )}
 
           <div className="bg-gray-50 rounded-lg p-3 space-y-1 text-sm">
             <div className="flex justify-between"><span className="text-gray-500">Subtotal (before discounts):</span><span>${cartTotals.grossBeforeDiscounts.toFixed(2)}</span></div>
@@ -775,7 +855,11 @@ export default function CheckoutDialog({ open, onOpenChange, appointment, artist
               onClick={handleManualCheckout}
             >
               <CheckCircle className="w-4 h-4 mr-2" />
-              {checkoutMutation.isPending ? 'Processing...' : 'Manual Checkout'}
+              {checkoutMutation.isPending
+                ? 'Processing...'
+                : isEditingCheckout
+                  ? 'Save Checkout'
+                  : 'Manual Checkout'}
             </Button>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)} className="w-full">
               Cancel
