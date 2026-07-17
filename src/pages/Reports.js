@@ -1435,7 +1435,7 @@ export default function Reports() {
             created_at: selectedSaleRow.created_at,
           } : null}
           lineItems={selectedSaleRow?.lines ?? []}
-          payment={null}
+          payments={[]}
           customer={selectedSaleRow?.customer_id ? customerById[selectedSaleRow.customer_id] : null}
           location={selectedSaleRow?.location_id ? locationById[selectedSaleRow.location_id] : null}
           artist={selectedSaleRow?.artist_id ? artistById[selectedSaleRow.artist_id] : null}
