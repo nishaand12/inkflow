@@ -30,10 +30,21 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { format, subDays } from "date-fns";
+import { format } from "date-fns";
 import { DollarSign, Plus } from "lucide-react";
 import { normalizeUserRole } from "@/utils/roles";
 import { isSupportStaffArtistType } from "@/utils/artistTypes";
+import {
+  toReportsArtistId,
+  useWorkspaceFilters,
+  useWorkspaceUrlSync,
+} from "@/hooks/useWorkspaceFilters";
+
+const PAYOUTS_URL_PARAMS = {
+  start: "startDate",
+  end: "endDate",
+  artist: "artistId",
+};
 
 function money(n) {
   const v = Number(n) || 0;
@@ -83,11 +94,19 @@ function computeBalances(artists, artistById, entries) {
 
 export default function ArtistPayouts() {
   const queryClient = useQueryClient();
+  const { filters, setFilters } = useWorkspaceFilters();
+  useWorkspaceUrlSync(PAYOUTS_URL_PARAMS);
+
+  const startDate = filters.startDate;
+  const endDate = filters.endDate;
+  const filterArtist = toReportsArtistId(filters.artistId);
+
+  const setStartDate = (value) => setFilters({ startDate: value });
+  const setEndDate = (value) => setFilters({ endDate: value });
+  const setFilterArtist = (value) => setFilters({ artistId: value });
+
   const [user, setUser] = useState(null);
   const [showDialog, setShowDialog] = useState(false);
-  const [startDate, setStartDate] = useState(format(subDays(new Date(), 7), "yyyy-MM-dd"));
-  const [endDate, setEndDate] = useState(format(new Date(), "yyyy-MM-dd"));
-  const [filterArtist, setFilterArtist] = useState("all");
   const [form, setForm] = useState({
     artist_id: "",
     amount: "",

@@ -31,6 +31,19 @@ import {
   sortByNameThenId,
   sortByFullNameThenId,
 } from "@/utils/listSort";
+import {
+  useWorkspaceFilters,
+  useWorkspaceUrlSync,
+} from "@/hooks/useWorkspaceFilters";
+
+const APPOINTMENTS_URL_PARAMS = {
+  location: "locationId",
+  artist: "artistId",
+  status: "status",
+  type: "typeCategory",
+  workstation: "workStationId",
+  specificType: "specificTypeId",
+};
 
 const statusColors = {
   scheduled:     "bg-blue-100 text-blue-800 border-blue-200",
@@ -43,14 +56,29 @@ const statusColors = {
 };
 
 export default function Appointments() {
-  const [typeFilter, setTypeFilter] = useState('all');
-  const [statusFilter, setStatusFilter] = useState('all');
-  const [artistFilter, setArtistFilter] = useState('all');
+  const { filters, setFilters } = useWorkspaceFilters();
+  useWorkspaceUrlSync(APPOINTMENTS_URL_PARAMS);
+
+  const typeFilter = filters.typeCategory;
+  const setTypeFilter = (value) => setFilters({ typeCategory: value });
+
+  const statusFilter = filters.status;
+  const setStatusFilter = (value) => setFilters({ status: value });
+
+  const artistFilter = filters.artistId;
+  const setArtistFilter = (value) => setFilters({ artistId: value });
+
+  const locationFilter = filters.locationId;
+  const setLocationFilter = (value) => setFilters({ locationId: value });
+
+  const workStationFilter = filters.workStationId;
+  const setWorkStationFilter = (value) => setFilters({ workStationId: value });
+
+  const specificTypeFilter = filters.specificTypeId;
+  const setSpecificTypeFilter = (value) => setFilters({ specificTypeId: value });
+
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [locationFilter, setLocationFilter] = useState('all');
-  const [workStationFilter, setWorkStationFilter] = useState('all');
   const [searchTerm, setSearchTerm] = useState('');
-  const [specificTypeFilter, setSpecificTypeFilter] = useState('all');
   const [showDialog, setShowDialog] = useState(false);
   const [selectedAppointment, setSelectedAppointment] = useState(null);
   const [user, setUser] = useState(null);

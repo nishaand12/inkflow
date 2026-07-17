@@ -29,7 +29,7 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { Download, DollarSign, Clock, AlertTriangle, BarChart3, Users, TrendingUp, Globe, ShoppingBag, ChevronLeft, ChevronRight, CreditCard } from "lucide-react";
-import { format, parseISO, startOfMonth, endOfMonth } from "date-fns";
+import { format, parseISO } from "date-fns";
 import { normalizeUserRole } from "@/utils/roles";
 import { DEFAULT_TENDER_GROUP_DEFS } from "@/utils/reportTenderGroups";
 import {
@@ -38,6 +38,19 @@ import {
 } from "@/utils/reportingCategories";
 import { getArtistTypeLabel, isSupportStaffArtistType } from "@/utils/artistTypes";
 import { sumExplicitAvailableHoursInRange } from "@/utils/explicitAvailabilityHours";
+import {
+  toReportsArtistId,
+  useWorkspaceFilters,
+  useWorkspaceUrlSync,
+} from "@/hooks/useWorkspaceFilters";
+
+const REPORTS_URL_PARAMS = {
+  start: "startDate",
+  end: "endDate",
+  location: "locationId",
+  artist: "artistId",
+  tab: "reportsTab",
+};
 
 function money(n) {
   return `$${(Number(n) || 0).toFixed(2)}`;
@@ -106,13 +119,23 @@ function summarizeLineItems(lineItems) {
 }
 
 export default function Reports() {
+  const { filters, setFilters } = useWorkspaceFilters();
+  useWorkspaceUrlSync(REPORTS_URL_PARAMS);
+
+  const startDate = filters.startDate;
+  const endDate = filters.endDate;
+  const filterLocation = filters.locationId;
+  const filterArtist = toReportsArtistId(filters.artistId);
+  const activeTab = filters.reportsTab;
+
+  const setStartDate = (value) => setFilters({ startDate: value });
+  const setEndDate = (value) => setFilters({ endDate: value });
+  const setFilterLocation = (value) => setFilters({ locationId: value });
+  const setFilterArtist = (value) => setFilters({ artistId: value });
+  const setActiveTab = (value) => setFilters({ reportsTab: value });
+
   const [user, setUser] = useState(null);
-  const [startDate, setStartDate] = useState(format(startOfMonth(new Date()), "yyyy-MM-dd"));
-  const [endDate, setEndDate] = useState(format(endOfMonth(new Date()), "yyyy-MM-dd"));
-  const [filterLocation, setFilterLocation] = useState("all");
-  const [filterArtist, setFilterArtist] = useState("all");
   const [categoryRollupMode, setCategoryRollupMode] = useState("leaf");
-  const [activeTab, setActiveTab] = useState("daily");
   const [salesPage, setSalesPage] = useState(0);
   const [selectedSaleRow, setSelectedSaleRow] = useState(null);
   const [filterTender, setFilterTender] = useState("all");
@@ -388,6 +411,12 @@ export default function Reports() {
 
   const showArtistFilter = activeTab === "artist" || activeTab === "sales";
   const showMultiLocationTab = locations.length > 1;
+
+  useEffect(() => {
+    if (activeTab === "location" && !showMultiLocationTab) {
+      setFilters({ reportsTab: "daily" });
+    }
+  }, [activeTab, showMultiLocationTab, setFilters]);
 
   const getUserRole = () =>
     user ? normalizeUserRole(user.user_role || (user.role === "admin" ? "Admin" : "Front_Desk")) : null;
