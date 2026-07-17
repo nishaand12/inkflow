@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
+import { fetchDailyTotalsReport } from "@/api/reports";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import { createPageUrl, formatTime12h } from "@/utils";
@@ -90,6 +91,25 @@ export default function Dashboard() {
   const isArtist = userRole === 'Artist';
   const isAdmin = userRole === 'Admin' || userRole === 'Owner';
 
+  const weekStartDate = format(startOfWeek(new Date()), "yyyy-MM-dd");
+  const weekEndDate = format(endOfWeek(new Date()), "yyyy-MM-dd");
+
+  const { data: weeklyDailyTotals } = useQuery({
+    queryKey: ["dashboardWeeklyShopRevenue", weekStartDate, weekEndDate],
+    queryFn: () =>
+      fetchDailyTotalsReport({
+        startDate: weekStartDate,
+        endDate: weekEndDate,
+        locationId: "all",
+      }),
+    enabled: !!user?.studio_id && !isArtist,
+  });
+
+  const weeklyShopRevenue = useMemo(
+    () => Number(weeklyDailyTotals?.period_summary?.shop_total) || 0,
+    [weeklyDailyTotals]
+  );
+
   const filteredAppointments = (isArtist && !isAdmin)
     ? (userArtist ? appointments.filter(apt => apt.artist_id === userArtist.id) : [])
     : appointments;
@@ -106,10 +126,6 @@ export default function Dashboard() {
     .filter(apt => parseISO(apt.appointment_date + 'T00:00:00') >= startOfDay(new Date()) && apt.status !== 'cancelled')
     .sort(compareAppointmentsByDateTimeAsc)
     .slice(0, 5);
-
-  const totalRevenue = filteredAppointments
-    .filter(apt => apt.status === 'completed')
-    .reduce((sum, apt) => sum + (apt.total_estimate || 0), 0);
 
   const balanceOwed = (isArtist && userArtist)
     ? ledgerEntries
@@ -207,10 +223,10 @@ export default function Dashboard() {
             </CardHeader>
             <CardContent>
               <div className="text-3xl font-bold text-gray-900">
-                ${(isArtist ? balanceOwed : totalRevenue).toLocaleString(undefined, isArtist ? { minimumFractionDigits: 2, maximumFractionDigits: 2 } : undefined)}
+                ${(isArtist ? balanceOwed : weeklyShopRevenue).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
               <p className="text-xs text-gray-500 mt-1">
-                {isArtist ? 'From settlements, after payouts' : 'Completed bookings'}
+                {isArtist ? 'From settlements, after payouts' : 'Reconciled shop revenue this week'}
               </p>
             </CardContent>
           </Card>
