@@ -285,6 +285,9 @@ export default function Sales() {
       if (prev[0].amount === expected) return prev;
       return [{ ...prev[0], amount: expected }];
     });
+    // Depends on tenderRows.length, not tenderRows: re-running on amount edits
+    // would overwrite a manually entered tender amount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [balanceDue, tenderRows.length]);
 
   const saleMutation = useMutation({
