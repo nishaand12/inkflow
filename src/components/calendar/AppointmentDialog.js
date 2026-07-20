@@ -176,7 +176,7 @@ async function persistAppointmentDepositSnapshotIfStale(appointment, formData, q
   }
 }
 
-export default function AppointmentDialog({ open, onOpenChange, appointment, defaultDate, defaultArtistId, artists, locations, currentUser, userArtist }) {
+export default function AppointmentDialog({ open, onOpenChange, appointment, defaultDate, defaultArtistId, defaultStartTime, artists, locations, currentUser, userArtist }) {
   const queryClient = useQueryClient();
   const [formData, setFormData] = useState({
     artist_id: '',
@@ -188,8 +188,10 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     client_email: '',
     client_phone: '',
     appointment_date: defaultDate ? format(defaultDate, 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'),
-    start_time: DEFAULT_BOOKING_START_TIME,
-    end_time: DEFAULT_APPOINTMENT_END_TIME,
+    start_time: defaultStartTime || DEFAULT_BOOKING_START_TIME,
+    end_time: defaultStartTime
+      ? addMinutesToTime(defaultStartTime, 120)
+      : DEFAULT_APPOINTMENT_END_TIME,
     is_all_day: false,
     deposit_amount: 0,
     total_estimate: 0,
@@ -484,6 +486,11 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
         || ((isArtist && !isAdmin && userArtistId) ? userArtistId : '');
       const defaultLocationId = resolveDefaultLocationId(locations, initialArtistId, artists, "");
 
+      const initialStartTime = defaultStartTime || DEFAULT_BOOKING_START_TIME;
+      const initialEndTime = defaultStartTime
+        ? addMinutesToTime(defaultStartTime, 120)
+        : DEFAULT_APPOINTMENT_END_TIME;
+
       setFormData({
         artist_id: initialArtistId,
         location_id: defaultLocationId,
@@ -494,8 +501,8 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
         client_email: '',
         client_phone: '',
         appointment_date: defaultDate ? format(defaultDate, 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd'),
-        start_time: DEFAULT_BOOKING_START_TIME,
-        end_time: DEFAULT_APPOINTMENT_END_TIME,
+        start_time: initialStartTime,
+        end_time: initialEndTime,
         is_all_day: false,
         deposit_amount: 0,
         total_estimate: 0,
@@ -520,7 +527,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     setEditingDeposit(false);
     setDepositEditError(null);
     setSaveError(null);
-  }, [appointment, appointmentForForm, defaultDate, defaultArtistId, open, isArtist, isAdmin, userArtistId, customers, artists, locations]);
+  }, [appointment, appointmentForForm, defaultDate, defaultArtistId, defaultStartTime, open, isArtist, isAdmin, userArtistId, customers, artists, locations]);
 
   useEffect(() => {
     const canValidateTimed =
