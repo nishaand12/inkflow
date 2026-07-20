@@ -45,6 +45,7 @@ import {
   getTimeSlotsList,
   parseTimeToMinutes,
   scrollMainContentToGridTime,
+  timeFromTop,
 } from "@/utils/calendarGrid";
 import CalendarTimedBlock, { buildCalendarBlockTitle } from "../components/calendar/CalendarTimedBlock";
 import { CalendarStatusLegend } from "../components/calendar/CalendarStatusIcon";
@@ -184,7 +185,9 @@ function OverlapDayColumn({
       className="flex-1 min-w-0 relative border-l border-gray-100 first:border-l-0"
       style={{ height: grid.totalHeight }}
       onClick={(e) => {
-        if (e.target === e.currentTarget) onNewAppointment(day);
+        if (e.target !== e.currentTarget) return;
+        const y = e.clientY - e.currentTarget.getBoundingClientRect().top;
+        onNewAppointment(day, null, timeFromTop(y, grid));
       }}
     >
       <TimeGridLines grid={grid} />
@@ -318,7 +321,9 @@ function ArtistSwimlaneColumn({
       className="flex-1 min-w-[140px] relative border-l border-gray-100 first:border-l-0"
       style={{ height: grid.totalHeight }}
       onClick={(e) => {
-        if (e.target === e.currentTarget) onNewAppointment(day, newAppointmentArtistId);
+        if (e.target !== e.currentTarget) return;
+        const y = e.clientY - e.currentTarget.getBoundingClientRect().top;
+        onNewAppointment(day, newAppointmentArtistId, timeFromTop(y, grid));
       }}
     >
       <TimeGridLines grid={grid} />
@@ -564,6 +569,7 @@ export default function Calendar() {
   const [selectedAppointment, setSelectedAppointment]     = useState(null);
   const [selectedDate, setSelectedDate]           = useState(null);
   const [selectedDefaultArtistId, setSelectedDefaultArtistId] = useState(null);
+  const [selectedDefaultStartTime, setSelectedDefaultStartTime] = useState(null);
   const [user, setUser]                           = useState(null);
   const [userArtist, setUserArtist]               = useState(null);
   const [expandedAllDayDays, setExpandedAllDayDays] = useState(() => new Set());
@@ -832,16 +838,18 @@ export default function Calendar() {
   };
   const handleToday = () => setCurrentDate(new Date());
 
-  const handleNewAppointment = (date = null, artistId = null) => {
+  const handleNewAppointment = (date = null, artistId = null, startTime = null) => {
     setSelectedAppointment(null);
     setSelectedDate(date ?? (view === 'day' ? currentDate : null));
     setSelectedDefaultArtistId(artistId);
+    setSelectedDefaultStartTime(startTime);
     setShowAppointmentDialog(true);
   };
   const handleEditAppointment = (apt) => {
     setSelectedAppointment(apt);
     setSelectedDate(null);
     setSelectedDefaultArtistId(null);
+    setSelectedDefaultStartTime(null);
     setShowAppointmentDialog(true);
   };
 
@@ -1365,6 +1373,7 @@ export default function Calendar() {
         appointment={selectedAppointment}
         defaultDate={selectedDate}
         defaultArtistId={selectedDefaultArtistId}
+        defaultStartTime={selectedDefaultStartTime}
         artists={artists}
         locations={locations}
         currentUser={user}

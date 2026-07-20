@@ -68,6 +68,17 @@ export function topFromTime(timeStr, grid) {
   return Math.max(0, ((mins - grid.startHour * 60) / 60) * grid.hourHeight);
 }
 
+/** Convert a Y offset within the timed grid to a floored 5-minute "HH:MM" start time. */
+export function timeFromTop(y, grid) {
+  const minutesFromStart = Math.floor((y / grid.hourHeight) * 60);
+  const floored =
+    Math.floor(minutesFromStart / CALENDAR_SLOT_MINUTES) * CALENDAR_SLOT_MINUTES;
+  const totalMins = grid.startHour * 60 + floored;
+  const hours = Math.floor(totalMins / 60);
+  const minutes = ((totalMins % 60) + 60) % 60;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
 export function getAppointmentDurationMins(apt) {
   const start = parseTimeToMinutes(apt.start_time);
   return apt.end_time ? parseTimeToMinutes(apt.end_time) - start : 60;
