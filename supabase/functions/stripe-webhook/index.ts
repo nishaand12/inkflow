@@ -3,7 +3,6 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import Stripe from "npm:stripe@17";
 import { mergeStripeDepositPaidMetadata } from "../_shared/stripeDepositPaymentMetadata.ts";
 import { buildPaymentLedgerFields } from "../_shared/paymentLedger.ts";
-import { computeArtistShareForLines } from "../_shared/revenueSplits.ts";
 
 const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY")!;
 const STRIPE_WEBHOOK_SECRET = Deno.env.get("STRIPE_WEBHOOK_SECRET")!;
@@ -83,7 +82,6 @@ serve(async (req) => {
         const session = event.data.object as Stripe.Checkout.Session;
         const appointmentId = session.metadata?.appointment_id;
         const paymentType = session.metadata?.payment_type || "deposit";
-        const studioIdMeta = session.metadata?.studio_id || null;
 
         const { data: paymentRow } = await supabase
           .from("payments")
@@ -94,21 +92,20 @@ serve(async (req) => {
         const { data: aptRow } = appointmentId
           ? await supabase
             .from("appointments")
-            .select("id, location_id, artist_id, customer_id, appointment_type_id, appointment_date, status, studio:studios(timezone)")
+            .select("id, location_id, studio:studios(timezone)")
             .eq("id", appointmentId)
             .maybeSingle()
           : { data: null };
 
         const paidAt = new Date().toISOString();
         const studioTz = (aptRow?.studio as { timezone?: string } | null)?.timezone;
-        const purpose = paymentType === "checkout" ? "balance" : "deposit";
         const ledger = buildPaymentLedgerFields({
           locationId: aptRow?.location_id,
           timezone: studioTz,
           paidAt,
           tenderType: "Stripe",
           channel: "online",
-          purpose,
+          purpose: paymentType === "deposit" ? "deposit" : "balance",
         });
 
         const payUpdate: Record<string, unknown> = {
@@ -144,138 +141,33 @@ serve(async (req) => {
         }
 
         if (appointmentId) {
-          if (paymentType === "checkout") {
-            const tipAmount = session.metadata?.tip_amount
-              ? parseFloat(session.metadata.tip_amount)
-              : 0;
-
-            const rawLines = paymentRow?.metadata?.checkout_line_items;
-            const lineItems = Array.isArray(rawLines) ? rawLines : [];
-
-            if (
-              aptRow?.status !== "completed" &&
-              lineItems.length > 0 &&
-              studioIdMeta
-            ) {
-              const pLines = lineItems.map((line: Record<string, unknown>) => ({
-                line_type: String(line.line_type ?? "adjustment"),
-                reporting_category_id: line.reporting_category_id ?? null,
-                reporting_category_name: line.reporting_category_name ?? null,
-                product_id: line.product_id ?? null,
-                description: String(line.description ?? "Line item"),
-                quantity: Number(line.quantity) || 1,
-                unit_price: Number(line.unit_price) || 0,
-                discount_amount: Number(line.discount_amount) || 0,
-                tax_rate: Number(line.tax_rate) ||
-                  (line.line_type === "service" ? 0.13 : 0),
-                tax_inclusive: Boolean(line.tax_inclusive),
-                revenue_sign: Number(line.revenue_sign) ||
-                  (Number(line.line_total) < 0 ? -1 : 1),
-              }));
-
-              // Online checkout recognizes revenue like a manual checkout, so
-              // accrue the artist's split now (deposits never reach this path).
-              let artistShare = 0;
-              if (aptRow?.artist_id) {
-                const [{ data: artistRow }, { data: splitRules, error: rulesErr }] =
-                  await Promise.all([
-                    supabase
-                      .from("artists")
-                      .select("appointment_type_split_enabled")
-                      .eq("id", aptRow.artist_id)
-                      .maybeSingle(),
-                    supabase
-                      .from("artist_split_rules")
-                      .select(
-                        "artist_id, appointment_type_id, is_active, split_mode, split_value, split_percent",
-                      )
-                      .eq("studio_id", studioIdMeta)
-                      .eq("is_active", true),
-                  ]);
-                if (rulesErr) {
-                  console.error("artist_split_rules fetch failed:", rulesErr);
-                  throw new Error(`artist_split_rules fetch failed: ${rulesErr.message}`);
-                }
-                artistShare = computeArtistShareForLines(
-                  splitRules ?? [],
-                  {
-                    appointmentTypeId: aptRow?.appointment_type_id ?? null,
-                    artistId: aptRow.artist_id,
-                    appointmentTypeSplitEnabled: Boolean(
-                      artistRow?.appointment_type_split_enabled,
-                    ),
-                  },
-                  pLines,
-                );
-              }
-
-              const { data: saleId, error: finalizeErr } = await supabase.rpc(
-                "finalize_sale_system",
-                {
-                  p_studio: studioIdMeta,
-                  p_sale: {
-                    location_id: aptRow?.location_id || null,
-                    artist_id: aptRow?.artist_id || null,
-                    customer_id: aptRow?.customer_id || null,
-                    appointment_id: appointmentId,
-                    sale_date: aptRow?.appointment_date || null,
-                    tip_total: tipAmount,
-                    artist_share: artistShare,
-                  },
-                  p_lines: pLines,
-                  p_payment: null,
-                },
-              );
-
-              if (finalizeErr) {
-                console.error("finalize_sale_system:", finalizeErr);
-                throw new Error(`finalize_sale_system failed: ${finalizeErr.message}`);
-              }
-
-              if (saleId) {
-                await supabase
-                  .from("payments")
-                  .update({ sale_id: saleId })
-                  .eq("stripe_checkout_session_id", session.id);
-              }
-            } else if (aptRow?.status !== "completed") {
-              // Legacy fallback when no line items were stored in payment metadata.
-              const chargeAmount = session.metadata?.charge_amount
-                ? parseFloat(session.metadata.charge_amount)
-                : null;
-              const taxAmount = session.metadata?.tax_amount
-                ? parseFloat(session.metadata.tax_amount)
-                : null;
-
-              await supabase
-                .from("appointments")
-                .update({
-                  status: "completed",
-                  charge_amount: chargeAmount,
-                  tax_amount: taxAmount,
-                  tip_amount: tipAmount,
-                  payment_method: "Stripe",
-                })
-                .eq("id", appointmentId);
-            }
-          } else {
-            const { error: aptUpdateErr } = await supabase
-              .from("appointments")
-              .update({ status: "deposit_paid", deposit_status: "paid" })
-              .eq("id", appointmentId);
-
-            if (aptUpdateErr) {
-              console.error("appointment deposit_paid update failed:", aptUpdateErr);
-              throw new Error(
-                `appointment update failed: ${aptUpdateErr.message}`,
-              );
-            }
-
-            // Public bookings are held unconfirmed (pending_deposit) and only
-            // emailed once the deposit is paid. Staff-created appointments were
-            // already emailed at creation; the email function dedupes those.
-            await triggerConfirmationEmail(appointmentId);
+          // Online payments are deposits only; service checkout happens
+          // in-person via finalize_sale. A non-deposit session here means a
+          // stale/unknown creator — record the payment but leave the
+          // appointment untouched.
+          if (paymentType !== "deposit") {
+            console.error(
+              `Unexpected non-deposit checkout session ${session.id} (payment_type=${paymentType}); appointment not updated.`,
+            );
+            break;
           }
+
+          const { error: aptUpdateErr } = await supabase
+            .from("appointments")
+            .update({ status: "deposit_paid", deposit_status: "paid" })
+            .eq("id", appointmentId);
+
+          if (aptUpdateErr) {
+            console.error("appointment deposit_paid update failed:", aptUpdateErr);
+            throw new Error(
+              `appointment update failed: ${aptUpdateErr.message}`,
+            );
+          }
+
+          // Public bookings are held unconfirmed (pending_deposit) and only
+          // emailed once the deposit is paid. Staff-created appointments were
+          // already emailed at creation; the email function dedupes those.
+          await triggerConfirmationEmail(appointmentId);
         }
         break;
       }

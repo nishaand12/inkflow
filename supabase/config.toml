@@ -2,9 +2,6 @@
 # JWT verification. Turning it off lets the function run so our CORS + auth logic
 # applies. Each function still validates callers in its handler where required.
 
-[functions.create-checkout-payment]
-verify_jwt = false
-
 [functions.create-deposit-checkout]
 verify_jwt = false
 

@@ -30,3 +30,9 @@ drop function if exists public.void_appointment_sale(uuid);
 
 -- One-time helper for the 20260705130000 accounting backfill.
 drop function if exists public.normalize_tender(text);
+
+-- Service-role wrapper only called by the stripe-webhook's online service
+-- checkout branch, removed along with the create-checkout-payment edge
+-- function (online payments are deposits only; service checkout is in-person
+-- via finalize_sale).
+drop function if exists public.finalize_sale_system(uuid, jsonb, jsonb, jsonb);
