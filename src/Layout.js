@@ -232,7 +232,7 @@ export default function Layout({ children, currentPageName = null }) {
       },
       {
         title: "Daily Reconciliation",
-        url: createPageUrl("Settlements"),
+        url: createPageUrl("Reconciliation"),
         icon: Wallet,
         roles: ["Owner", "Admin"],
       },

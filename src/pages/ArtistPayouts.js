@@ -289,8 +289,8 @@ export default function ArtistPayouts() {
             </h1>
             <p className="text-gray-500 mt-1">
               {isAdmin
-                ? "Track what the studio owes artists from settlements and record manual payouts."
-                : "Your accrued earnings and payouts from daily settlements."}
+                ? "Track what the studio owes artists from daily reconciliations and record manual payouts."
+                : "Your accrued earnings and payouts from daily reconciliations."}
             </p>
           </div>
           {isAdmin && (
@@ -394,7 +394,7 @@ export default function ArtistPayouts() {
             {visibleLedgerEntries.length === 0 ? (
               <p className="text-gray-500">
                 {ledgerEntries.length === 0
-                  ? "No ledger entries yet. Generate a settlement to add earnings."
+                  ? "No ledger entries yet. Close a daily reconciliation to add earnings."
                   : "No ledger entries in the selected date range."}
               </p>
             ) : (
