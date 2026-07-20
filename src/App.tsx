@@ -26,8 +26,7 @@ import Products from "./pages/Products";
 import ReportingCategories from "./pages/ReportingCategories";
 import Reports from "./pages/Reports";
 import Sales from "./pages/Sales";
-import Settlements from "./pages/Settlements";
-import SettlementDetail from "./pages/SettlementDetail";
+import Reconciliation from "./pages/Reconciliation";
 import ReconciliationDetail from "./pages/ReconciliationDetail";
 import ArtistPayouts from "./pages/ArtistPayouts";
 import MyAvailability from "./pages/MyAvailability";
@@ -181,9 +180,9 @@ export default function App() {
             <Route path="/customers" element={<Customers />} />
             <Route path="/reports" element={<Reports />} />
             <Route path="/sales" element={<Sales />} />
-            <Route path="/settlements" element={<Settlements />} />
-            <Route path="/settlements/:settlementId" element={<SettlementDetail />} />
+            <Route path="/reconciliation" element={<Reconciliation />} />
             <Route path="/reconciliation/:reconciliationId" element={<ReconciliationDetail />} />
+            <Route path="/settlements" element={<Navigate to="/reconciliation" replace />} />
             <Route path="/artist-payouts" element={<ArtistPayouts />} />
             <Route path="/my-availability" element={<MyAvailability />} />
             <Route path="/onboarding-choice" element={<OnboardingChoice />} />

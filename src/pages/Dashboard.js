@@ -226,7 +226,7 @@ export default function Dashboard() {
                 ${(isArtist ? balanceOwed : weeklyShopRevenue).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
               <p className="text-xs text-gray-500 mt-1">
-                {isArtist ? 'From settlements, after payouts' : 'Reconciled shop revenue this week'}
+                {isArtist ? 'From daily reconciliations, after payouts' : 'Reconciled shop revenue this week'}
               </p>
             </CardContent>
           </Card>

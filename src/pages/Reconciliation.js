@@ -18,7 +18,7 @@ function money(n) {
   return `$${(Number(n) || 0).toFixed(2)}`;
 }
 
-export default function Settlements() {
+export default function Reconciliation() {
   const queryClient = useQueryClient();
   const [user, setUser] = useState(null);
   const [selectedDate, setSelectedDate] = useState(format(new Date(), "yyyy-MM-dd"));

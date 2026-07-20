@@ -592,7 +592,7 @@ export default function Reports() {
                   )}
                 </ul>
                 <p className="mt-2 pl-6 text-xs text-amber-900">
-                  <Link to="/settlements" className="font-medium underline underline-offset-2">
+                  <Link to="/reconciliation" className="font-medium underline underline-offset-2">
                     Close days in Daily Reconciliation
                   </Link>{" "}
                   to include them in these reports.

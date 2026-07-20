@@ -397,7 +397,7 @@ export default function ReconciliationDetail() {
       <div className="max-w-6xl mx-auto space-y-6">
         <div className="flex items-start gap-3">
           <Button variant="outline" size="icon" asChild className="shrink-0 mt-1">
-            <Link to="/settlements" aria-label="Back to reconciliation">
+            <Link to="/reconciliation" aria-label="Back to reconciliation">
               <ArrowLeft className="w-4 h-4" />
             </Link>
           </Button>

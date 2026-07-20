@@ -647,7 +647,7 @@ export default function StudioSettings() {
                         <div>
                           <p className="font-medium text-gray-900">Categories</p>
                           <p className="text-sm text-gray-600">
-                            Set reporting categories to ensure reports and settlements are structured the
+                            Set reporting categories to ensure reports and reconciliations are structured the
                             way you want, and create a booking hierarchy so that your appointment types are
                             clearly organized. Public booking and the appointment-type editor only use
                             services placed on leaf nodes you create.
@@ -763,7 +763,7 @@ export default function StudioSettings() {
                           <p className="font-medium text-gray-900">After day one</p>
                         </div>
                         <p className="text-sm text-gray-600">
-                          Use <strong className="font-medium text-gray-800">Reports</strong> for rollups, <strong className="font-medium text-gray-800">Products</strong> and appointment checkout for retail add-ons, and settlement views when you reconcile Stripe payouts and artist splits.
+                          Use <strong className="font-medium text-gray-800">Reports</strong> for rollups, <strong className="font-medium text-gray-800">Products</strong> and appointment checkout for retail add-ons, and Daily Reconciliation when you reconcile Stripe payouts and artist splits.
                         </p>
                       </div>
                     </div>

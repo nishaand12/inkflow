@@ -10,7 +10,7 @@ const PAGE_PATHS = {
   ReportingCategories: "/reporting-categories",
   Reports: "/reports",
   Sales: "/sales",
-  Settlements: "/settlements",
+  Reconciliation: "/reconciliation",
   ArtistPayouts: "/artist-payouts",
   WorkStations: "/workstations",
   MyAvailability: "/my-availability",

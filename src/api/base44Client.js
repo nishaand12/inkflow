@@ -13,8 +13,6 @@ const tableMap = {
   ArtistWeeklySchedule: "artist_weekly_schedules",
   Availability: "availabilities",
   Customer: "customers",
-  DailySettlement: "daily_settlements",
-  DailySettlementLine: "daily_settlement_lines",
   DailyReconciliation: "daily_reconciliations",
   ReconciliationTender: "reconciliation_tenders",
   Location: "locations",
@@ -27,7 +25,6 @@ const tableMap = {
   Studio: "studios",
   WorkStation: "workstations",
   User: "users",
-  AppointmentManageToken: "appointment_manage_tokens",
   Supply: "supplies",
   StudioNotificationProfile: "studio_notification_profiles",
   AppointmentKindNotificationAssignment: "appointment_kind_notification_assignments"
@@ -181,8 +178,6 @@ export const base44 = {
     ArtistWeeklySchedule: createEntityClient("ArtistWeeklySchedule"),
     Availability: createEntityClient("Availability"),
     Customer: createEntityClient("Customer"),
-    DailySettlement: createEntityClient("DailySettlement"),
-    DailySettlementLine: createEntityClient("DailySettlementLine"),
     DailyReconciliation: createEntityClient("DailyReconciliation"),
     ReconciliationTender: createEntityClient("ReconciliationTender"),
     Location: createEntityClient("Location"),
@@ -195,7 +190,6 @@ export const base44 = {
     Studio: createEntityClient("Studio"),
     WorkStation: createEntityClient("WorkStation"),
     User: createEntityClient("User"),
-    AppointmentManageToken: createEntityClient("AppointmentManageToken"),
     Supply: createEntityClient("Supply"),
     StudioNotificationProfile: createEntityClient("StudioNotificationProfile"),
     AppointmentKindNotificationAssignment: createEntityClient("AppointmentKindNotificationAssignment")

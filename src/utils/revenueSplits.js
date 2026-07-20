@@ -135,7 +135,7 @@ export function allocateServiceTax({ service, product }, taxAmount) {
 }
 
 /**
- * Artist/shop shares for settlement and reporting.
+ * Artist/shop shares for reconciliation and reporting.
  * Percent splits apply to service + service tax (artists remit HST on their share);
  * product revenue and product tax are 100% shop, tips are 100% artist.
  * Fixed-amount splits are unchanged: exact dollar payout, capped at pre-tax service.
