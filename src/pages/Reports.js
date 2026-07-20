@@ -5,6 +5,7 @@ import {
   computeUnreconciledDays,
   fetchArtistReport,
   fetchAvailabilitiesForReport,
+  fetchCategoryItemReport,
   fetchCategoryReport,
   fetchDailyTotalsReport,
   fetchLocationReport,
@@ -28,7 +29,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import { Download, DollarSign, Clock, AlertTriangle, BarChart3, Users, TrendingUp, Globe, ShoppingBag, ChevronLeft, ChevronRight, CreditCard } from "lucide-react";
+import { Download, DollarSign, Clock, AlertTriangle, BarChart3, Users, TrendingUp, Globe, ShoppingBag, ChevronLeft, ChevronRight, CreditCard, ArrowLeft } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { normalizeUserRole } from "@/utils/roles";
 import { DEFAULT_TENDER_GROUP_DEFS } from "@/utils/reportTenderGroups";
@@ -50,7 +51,11 @@ const REPORTS_URL_PARAMS = {
   location: "locationId",
   artist: "artistId",
   tab: "reportsTab",
+  category: "reportsCategoryKey",
+  categoryScope: "reportsCategoryScope",
 };
+
+const CATEGORY_DETAIL_PAGE_SIZE = 25;
 
 function money(n) {
   return `$${(Number(n) || 0).toFixed(2)}`;
@@ -127,19 +132,44 @@ export default function Reports() {
   const filterLocation = filters.locationId;
   const filterArtist = toReportsArtistId(filters.artistId);
   const activeTab = filters.reportsTab;
+  const categoryDetailKey = filters.reportsCategoryKey || "";
+  const categoryDetailScope = filters.reportsCategoryScope || "leaf";
+
+  const [user, setUser] = useState(null);
+  const [categoryRollupMode, setCategoryRollupMode] = useState("leaf");
+  const [categoryDetailPage, setCategoryDetailPage] = useState(0);
+  const [salesPage, setSalesPage] = useState(0);
+  const [selectedSaleRow, setSelectedSaleRow] = useState(null);
+  const [filterTender, setFilterTender] = useState("all");
+  const [paymentsPage, setPaymentsPage] = useState(0);
 
   const setStartDate = (value) => setFilters({ startDate: value });
   const setEndDate = (value) => setFilters({ endDate: value });
   const setFilterLocation = (value) => setFilters({ locationId: value });
   const setFilterArtist = (value) => setFilters({ artistId: value });
-  const setActiveTab = (value) => setFilters({ reportsTab: value });
+  const setActiveTab = (value) => {
+    if (value === "category") {
+      setFilters({
+        reportsTab: value,
+        reportsCategoryKey: "",
+        reportsCategoryScope: "leaf",
+      });
+      return;
+    }
+    setFilters({ reportsTab: value });
+  };
 
-  const [user, setUser] = useState(null);
-  const [categoryRollupMode, setCategoryRollupMode] = useState("leaf");
-  const [salesPage, setSalesPage] = useState(0);
-  const [selectedSaleRow, setSelectedSaleRow] = useState(null);
-  const [filterTender, setFilterTender] = useState("all");
-  const [paymentsPage, setPaymentsPage] = useState(0);
+  const openCategoryDetail = (row) => {
+    if (!row?.category_key) return;
+    const includeTree =
+      categoryRollupMode === "root" && String(row.category_key).startsWith("id:");
+    setCategoryDetailPage(0);
+    setFilters({
+      reportsTab: "category-detail",
+      reportsCategoryKey: row.category_key,
+      reportsCategoryScope: includeTree ? "tree" : "leaf",
+    });
+  };
 
   useEffect(() => {
     (async () => {
@@ -177,6 +207,10 @@ export default function Reports() {
   useEffect(() => {
     setSalesPage(0);
   }, [startDate, endDate, filterLocation, filterArtist]);
+
+  useEffect(() => {
+    setCategoryDetailPage(0);
+  }, [startDate, endDate, filterLocation, categoryDetailKey, categoryDetailScope]);
 
   useEffect(() => {
     setPaymentsPage(0);
@@ -237,10 +271,37 @@ export default function Reports() {
     enabled: !!studioId && dateRangeValid && activeTab === "category",
   });
 
+  const { data: categoryItemReport, isLoading: loadingCategoryDetail } = useQuery({
+    queryKey: [
+      "categoryItemReport",
+      startDate,
+      endDate,
+      filterLocation,
+      categoryDetailKey,
+      categoryDetailScope,
+      categoryDetailPage,
+    ],
+    queryFn: () =>
+      fetchCategoryItemReport({
+        startDate,
+        endDate,
+        locationId: filterLocation,
+        categoryKey: categoryDetailKey,
+        includeDescendants: categoryDetailScope === "tree",
+        limit: CATEGORY_DETAIL_PAGE_SIZE,
+        offset: categoryDetailPage * CATEGORY_DETAIL_PAGE_SIZE,
+      }),
+    enabled:
+      !!studioId &&
+      dateRangeValid &&
+      activeTab === "category-detail" &&
+      !!categoryDetailKey,
+  });
+
   const { data: reportingCategoriesList = [] } = useQuery({
     queryKey: ["reportingCategories", studioId],
     queryFn: () => base44.entities.ReportingCategory.filter({ studio_id: studioId }),
-    enabled: !!studioId && activeTab === "category",
+    enabled: !!studioId && (activeTab === "category" || activeTab === "category-detail"),
   });
 
   // Rows follow the display order configured on the Categories page; rows for
@@ -382,6 +443,19 @@ export default function Reports() {
   const salesRows = salesReport?.rows ?? [];
   const salesTotalCount = salesReport?.total_count ?? 0;
   const salesTotalPages = Math.max(1, Math.ceil(salesTotalCount / SALES_PAGE_SIZE));
+
+  const categoryItemRows = categoryItemReport?.rows ?? [];
+  const categoryItemTotalCount = categoryItemReport?.total_count ?? 0;
+  const categoryItemTotalPages = Math.max(
+    1,
+    Math.ceil(categoryItemTotalCount / CATEGORY_DETAIL_PAGE_SIZE)
+  );
+  const categoryItemSummary = categoryItemReport?.summary ?? {
+    item_count: 0,
+    gross_total: 0,
+    shop_split: 0,
+  };
+  const categoryDetailName = categoryItemReport?.category_name || "Category";
 
   const paymentRows = paymentsReport?.rows ?? [];
   const paymentsByTender = paymentsReport?.by_tender ?? [];
@@ -555,10 +629,16 @@ export default function Reports() {
           </Card>
         </div>
 
-        <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
+        <Tabs
+          value={activeTab === "category-detail" ? "category" : activeTab}
+          onValueChange={setActiveTab}
+          className="space-y-6"
+        >
           <TabsList className="bg-white border border-gray-200 flex flex-wrap h-auto gap-1 p-1">
             <TabsTrigger value="daily">Daily Totals</TabsTrigger>
-            <TabsTrigger value="category">By Category</TabsTrigger>
+            <TabsTrigger value="category" onClick={() => setActiveTab("category")}>
+              By Category
+            </TabsTrigger>
             <TabsTrigger value="artist">By Artist</TabsTrigger>
             {showMultiLocationTab && <TabsTrigger value="location">By Location</TabsTrigger>}
             <TabsTrigger value="support_staff_hours">Counter / Scrub Hours</TabsTrigger>
@@ -717,100 +797,271 @@ export default function Reports() {
           </TabsContent>
 
           <TabsContent value="category">
-            <Card className="bg-white border-none shadow-lg">
-              <CardHeader>
-                <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                  <div>
-                    <CardTitle>Revenue by Category</CardTitle>
-                    <p className="text-sm text-gray-500 font-normal mt-1">
-                      Sum of closed reconciliation snapshots. All amounts include tax; Shop split
-                      is the shop&apos;s share after artist splits. Rows follow the display order
-                      set on the Categories page.
-                    </p>
-                  </div>
-                  <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-                    <div className="flex items-center gap-2">
-                      <Label className="text-sm whitespace-nowrap">Roll up by</Label>
-                      <Select value={categoryRollupMode} onValueChange={setCategoryRollupMode}>
-                        <SelectTrigger className="w-[200px]"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="leaf">Leaf (detail)</SelectItem>
-                          <SelectItem value="root">Top-level parent</SelectItem>
-                        </SelectContent>
-                      </Select>
+            {activeTab === "category-detail" ? (
+              <Card className="bg-white border-none shadow-lg">
+                <CardHeader>
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="space-y-2">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="px-0 text-indigo-700 hover:text-indigo-900"
+                        onClick={() => setActiveTab("category")}
+                      >
+                        <ArrowLeft className="w-4 h-4 mr-1" />
+                        Back to By Category
+                      </Button>
+                      <CardTitle>{categoryDetailName}</CardTitle>
+                      <p className="text-sm text-gray-500 font-normal">
+                        Products and appointment types sold in this category on closed
+                        reconciliation days. Amounts include tax. Sorted alphabetically.
+                        {categoryDetailScope === "tree"
+                          ? " Includes all descendant categories."
+                          : ""}
+                      </p>
                     </div>
                     <Button
                       variant="outline"
-                      onClick={() =>
+                      className="shrink-0"
+                      onClick={async () => {
+                        const exportData = await fetchCategoryItemReport({
+                          startDate,
+                          endDate,
+                          locationId: filterLocation,
+                          categoryKey: categoryDetailKey,
+                          includeDescendants: categoryDetailScope === "tree",
+                          limit: 500,
+                          offset: 0,
+                        });
                         exportToCSV(
-                          categoryRows.map((r) => ({
-                            category: r.category_name,
-                            items: r.item_count,
-                            gross_incl_tax: r.gross_total,
-                            shop_split: r.shop_split,
+                          (exportData.rows ?? []).map((row) => ({
+                            item: row.item_name,
+                            barcode: row.item_barcode || "",
+                            count: row.item_count,
+                            gross_incl_tax: row.gross_total,
+                            shop_split: row.shop_split,
                           })),
-                          "revenue_by_category"
-                        )
-                      }
-                      disabled={categoryRows.length === 0}
+                          "category_detail"
+                        );
+                      }}
+                      disabled={categoryItemTotalCount === 0}
                     >
                       <Download className="w-4 h-4 mr-2" /> Export CSV
                     </Button>
                   </div>
-                </div>
-              </CardHeader>
-              <CardContent>
-                {loadingCategory ? (
-                  <p className="text-center py-12 text-gray-500">Loading…</p>
-                ) : categoryRows.length === 0 ? (
-                  <div className="text-center py-12">
-                    <BarChart3 className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                    <p className="text-gray-500">No category totals for closed days in this range.</p>
+                </CardHeader>
+                <CardContent>
+                  {!categoryDetailKey ? (
+                    <p className="text-center py-12 text-gray-500">
+                      Select a category from By Category to view detail.
+                    </p>
+                  ) : loadingCategoryDetail ? (
+                    <p className="text-center py-12 text-gray-500">Loading…</p>
+                  ) : categoryItemRows.length === 0 ? (
+                    <div className="text-center py-12">
+                      <BarChart3 className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                      <p className="text-gray-500">
+                        No items sold in this category for closed days in this range.
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="overflow-x-auto">
+                        <table className="w-full">
+                          <thead className="bg-gray-50">
+                            <tr>
+                              <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Item</th>
+                              <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Barcode</th>
+                              <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Count</th>
+                              <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Gross (incl. tax)</th>
+                              <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Shop split</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-200">
+                            {categoryItemRows.map((row) => (
+                              <tr key={row.item_key} className="hover:bg-gray-50">
+                                <td className="px-4 py-3 text-sm text-gray-900 font-medium">
+                                  {row.item_name}
+                                </td>
+                                <td className="px-4 py-3 text-sm text-gray-600 tabular-nums">
+                                  {row.item_barcode || "—"}
+                                </td>
+                                <td className="px-4 py-3 text-sm text-gray-600 text-right tabular-nums">
+                                  {row.item_count}
+                                </td>
+                                <td className="px-4 py-3 text-sm text-gray-900 text-right font-bold tabular-nums">
+                                  {money(row.gross_total)}
+                                </td>
+                                <td className="px-4 py-3 text-sm text-indigo-800 text-right font-semibold tabular-nums">
+                                  {money(row.shop_split)}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                          <tfoot className="bg-gray-50 border-t-2 border-gray-200">
+                            <tr>
+                              <td className="px-4 py-3 text-sm font-semibold text-gray-900" colSpan={2}>
+                                Total
+                              </td>
+                              <td className="px-4 py-3 text-sm font-semibold text-gray-900 text-right tabular-nums">
+                                {categoryItemSummary.item_count}
+                              </td>
+                              <td className="px-4 py-3 text-sm font-semibold text-gray-900 text-right tabular-nums">
+                                {money(categoryItemSummary.gross_total)}
+                              </td>
+                              <td className="px-4 py-3 text-sm font-semibold text-indigo-800 text-right tabular-nums">
+                                {money(categoryItemSummary.shop_split)}
+                              </td>
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
+                      {categoryItemTotalCount > CATEGORY_DETAIL_PAGE_SIZE && (
+                        <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-100">
+                          <p className="text-sm text-gray-500">
+                            Showing {categoryDetailPage * CATEGORY_DETAIL_PAGE_SIZE + 1}–
+                            {Math.min(
+                              (categoryDetailPage + 1) * CATEGORY_DETAIL_PAGE_SIZE,
+                              categoryItemTotalCount
+                            )}{" "}
+                            of {categoryItemTotalCount}
+                          </p>
+                          <div className="flex gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={categoryDetailPage === 0}
+                              onClick={() => setCategoryDetailPage((p) => p - 1)}
+                            >
+                              <ChevronLeft className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={categoryDetailPage >= categoryItemTotalPages - 1}
+                              onClick={() => setCategoryDetailPage((p) => p + 1)}
+                            >
+                              <ChevronRight className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+            ) : (
+              <Card className="bg-white border-none shadow-lg">
+                <CardHeader>
+                  <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                    <div>
+                      <CardTitle>Revenue by Category</CardTitle>
+                      <p className="text-sm text-gray-500 font-normal mt-1">
+                        Sum of closed reconciliation snapshots. All amounts include tax; Shop split
+                        is the shop&apos;s share after artist splits. Rows follow the display order
+                        set on the Categories page. Click a category to see products and services.
+                      </p>
+                    </div>
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                      <div className="flex items-center gap-2">
+                        <Label className="text-sm whitespace-nowrap">Roll up by</Label>
+                        <Select value={categoryRollupMode} onValueChange={setCategoryRollupMode}>
+                          <SelectTrigger className="w-[200px]"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="leaf">Leaf (detail)</SelectItem>
+                            <SelectItem value="root">Top-level parent</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <Button
+                        variant="outline"
+                        onClick={() =>
+                          exportToCSV(
+                            categoryRows.map((r) => ({
+                              category: r.category_name,
+                              items: r.item_count,
+                              gross_incl_tax: r.gross_total,
+                              shop_split: r.shop_split,
+                            })),
+                            "revenue_by_category"
+                          )
+                        }
+                        disabled={categoryRows.length === 0}
+                      >
+                        <Download className="w-4 h-4 mr-2" /> Export CSV
+                      </Button>
+                    </div>
                   </div>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
-                      <thead className="bg-gray-50">
-                        <tr>
-                          <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Category</th>
-                          <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Items Sold</th>
-                          <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Gross (incl. tax)</th>
-                          <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Shop split</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-200">
-                        {categoryRows.map((row) => (
-                          <tr key={row.category_key} className="hover:bg-gray-50">
-                            <td className="px-4 py-3 text-sm text-gray-900 font-medium">{row.category_name}</td>
-                            <td className="px-4 py-3 text-sm text-gray-600 text-right tabular-nums">{row.item_count}</td>
-                            <td className="px-4 py-3 text-sm text-gray-900 text-right font-bold tabular-nums">
-                              {money(row.gross_total)}
+                </CardHeader>
+                <CardContent>
+                  {loadingCategory ? (
+                    <p className="text-center py-12 text-gray-500">Loading…</p>
+                  ) : categoryRows.length === 0 ? (
+                    <div className="text-center py-12">
+                      <BarChart3 className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                      <p className="text-gray-500">No category totals for closed days in this range.</p>
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full">
+                        <thead className="bg-gray-50">
+                          <tr>
+                            <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Category</th>
+                            <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Items Sold</th>
+                            <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Gross (incl. tax)</th>
+                            <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Shop split</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-200">
+                          {categoryRows.map((row) => (
+                            <tr
+                              key={row.category_key}
+                              className="hover:bg-indigo-50 cursor-pointer"
+                              onClick={() => openCategoryDetail(row)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter" || e.key === " ") {
+                                  e.preventDefault();
+                                  openCategoryDetail(row);
+                                }
+                              }}
+                              tabIndex={0}
+                              role="button"
+                              aria-label={`View detail for ${row.category_name}`}
+                            >
+                              <td className="px-4 py-3 text-sm text-indigo-700 font-medium underline-offset-2 hover:underline">
+                                {row.category_name}
+                              </td>
+                              <td className="px-4 py-3 text-sm text-gray-600 text-right tabular-nums">{row.item_count}</td>
+                              <td className="px-4 py-3 text-sm text-gray-900 text-right font-bold tabular-nums">
+                                {money(row.gross_total)}
+                              </td>
+                              <td className="px-4 py-3 text-sm text-indigo-800 text-right font-semibold tabular-nums">
+                                {money(row.shop_split)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot className="bg-gray-50 border-t-2 border-gray-200">
+                          <tr>
+                            <td className="px-4 py-3 text-sm font-semibold text-gray-900">Total</td>
+                            <td className="px-4 py-3 text-sm font-semibold text-gray-900 text-right tabular-nums">
+                              {categoryRows.reduce((s, r) => s + (Number(r.item_count) || 0), 0)}
                             </td>
-                            <td className="px-4 py-3 text-sm text-indigo-800 text-right font-semibold tabular-nums">
-                              {money(row.shop_split)}
+                            <td className="px-4 py-3 text-sm font-semibold text-gray-900 text-right tabular-nums">
+                              {money(categoryRows.reduce((s, r) => s + (Number(r.gross_total) || 0), 0))}
+                            </td>
+                            <td className="px-4 py-3 text-sm font-semibold text-indigo-800 text-right tabular-nums">
+                              {money(categoryRows.reduce((s, r) => s + (Number(r.shop_split) || 0), 0))}
                             </td>
                           </tr>
-                        ))}
-                      </tbody>
-                      <tfoot className="bg-gray-50 border-t-2 border-gray-200">
-                        <tr>
-                          <td className="px-4 py-3 text-sm font-semibold text-gray-900">Total</td>
-                          <td className="px-4 py-3 text-sm font-semibold text-gray-900 text-right tabular-nums">
-                            {categoryRows.reduce((s, r) => s + (Number(r.item_count) || 0), 0)}
-                          </td>
-                          <td className="px-4 py-3 text-sm font-semibold text-gray-900 text-right tabular-nums">
-                            {money(categoryRows.reduce((s, r) => s + (Number(r.gross_total) || 0), 0))}
-                          </td>
-                          <td className="px-4 py-3 text-sm font-semibold text-indigo-800 text-right tabular-nums">
-                            {money(categoryRows.reduce((s, r) => s + (Number(r.shop_split) || 0), 0))}
-                          </td>
-                        </tr>
-                      </tfoot>
-                    </table>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+                        </tfoot>
+                      </table>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
           </TabsContent>
 
           <TabsContent value="artist">

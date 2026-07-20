@@ -138,6 +138,39 @@ export async function fetchCategoryReport({ startDate, endDate, locationId, roll
   return data?.rows ?? [];
 }
 
+/** Category detail — products / appointment types within one category */
+export async function fetchCategoryItemReport({
+  startDate,
+  endDate,
+  locationId,
+  categoryKey,
+  includeDescendants = false,
+  limit = 50,
+  offset = 0,
+}) {
+  const { data, error } = await supabase.rpc("get_reconciliation_category_item_totals", {
+    p_start_date: startDate,
+    p_end_date: endDate,
+    p_location_id: normalizeLocationId(locationId),
+    p_category_key: categoryKey,
+    p_include_descendants: includeDescendants,
+    p_limit: limit,
+    p_offset: offset,
+  });
+  if (error) throw error;
+  return (
+    data ?? {
+      rows: [],
+      total_count: 0,
+      limit,
+      offset,
+      category_key: categoryKey,
+      category_name: "Category",
+      summary: { item_count: 0, gross_total: 0, shop_split: 0 },
+    }
+  );
+}
+
 /** Phase 4 — get_reconciliation_artist_totals RPC */
 export async function fetchArtistReport({ startDate, endDate, locationId, artistId }) {
   const { data, error } = await supabase.rpc("get_reconciliation_artist_totals", {

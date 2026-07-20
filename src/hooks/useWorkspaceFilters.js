@@ -34,13 +34,17 @@ export const WORKSPACE_FILTER_DEFAULTS = {
   specificTypeId: "all",
   calendarView: "day",
   reportsTab: "daily",
+  reportsCategoryKey: "",
+  reportsCategoryScope: "leaf",
 };
 
 const DATE_KEYS = new Set(["startDate", "endDate", "calendarDate"]);
 const ALLOWED_VIEWS = new Set(["day", "3day", "4day", "week", "month"]);
+const ALLOWED_CATEGORY_SCOPES = new Set(["leaf", "tree"]);
 const ALLOWED_TABS = new Set([
   "daily",
   "category",
+  "category-detail",
   "artist",
   "location",
   "support_staff_hours",
@@ -96,6 +100,12 @@ function sanitizeFilters(input = {}) {
 
   if (ALLOWED_VIEWS.has(input.calendarView)) next.calendarView = input.calendarView;
   if (ALLOWED_TABS.has(input.reportsTab)) next.reportsTab = input.reportsTab;
+  if (typeof input.reportsCategoryKey === "string") {
+    next.reportsCategoryKey = input.reportsCategoryKey;
+  }
+  if (ALLOWED_CATEGORY_SCOPES.has(input.reportsCategoryScope)) {
+    next.reportsCategoryScope = input.reportsCategoryScope;
+  }
 
   return next;
 }
@@ -192,7 +202,8 @@ export function useWorkspaceUrlSync(mapping) {
         value === "" ||
         (value === "all" && !DATE_KEYS.has(key)) ||
         (key === "calendarView" && value === WORKSPACE_FILTER_DEFAULTS.calendarView) ||
-        (key === "reportsTab" && value === WORKSPACE_FILTER_DEFAULTS.reportsTab);
+        (key === "reportsTab" && value === WORKSPACE_FILTER_DEFAULTS.reportsTab) ||
+        (key === "reportsCategoryScope" && value === WORKSPACE_FILTER_DEFAULTS.reportsCategoryScope);
 
       if (omit) {
         if (next.has(param)) {
