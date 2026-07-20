@@ -629,6 +629,17 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     }));
   };
 
+  const handleClearCustomer = () => {
+    setSelectedCustomer(null);
+    setFormData((prev) => ({
+      ...prev,
+      customer_id: '',
+      client_name: '',
+      client_email: '',
+      client_phone: '',
+    }));
+  };
+
   const handleArtistChange = (value) => {
     setFormData((prev) => {
       const next = {
@@ -1300,11 +1311,6 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
       return;
     }
 
-    if (!appointment && !formData.customer_id) {
-      setSaveError('Please select a customer before creating an appointment.');
-      return;
-    }
-
     if (!appointment && !formData.appointment_type_id && appointmentTypes.some((t) => t.is_active)) {
       setSaveError('Please select an appointment type.');
       return;
@@ -1731,13 +1737,16 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
             )}
 
             <div className="space-y-2">
-              <Label>Customer *</Label>
+              <Label>Customer (optional)</Label>
               <CustomerSearch
                 customers={customers}
                 onSelect={handleCustomerSelect}
                 onNewCustomer={() => setShowCustomerDialog(true)}
                 onAdvancedSearch={() => setShowAdvancedSearch(true)}
                 selectedCustomer={selectedCustomer}
+                emptyLabel="No customer yet"
+                allowClear
+                onClear={handleClearCustomer}
               />
               {!selectedCustomer && formData.client_name && (
                 <p className="text-xs text-amber-600">
