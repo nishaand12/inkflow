@@ -215,18 +215,30 @@ export default function Dashboard() {
           <Card className="bg-white border-none shadow-lg hover:shadow-xl transition-all duration-300">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium text-gray-600">
-                {isArtist ? 'Balance Owed' : 'Revenue'}
+                {isArtist
+                  ? balanceOwed < 0
+                    ? 'Balance Due'
+                    : 'Balance Owed'
+                  : 'Revenue'}
               </CardTitle>
               <div className="w-10 h-10 rounded-xl bg-purple-50 flex items-center justify-center">
                 <TrendingUp className="w-5 h-5 text-purple-600" />
               </div>
             </CardHeader>
             <CardContent>
-              <div className="text-3xl font-bold text-gray-900">
+              <div
+                className={`text-3xl font-bold ${
+                  isArtist && balanceOwed < 0 ? 'text-amber-900' : 'text-gray-900'
+                }`}
+              >
                 ${(isArtist ? balanceOwed : weeklyShopRevenue).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
               <p className="text-xs text-gray-500 mt-1">
-                {isArtist ? 'From daily reconciliations, after payouts' : 'Reconciled shop revenue this week'}
+                {isArtist
+                  ? balanceOwed < 0
+                    ? 'You owe the studio after payouts and paybacks'
+                    : 'From daily reconciliations, after payouts and paybacks'
+                  : 'Reconciled shop revenue this week'}
               </p>
             </CardContent>
           </Card>
