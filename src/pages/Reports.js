@@ -44,6 +44,7 @@ import {
   useWorkspaceFilters,
   useWorkspaceUrlSync,
 } from "@/hooks/useWorkspaceFilters";
+import { nextDateRange } from "@/lib/dateRange";
 
 const REPORTS_URL_PARAMS = {
   start: "startDate",
@@ -143,8 +144,8 @@ export default function Reports() {
   const [filterTender, setFilterTender] = useState("all");
   const [paymentsPage, setPaymentsPage] = useState(0);
 
-  const setStartDate = (value) => setFilters({ startDate: value });
-  const setEndDate = (value) => setFilters({ endDate: value });
+  const setStartDate = (value) => setFilters(nextDateRange("start", value, startDate, endDate));
+  const setEndDate = (value) => setFilters(nextDateRange("end", value, startDate, endDate));
   const setFilterLocation = (value) => setFilters({ locationId: value });
   const setFilterArtist = (value) => setFilters({ artistId: value });
   const setActiveTab = (value) => {
@@ -526,11 +527,23 @@ export default function Reports() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="space-y-2">
                 <Label>Start Date</Label>
-                <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} required />
+                <Input
+                  type="date"
+                  value={startDate}
+                  max={endDate}
+                  onChange={(e) => setStartDate(e.target.value)}
+                  required
+                />
               </div>
               <div className="space-y-2">
                 <Label>End Date</Label>
-                <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} required />
+                <Input
+                  type="date"
+                  value={endDate}
+                  min={startDate}
+                  onChange={(e) => setEndDate(e.target.value)}
+                  required
+                />
               </div>
               <div className="space-y-2">
                 <Label>Location</Label>

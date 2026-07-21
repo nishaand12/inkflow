@@ -10,6 +10,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import TimePicker12h from "@/components/calendar/TimePicker12h";
 import { DEFAULT_BOOKING_START_TIME, DEFAULT_AVAILABILITY_END_TIME } from "@/utils/index";
+import { nextDateRange } from "@/lib/dateRange";
 import { format } from "date-fns";
 import { Save, Trash2 } from "lucide-react";
 
@@ -218,7 +219,20 @@ export default function AvailabilityDialog({ open, onOpenChange, date, availabil
                 id="start_date"
                 type="date"
                 value={formData.start_date}
-                onChange={(e) => setFormData({ ...formData, start_date: e.target.value })}
+                max={formData.end_date}
+                onChange={(e) => {
+                  const next = nextDateRange(
+                    "start",
+                    e.target.value,
+                    formData.start_date,
+                    formData.end_date
+                  );
+                  setFormData({
+                    ...formData,
+                    start_date: next.startDate,
+                    end_date: next.endDate,
+                  });
+                }}
                 required
               />
             </div>
@@ -229,8 +243,20 @@ export default function AvailabilityDialog({ open, onOpenChange, date, availabil
                 id="end_date"
                 type="date"
                 value={formData.end_date}
-                onChange={(e) => setFormData({ ...formData, end_date: e.target.value })}
                 min={formData.start_date}
+                onChange={(e) => {
+                  const next = nextDateRange(
+                    "end",
+                    e.target.value,
+                    formData.start_date,
+                    formData.end_date
+                  );
+                  setFormData({
+                    ...formData,
+                    start_date: next.startDate,
+                    end_date: next.endDate,
+                  });
+                }}
                 required
               />
             </div>
