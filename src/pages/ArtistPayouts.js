@@ -40,6 +40,7 @@ import {
   useWorkspaceFilters,
   useWorkspaceUrlSync,
 } from "@/hooks/useWorkspaceFilters";
+import { nextDateRange } from "@/lib/dateRange";
 import {
   computeBalances,
   entryLabel,
@@ -100,8 +101,8 @@ export default function ArtistPayouts() {
   const endDate = filters.endDate;
   const filterArtist = toReportsArtistId(filters.artistId);
 
-  const setStartDate = (value) => setFilters({ startDate: value });
-  const setEndDate = (value) => setFilters({ endDate: value });
+  const setStartDate = (value) => setFilters(nextDateRange("start", value, startDate, endDate));
+  const setEndDate = (value) => setFilters(nextDateRange("end", value, startDate, endDate));
   const setFilterArtist = (value) => setFilters({ artistId: value });
 
   const [user, setUser] = useState(null);
