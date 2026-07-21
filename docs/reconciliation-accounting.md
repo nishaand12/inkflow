@@ -37,7 +37,10 @@ date either breaks the POS match or counts the sale in both days its payments to
 - `close_daily_reconciliation` and any backfill both go through
   `post_reconciliation_ledger` + `snapshot_reconciliation_report`, so the ledger
   and the report snapshot can't diverge.
-- Manual payouts live in `artist_ledger_entries` with `reconciliation_id IS NULL`;
-  never delete those when re-posting a reconciliation.
+- Manual payouts and paybacks live in `artist_ledger_entries` with
+  `reconciliation_id IS NULL`; never delete those when re-posting a reconciliation.
+  Payouts (`entry_type = 'payout'`, negative amount) are shop → artist.
+  Paybacks (`entry_type = 'payback'`, positive amount) are artist → shop.
+  Both are headed by `artist_payouts` (`direction` `to_artist` / `to_shop`).
 
 Reference migration: `supabase/migrations/20260705230000_accrual_by_sale_date.sql`.
