@@ -286,12 +286,13 @@ flowchart TD
    - Select a **Piercer** (or "Any Available Piercer") — filtered to artists with `artist_type = piercer` or `both`.
    - Click **Continue**.
 4. **Step 3 — Select Date & Time:**
-   - Pick a **Date** (tomorrow or later).
+   - Pick a **Date** (today or later).
    - The system computes available time slots by:
      - Loading the artist's weekly schedules + one-off availabilities
      - Removing blocked periods
      - Removing times already booked by existing appointments
      - Removing times where all workstations at the location are occupied
+     - Removing past times when the selected date is today
    - Client selects an available slot.
    - Click **Continue**.
 5. **Step 4 — Your Details:**

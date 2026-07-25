@@ -18,7 +18,7 @@ import {
 } from "@/utils/artistServiceEligibility";
 import { computeArtistSlots, computeAnyArtistSlots } from "@/utils/bookingSlots";
 import ServiceBrowser from "@/components/public-booking/ServiceBrowser";
-import { format, addDays } from "date-fns";
+import { format } from "date-fns";
 
 const ANY_ARTIST = "__any__";
 
@@ -284,7 +284,7 @@ export default function ManageAppointment() {
     return <Badge className={styles[status] || "bg-gray-100 text-gray-800"}>{getAppointmentStatusLabel(status) || status}</Badge>;
   };
 
-  const minDate = format(addDays(new Date(), 1), "yyyy-MM-dd");
+  const minDate = format(new Date(), "yyyy-MM-dd");
 
   if (loading) {
     return (

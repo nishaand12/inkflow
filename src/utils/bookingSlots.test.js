@@ -17,6 +17,8 @@ const baseParams = {
   weeklySchedules: [],
   appointments: [],
   workStations: [],
+  // Pin the clock so past-slot filtering does not depend on the real "today".
+  now: new Date(2026, 6, 15, 8, 0, 0),
 };
 
 describe("BOOKING_SLOT_MINUTES", () => {
@@ -148,6 +150,66 @@ describe("computeArtistSlots", () => {
       "14:05",
       "14:10",
       "14:15",
+    ]);
+  });
+
+  it("filters out past slots when booking today", () => {
+    const slots = computeArtistSlots({
+      ...baseParams,
+      weeklySchedules: [
+        {
+          artist_id: artistId,
+          day_of_week: 3,
+          start_time: "12:00",
+          end_time: "12:30",
+          location_id: locationId,
+        },
+      ],
+      // Midway through the window on the same local calendar day
+      now: new Date(2026, 6, 15, 12, 12, 0),
+    });
+
+    expect(slots.map((s) => s.time)).toEqual([
+      "12:15",
+    ]);
+  });
+
+  it("returns no slots for dates before today", () => {
+    const slots = computeArtistSlots({
+      ...baseParams,
+      weeklySchedules: [
+        {
+          artist_id: artistId,
+          day_of_week: 3,
+          start_time: "12:00",
+          end_time: "12:30",
+          location_id: locationId,
+        },
+      ],
+      now: new Date(2026, 6, 16, 9, 0, 0),
+    });
+
+    expect(slots).toEqual([]);
+  });
+
+  it("keeps future-day slots even when the clock is later in the day", () => {
+    const slots = computeArtistSlots({
+      ...baseParams,
+      weeklySchedules: [
+        {
+          artist_id: artistId,
+          day_of_week: 3,
+          start_time: "09:00",
+          end_time: "09:20",
+          location_id: locationId,
+        },
+      ],
+      now: new Date(2026, 6, 14, 18, 0, 0),
+    });
+
+    expect(slots.map((s) => s.time)).toEqual([
+      "09:00",
+      "09:05",
     ]);
   });
 });
