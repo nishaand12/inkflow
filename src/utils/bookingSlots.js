@@ -20,6 +20,12 @@ export const minutesToTime = (m) => {
   return `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
 };
 
+const pad2 = (n) => String(n).padStart(2, "0");
+
+/** Local calendar date as yyyy-MM-dd (browser/studio local time). */
+export const formatLocalDate = (d) =>
+  `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+
 /**
  * Compute bookable slots for a single artist on a given date/location.
  *
@@ -36,6 +42,7 @@ export const minutesToTime = (m) => {
  *        conflict checks (used when rescheduling an existing appointment).
  * @param {string|null} [params.preferredWorkStationId] - artist's preferred work
  *        station; selected for each slot when it is free at the location.
+ * @param {Date} [params.now] - clock used to hide past same-day slots (defaults to now).
  * @returns {Array<{ time: string, stationId: string|null, artistId: string }>}
  */
 export function computeArtistSlots({
@@ -49,8 +56,15 @@ export function computeArtistSlots({
   workStations = [],
   excludeAppointmentId = null,
   preferredWorkStationId = null,
+  now = new Date(),
 }) {
   if (!artistId || !locationId || !date || !durationMinutes) return [];
+
+  const todayStr = formatLocalDate(now);
+  // Entire past days are never bookable (same-day later times still can be).
+  if (date < todayStr) return [];
+  const nowMinutes = now.getHours() * 60 + now.getMinutes();
+  const isToday = date === todayStr;
 
   // All-day blocked entries block the entire day — no slots available
   const hasAllDayBlock = availabilities.some(
@@ -119,6 +133,9 @@ export function computeArtistSlots({
 
     for (let slotStart = availStart; slotStart + durationMinutes <= availEnd; slotStart += BOOKING_SLOT_MINUTES) {
       const slotEnd = slotStart + durationMinutes;
+
+      // Same-day booking: hide slots that have already started (or are starting now).
+      if (isToday && slotStart <= nowMinutes) continue;
 
       const isBlocked = blockedSlots.some((b) => {
         const bs = timeToMinutes(b.start_time);

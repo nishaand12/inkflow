@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Calendar, CreditCard, CheckCircle, Loader2, AlertCircle } from "lucide-react";
 import { addMinutesToTime, formatDuration, formatTime12h } from "@/utils/index";
-import { format, addDays } from "date-fns";
+import { format } from "date-fns";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { isPublicPiercingBookableArtistType } from "@/utils/artistTypes";
 import {
@@ -277,7 +277,7 @@ export default function PublicBooking() {
     );
   }
 
-  const minDate = format(addDays(new Date(), 1), 'yyyy-MM-dd');
+  const minDate = format(new Date(), 'yyyy-MM-dd');
 
   return (
     <div
