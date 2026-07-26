@@ -44,6 +44,7 @@ import CustomerSearch from "../components/customers/CustomerSearch";
 import CustomerDialog from "../components/customers/CustomerDialog";
 import AdvancedSearchDialog from "../components/customers/AdvancedSearchDialog";
 import { normalizeUserRole } from "@/utils/roles";
+import { resolvePreferredDefaultLocationId } from "@/utils/defaultLocation";
 
 function getProductTaxRate(product) {
   const r = product?.tax_rate;
@@ -181,7 +182,9 @@ export default function Sales() {
   );
 
   useEffect(() => {
-    if (locations.length && !locationId) setLocationId(locations[0].id);
+    if (locations.length && !locationId) {
+      setLocationId(resolvePreferredDefaultLocationId(locations) || locations[0].id);
+    }
   }, [locations, locationId]);
 
   const reportingLeaves = useMemo(
