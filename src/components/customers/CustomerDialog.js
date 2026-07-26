@@ -22,6 +22,7 @@ import { Badge } from "@/components/ui/badge";
 import { parseISO, startOfDay, isBefore, isSameDay } from "date-fns";
 import { formatTimeRange12h } from "@/utils/index";
 import { getAppointmentStatusLabel } from "@/utils/appointmentStatus";
+import { resolvePreferredDefaultLocationId } from "@/utils/defaultLocation";
 
 const appointmentStatusStyles = {
   scheduled: "bg-blue-100 text-blue-800 border-blue-200",
@@ -110,14 +111,27 @@ export default function CustomerDialog({ open, onOpenChange, customer, locations
         phone_number: '',
         email: '',
         instagram_username: '',
-        preferred_location_id: '',
+        preferred_location_id: resolvePreferredDefaultLocationId(locations) || '',
         send_calendar_invites: true,
         consent_obtained: false,
         is_active: true
       });
     }
     setDuplicates([]);
+    // locations intentionally omitted: a separate effect fills the default when they load
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [customer, open]);
+
+  // Fill preferred location once locations load for a new-customer form.
+  useEffect(() => {
+    if (!open || customer) return;
+    setFormData((prev) => {
+      if (prev.preferred_location_id) return prev;
+      const defaultId = resolvePreferredDefaultLocationId(locations);
+      if (!defaultId) return prev;
+      return { ...prev, preferred_location_id: defaultId };
+    });
+  }, [open, customer, locations]);
 
   const createMutation = useMutation({
     mutationFn: (data) => base44.entities.Customer.create(data),
@@ -204,7 +218,7 @@ export default function CustomerDialog({ open, onOpenChange, customer, locations
       phone_number: '',
       email: '',
       instagram_username: '',
-      preferred_location_id: '',
+      preferred_location_id: resolvePreferredDefaultLocationId(locations) || '',
       send_calendar_invites: true,
       consent_obtained: false,
       is_active: true

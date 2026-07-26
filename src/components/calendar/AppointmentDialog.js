@@ -34,6 +34,10 @@ import {
   canArtistBookAppointmentType,
 } from "@/utils/artistServiceEligibility";
 import { pickPreferredWorkStationId } from "@/utils/workStationSelection";
+import {
+  resolvePreferredDefaultLocationId,
+  sortLocationsByCreatedAt,
+} from "@/utils/defaultLocation";
 import LinkifiedText, { textContainsUrl } from "@/components/common/LinkifiedText";
 import {
   buildCheckoutSummaryFromLegacyCharges,
@@ -47,13 +51,7 @@ const EMPTY_ARRAY = [];
 /** Minimum span between start and end time (e.g. short piercing visits). */
 const MIN_APPOINTMENT_DURATION_MINUTES = 5;
 
-function sortLocationsByCreatedAt(locationsList) {
-  return [...locationsList].sort((a, b) =>
-    String(a.created_at || "").localeCompare(String(b.created_at || ""))
-  );
-}
-
-/** Active locations sorted by created_at; prefer artist primary, else keep previous if valid, else first. */
+/** Prefer artist primary, else keep previous if valid, else studio preferred default. */
 function resolveDefaultLocationId(locations, artistId, artists, previousLocationId) {
   const activeSorted = sortLocationsByCreatedAt(locations.filter((l) => l.is_active));
   if (activeSorted.length === 0) return "";
@@ -69,7 +67,7 @@ function resolveDefaultLocationId(locations, artistId, artists, previousLocation
   if (previousLocationId && activeSorted.some((l) => l.id === previousLocationId)) {
     return previousLocationId;
   }
-  return activeSorted[0].id;
+  return resolvePreferredDefaultLocationId(locations);
 }
 
 function timeToMinutesFromTime(time) {

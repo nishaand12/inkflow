@@ -18,6 +18,7 @@ import {
 import AppointmentTypeImage from "@/components/appointment-types/AppointmentTypeImage";
 import { useEmbedResize } from "@/hooks/useEmbedResize";
 import { computeArtistSlots, computeAnyArtistSlots } from "@/utils/bookingSlots";
+import { resolvePreferredDefaultLocationId } from "@/utils/defaultLocation";
 import ServiceBrowser from "@/components/public-booking/ServiceBrowser";
 
 export default function PublicBooking() {
@@ -73,7 +74,9 @@ export default function PublicBooking() {
       setStudio(data.studio);
       setAppointmentTypes(data.appointment_types || []);
       setArtists(data.artists || []);
-      setLocations((data.locations || []).filter(location => location.is_active));
+      const activeLocations = (data.locations || []).filter((location) => location.is_active);
+      setLocations(activeLocations);
+      setSelectedLocation(resolvePreferredDefaultLocationId(activeLocations) || "");
       setAvailabilities(data.availabilities || []);
       setWeeklySchedules(data.weekly_schedules || []);
       setAppointments(data.appointments || []);
