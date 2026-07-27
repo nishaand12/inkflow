@@ -586,8 +586,12 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
         endTime: formData.end_time,
         workStations,
         allAppointments,
+        // Exclude this appointment so its own station stays selectable when
+        // editing the same slot. Do not force-include the original station —
+        // that wrongly showed it as free when rescheduling onto a slot where
+        // another booking already took it.
         excludeAppointmentId: appointment?.id,
-        includeStationId: appointment?.work_station_id,
+        includeStationId: undefined,
       }),
     [
       formData.location_id,
@@ -597,12 +601,15 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
       workStations,
       allAppointments,
       appointment?.id,
-      appointment?.work_station_id,
     ]
   );
 
+  // Auto-select preferred (or first free) workstation for create AND edit.
+  // Date/time/location/artist changes clear work_station_id; without this,
+  // edit mode left the station empty so Update either alerted on submit or
+  // looked blocked on mobile after a native date change.
   useEffect(() => {
-    if (!open || appointment) return;
+    if (!open || formData.is_all_day) return;
     if (!formData.location_id || !formData.appointment_date || !formData.start_time) return;
 
     setFormData((prev) => {
@@ -613,7 +620,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
         endTime: prev.end_time,
         workStations,
         allAppointments,
-        excludeAppointmentId: undefined,
+        excludeAppointmentId: appointment?.id,
         includeStationId: undefined,
       });
       if (prev.work_station_id && stations.some((s) => s.id === prev.work_station_id)) {
@@ -625,12 +632,13 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     });
   }, [
     open,
-    appointment,
+    appointment?.id,
     formData.artist_id,
     formData.location_id,
     formData.appointment_date,
     formData.start_time,
     formData.end_time,
+    formData.is_all_day,
     workStations,
     allAppointments,
     artists,
@@ -917,7 +925,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
         workStations,
         allAppointments,
         excludeAppointmentId: appointment?.id,
-        includeStationId: appointment?.work_station_id,
+        includeStationId: undefined,
       });
       if (stationsForValidation.length === 0 && formData.work_station_id === '') {
         errors.stationsFull = true;
