@@ -6,10 +6,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Search, Plus, Calendar, Clock, MapPin, User, SlidersHorizontal, ChevronDown, ChevronUp, History } from "lucide-react";
-import { format, parseISO } from "date-fns";
-import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@/components/ui/accordion";
+import { Search, Plus, Calendar, Clock, MapPin, User, SlidersHorizontal, ChevronDown, ChevronUp, ChevronLeft, ChevronRight } from "lucide-react";
+import { format, parseISO, isValid } from "date-fns";
 import AppointmentDialog from "../components/calendar/AppointmentDialog";
+import CalendarDatePicker from "../components/calendar/CalendarDatePicker";
+import {
+  getVisibleDateRange,
+  navigateNext,
+  navigatePrev,
+} from "@/utils/calendarViews";
 import { normalizeUserRole } from "@/utils/roles";
 import {
   CATEGORY_ROLE_APPOINTMENT_KIND,
@@ -27,7 +32,6 @@ import {
 } from "@/utils/artistTypeFilter";
 import {
   compareAppointmentsByDateTimeAsc,
-  compareAppointmentsByDateTimeDesc,
   sortByNameThenId,
   sortByFullNameThenId,
 } from "@/utils/listSort";
@@ -43,6 +47,8 @@ const APPOINTMENTS_URL_PARAMS = {
   type: "typeCategory",
   workstation: "workStationId",
   specificType: "specificTypeId",
+  date: "calendarDate",
+  view: "calendarView",
 };
 
 const statusColors = {
@@ -77,6 +83,24 @@ export default function Appointments() {
   const specificTypeFilter = filters.specificTypeId;
   const setSpecificTypeFilter = (value) => setFilters({ specificTypeId: value });
 
+  // Date window is shared with the Calendar via workspace filters, so moving
+  // through dates on either page keeps both in step.
+  const currentDate = useMemo(() => {
+    const parsed = parseISO(`${filters.calendarDate}T00:00:00`);
+    return isValid(parsed) ? parsed : new Date();
+  }, [filters.calendarDate]);
+
+  const view = filters.calendarView;
+  const setView = (value) => setFilters({ calendarView: value });
+  const setCurrentDate = useCallback(
+    (next) => setFilters({ calendarDate: format(next, "yyyy-MM-dd") }),
+    [setFilters]
+  );
+
+  const handlePrevious = () => setCurrentDate(navigatePrev(currentDate, view));
+  const handleNext = () => setCurrentDate(navigateNext(currentDate, view));
+  const handleToday = () => setCurrentDate(new Date());
+
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [showDialog, setShowDialog] = useState(false);
@@ -100,11 +124,32 @@ export default function Appointments() {
     }
   };
 
+  // Scoped to the shared date window rather than the studio's whole history —
+  // an unscoped select is silently truncated by the PostgREST row cap, which
+  // makes appointments disappear from this list without being deleted.
+  const { startDate: rangeStart, endDate: rangeEnd } = useMemo(
+    () => getVisibleDateRange(currentDate, view),
+    [currentDate, view]
+  );
+
+  const rangeLabel = useMemo(() => {
+    const start = parseISO(`${rangeStart}T00:00:00`);
+    const end = parseISO(`${rangeEnd}T00:00:00`);
+    if (rangeStart === rangeEnd) return format(start, 'EEEE, MMMM d, yyyy');
+    return `${format(start, 'MMM d, yyyy')} – ${format(end, 'MMM d, yyyy')}`;
+  }, [rangeStart, rangeEnd]);
+
   const { data: appointments = [] } = useQuery({
-    queryKey: ['appointments', user?.studio_id],
+    queryKey: ['appointments', user?.studio_id, rangeStart, rangeEnd],
     queryFn: async () => {
       if (!user?.studio_id) return [];
-      return base44.entities.Appointment.filter({ studio_id: user.studio_id });
+      return base44.entities.Appointment.filter(
+        {
+          studio_id: user.studio_id,
+          appointment_date: { gte: rangeStart, lte: rangeEnd },
+        },
+        'appointment_date'
+      );
     },
     enabled: !!user?.studio_id
   });
@@ -297,6 +342,39 @@ export default function Appointments() {
         <Card className="bg-white border-none shadow-md">
           <CardContent className="p-4 sm:p-6">
             <div className="rounded-xl bg-gray-50/80 p-3 sm:p-4 space-y-3">
+              {/* Date range controls — shared with the Calendar page */}
+              <div className="flex gap-2 items-center">
+                <Select value={view} onValueChange={setView}>
+                  <SelectTrigger className="text-sm w-36 shrink-0">
+                    <SelectValue placeholder="View" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="day">Day View</SelectItem>
+                    <SelectItem value="3day">3-Day View</SelectItem>
+                    <SelectItem value="4day">4-Day View</SelectItem>
+                    <SelectItem value="week">Week View</SelectItem>
+                    <SelectItem value="month">Month View</SelectItem>
+                  </SelectContent>
+                </Select>
+                <div className="flex gap-1 flex-1 sm:flex-none">
+                  <Button variant="outline" onClick={handlePrevious} className="flex-1 sm:flex-none px-3">
+                    <ChevronLeft className="w-4 h-4" />
+                  </Button>
+                  <Button variant="outline" onClick={handleToday} className="flex-1 sm:flex-none px-3 text-sm">
+                    Today
+                  </Button>
+                  <Button variant="outline" onClick={handleNext} className="flex-1 sm:flex-none px-3">
+                    <ChevronRight className="w-4 h-4" />
+                  </Button>
+                  <CalendarDatePicker
+                    date={currentDate}
+                    onDateChange={setCurrentDate}
+                    view={view}
+                    buttonClassName="flex-1 sm:flex-none"
+                  />
+                </div>
+              </div>
+
               {/* Standard filters */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3">
                 <Select value={typeFilter} onValueChange={setTypeFilter}>
@@ -404,13 +482,7 @@ export default function Appointments() {
         </Card>
 
         {(() => {
-          const today = format(new Date(), 'yyyy-MM-dd');
-          const upcoming = filteredAppointments
-            .filter(apt => apt.appointment_date >= today)
-            .sort(compareAppointmentsByDateTimeAsc);
-          const past = filteredAppointments
-            .filter(apt => apt.appointment_date < today)
-            .sort(compareAppointmentsByDateTimeDesc);
+          const visible = [...filteredAppointments].sort(compareAppointmentsByDateTimeAsc);
 
           const renderRow = (appointment) => {
             const artist = artists.find(a => a.id === appointment.artist_id);
@@ -492,45 +564,24 @@ export default function Appointments() {
           };
 
           return (
-            <>
-              <Card className="bg-white border-none shadow-lg">
-                <CardHeader>
-                  <CardTitle>
-                    {(isArtist && !isAdmin) ? 'My Upcoming Appointments' : 'Upcoming Appointments'} ({upcoming.length})
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  {upcoming.length === 0 ? (
-                    <div className="text-center py-12">
-                      <Calendar className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                      <p className="text-gray-500">No upcoming appointments found</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-3">{upcoming.map(renderRow)}</div>
-                  )}
-                </CardContent>
-              </Card>
-
-              {past.length > 0 && (
-                <Card className="bg-white border-none shadow-lg">
-                  <CardContent className="pt-4">
-                    <Accordion type="single" collapsible>
-                      <AccordionItem value="past" className="border-none">
-                        <AccordionTrigger className="hover:no-underline px-2 py-2 text-gray-600">
-                          <span className="flex items-center gap-2 text-sm font-medium">
-                            <History className="w-4 h-4" />
-                            Past Appointments ({past.length})
-                          </span>
-                        </AccordionTrigger>
-                        <AccordionContent>
-                          <div className="space-y-3 pt-2">{past.map(renderRow)}</div>
-                        </AccordionContent>
-                      </AccordionItem>
-                    </Accordion>
-                  </CardContent>
-                </Card>
-              )}
-            </>
+            <Card className="bg-white border-none shadow-lg">
+              <CardHeader>
+                <CardTitle>
+                  {(isArtist && !isAdmin) ? 'My Appointments' : 'Appointments'} ({visible.length})
+                </CardTitle>
+                <p className="text-sm text-gray-500 mt-1">{rangeLabel}</p>
+              </CardHeader>
+              <CardContent>
+                {visible.length === 0 ? (
+                  <div className="text-center py-12">
+                    <Calendar className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                    <p className="text-gray-500">No appointments in this date range</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">{visible.map(renderRow)}</div>
+                )}
+              </CardContent>
+            </Card>
           );
         })()}
       </div>

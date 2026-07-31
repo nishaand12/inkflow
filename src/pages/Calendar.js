@@ -7,10 +7,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ChevronLeft, ChevronRight, Plus, SlidersHorizontal, ChevronDown, ChevronUp, Search } from "lucide-react";
 import {
   format,
-  startOfMonth, endOfMonth, eachDayOfInterval,
   isSameMonth, isSameDay, isValid,
-  addMonths, subMonths, startOfWeek, endOfWeek, addDays, parseISO
+  addMonths, subMonths, addDays, parseISO
 } from "date-fns";
+import { getVisibleDays, getVisibleDateRange } from "@/utils/calendarViews";
 import AppointmentDialog from "../components/calendar/AppointmentDialog";
 import AppointmentCard from "../components/calendar/AppointmentCard";
 import { normalizeUserRole } from "@/utils/roles";
@@ -609,9 +609,24 @@ export default function Calendar() {
     }
   };
 
+  // Only the visible window is fetched. An unscoped select is truncated by the
+  // PostgREST row cap once a studio has enough history, which silently drops
+  // appointments from the calendar.
+  const { startDate: rangeStart, endDate: rangeEnd } = useMemo(
+    () => getVisibleDateRange(currentDate, view),
+    [currentDate, view]
+  );
+
   const { data: appointments = [] } = useQuery({
-    queryKey: ['appointments', user?.studio_id],
-    queryFn: () => base44.entities.Appointment.filter({ studio_id: user.studio_id }),
+    queryKey: ['appointments', user?.studio_id, rangeStart, rangeEnd],
+    queryFn: () =>
+      base44.entities.Appointment.filter(
+        {
+          studio_id: user.studio_id,
+          appointment_date: { gte: rangeStart, lte: rangeEnd },
+        },
+        'appointment_date'
+      ),
     enabled: !!user?.studio_id
   });
 
@@ -799,19 +814,9 @@ export default function Calendar() {
   ]);
 
   // ── Day ranges ──────────────────────────────────────────────────────────
-  const getDaysToShow = () => {
-    if (view === 'month') {
-      return eachDayOfInterval({ start: startOfWeek(startOfMonth(currentDate)), end: endOfWeek(endOfMonth(currentDate)) });
-    } else if (view === 'week') {
-      return eachDayOfInterval({ start: startOfWeek(currentDate), end: endOfWeek(currentDate) });
-    } else if (view === '3day') {
-      return eachDayOfInterval({ start: currentDate, end: addDays(currentDate, 2) });
-    } else if (view === '4day') {
-      return eachDayOfInterval({ start: currentDate, end: addDays(currentDate, 3) });
-    } else {
-      return [currentDate];
-    }
-  };
+  // Shares getVisibleDays with the fetch range below so the calendar can never
+  // render a day it did not query for.
+  const getDaysToShow = () => getVisibleDays(currentDate, view);
 
   const getEarliestVisibleDay = () => getDaysToShow()[0];
 
