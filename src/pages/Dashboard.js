@@ -7,10 +7,13 @@ import { createPageUrl, formatTime12h } from "@/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Calendar, Users, MapPin, Clock, TrendingUp, Plus } from "lucide-react";
-import { format, parseISO, startOfWeek, endOfWeek, isWithinInterval, startOfDay } from "date-fns";
+import { format, parseISO, startOfWeek, endOfWeek, isWithinInterval, startOfDay, addDays } from "date-fns";
 import AppointmentDialog from "../components/calendar/AppointmentDialog";
 import { normalizeUserRole } from "@/utils/roles";
 import { compareAppointmentsByDateTimeAsc } from "@/utils/listSort";
+
+/** How far ahead the "upcoming appointments" panel looks. */
+const DASHBOARD_UPCOMING_DAYS = 45;
 
 export default function Dashboard() {
   const [user, setUser] = useState(null);
@@ -30,11 +33,28 @@ export default function Dashboard() {
     }
   };
 
+  // The dashboard only reports on the current week and the next few bookings,
+  // so it queries that window instead of the studio's entire history — an
+  // unscoped select is silently truncated by the PostgREST row cap.
+  const { rangeStart, rangeEnd } = useMemo(() => {
+    const today = new Date();
+    return {
+      rangeStart: format(startOfWeek(today), 'yyyy-MM-dd'),
+      rangeEnd: format(addDays(today, DASHBOARD_UPCOMING_DAYS), 'yyyy-MM-dd'),
+    };
+  }, []);
+
   const { data: appointments = [] } = useQuery({
-    queryKey: ['appointments', user?.studio_id],
+    queryKey: ['appointments', user?.studio_id, rangeStart, rangeEnd],
     queryFn: async () => {
       if (!user?.studio_id) return [];
-      return base44.entities.Appointment.filter({ studio_id: user.studio_id });
+      return base44.entities.Appointment.filter(
+        {
+          studio_id: user.studio_id,
+          appointment_date: { gte: rangeStart, lte: rangeEnd },
+        },
+        'appointment_date'
+      );
     },
     enabled: !!user?.studio_id
   });

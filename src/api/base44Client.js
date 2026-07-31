@@ -35,10 +35,42 @@ const normalizeOrderColumn = (column) => {
   return column;
 };
 
+/** Range operators usable as `{ column: { gte, lte } }` in a filter object. */
+const RANGE_OPERATORS = new Set(["gte", "lte", "gt", "lt"]);
+
+/**
+ * PostgREST caps how many rows it will return and gives no signal when it
+ * truncates. A response sitting exactly on a round cap is almost always a
+ * truncated full-table read, which silently hides records from the UI.
+ */
+const ROW_CAP_HINTS = new Set([1000]);
+
+const warnIfTruncated = (table, rows) => {
+  if (!Array.isArray(rows) || !ROW_CAP_HINTS.has(rows.length)) return;
+  console.warn(
+    `[base44] "${table}" returned exactly ${rows.length} rows — this is almost certainly ` +
+      `truncated by the PostgREST row cap, so records are missing from the UI. ` +
+      `Scope the query with a range filter or paginate it.`
+  );
+};
+
 const buildFilterQuery = (query, filters = {}) => {
   let filteredQuery = query;
   Object.entries(filters).forEach(([key, value]) => {
     if (value === undefined || value === null) return;
+
+    // `{ column: { gte: x, lte: y } }` → range comparison instead of equality.
+    if (typeof value === "object" && !Array.isArray(value)) {
+      Object.entries(value).forEach(([operator, operand]) => {
+        if (operand === undefined || operand === null) return;
+        if (!RANGE_OPERATORS.has(operator)) {
+          throw new Error(`Unsupported filter operator "${operator}" on column "${key}"`);
+        }
+        filteredQuery = filteredQuery[operator](key, operand);
+      });
+      return;
+    }
+
     filteredQuery = filteredQuery.eq(key, value);
   });
   return filteredQuery;
@@ -54,6 +86,7 @@ const createEntityClient = (entityName) => {
     list: async () => {
       const { data, error } = await supabase.from(table).select("*");
       if (error) throw error;
+      warnIfTruncated(table, data);
       return data || [];
     },
     filter: async (filters = {}, order) => {
@@ -67,6 +100,7 @@ const createEntityClient = (entityName) => {
 
       const { data, error } = await query;
       if (error) throw error;
+      warnIfTruncated(table, data);
       return data || [];
     },
     create: async (payload) => {

@@ -345,13 +345,21 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     enabled: !!currentUser?.studio_id
   });
 
+  // Conflict and workstation checks only ever compare against the same day, so
+  // fetch just that day. Pulling the whole studio history risked the PostgREST
+  // row cap silently dropping the very appointment we needed to detect a clash.
+  const conflictDate = formData.appointment_date || appointment?.appointment_date || null;
+
   const { data: allAppointments = EMPTY_ARRAY } = useQuery({
-    queryKey: ['appointments', currentUser?.studio_id],
+    queryKey: ['appointments', currentUser?.studio_id, conflictDate],
     queryFn: async () => {
-      if (!currentUser?.studio_id) return [];
-      return base44.entities.Appointment.filter({ studio_id: currentUser.studio_id });
+      if (!currentUser?.studio_id || !conflictDate) return [];
+      return base44.entities.Appointment.filter({
+        studio_id: currentUser.studio_id,
+        appointment_date: conflictDate,
+      });
     },
-    enabled: !!currentUser?.studio_id
+    enabled: !!currentUser?.studio_id && !!conflictDate
   });
 
   const { data: workStations = EMPTY_ARRAY } = useQuery({
