@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { format, parseISO } from "date-fns";
-import { Trash2, Save, AlertCircle, CheckCircle, Unlock, Mail, Loader2, Link2, Copy, Check, Wallet } from "lucide-react";
+import { Ban, Save, AlertCircle, CheckCircle, Unlock, Mail, Loader2, Link2, Copy, Check, Wallet } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -300,7 +300,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     return isAdmin || userRole === 'Front_Desk';
   };
 
-  const canDelete = () => {
+  const canCancelAppointment = () => {
     if (!currentUser || !appointment) return false;
     if (isAdmin || userRole === 'Front_Desk') return true;
     if (isArtist && userArtist && appointment.artist_id === userArtist.id) return true;
@@ -985,49 +985,6 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     }
   });
 
-  const deleteMutation = useMutation({
-    mutationFn: async (id) => {
-      try {
-        return await base44.entities.Appointment.delete(id);
-      } catch (error) {
-        const errorText = `${error?.message || ''} ${error?.details || ''}`;
-        const isPaymentReferenceError =
-          error?.code === '23503' &&
-          (errorText.includes('payments_appointment_id_fkey') || errorText.includes('table "payments"'));
-        const isEmailEventsReferenceError =
-          error?.code === '23503' &&
-          (errorText.includes('email_events_appointment_id_fkey') || errorText.includes('table "email_events"'));
-
-        if (!isPaymentReferenceError && !isEmailEventsReferenceError) throw error;
-
-        if (isPaymentReferenceError) {
-          const { error: paymentError } = await supabase
-            .from('payments')
-            .update({ appointment_id: null })
-            .eq('appointment_id', id);
-          if (paymentError) throw paymentError;
-        }
-
-        if (isEmailEventsReferenceError) {
-          const { error: emailEventError } = await supabase
-            .from('email_events')
-            .update({ appointment_id: null })
-            .eq('appointment_id', id);
-          if (emailEventError) throw emailEventError;
-        }
-
-        return base44.entities.Appointment.delete(id);
-      }
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['appointments'] });
-      onOpenChange(false);
-    },
-    onError: (error) => {
-      setSaveError(error?.message || 'Failed to delete appointment. Please try again.');
-    }
-  });
-
   // Paid balance payment row(s) for post-checkout tender edits (split tender = 1–2 rows).
   const { data: balancePaymentRows = EMPTY_ARRAY } = useQuery({
     queryKey: ['appointmentBalancePayments', appointment?.id],
@@ -1538,13 +1495,9 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     } catch (_) { /* ignore */ }
   };
 
-  const handleDelete = () => {
-    if (window.confirm(`Are you sure you want to ${(isArtist && !isAdmin) ? 'cancel' : 'delete'} this appointment?`)) {
-      if ((isArtist && !isAdmin)) {
-        updateMutation.mutate({ id: appointment.id, data: { ...formData, status: 'cancelled' } });
-      } else {
-        deleteMutation.mutate(appointment.id);
-      }
+  const handleCancelAppointment = () => {
+    if (window.confirm('Are you sure you want to cancel this appointment?')) {
+      updateMutation.mutate({ id: appointment.id, data: { ...formData, status: 'cancelled' } });
     }
   };
 
@@ -2597,16 +2550,16 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
 
             <DialogFooter className="flex flex-col-reverse sm:flex-row sm:flex-wrap sm:justify-between gap-2 pt-4 border-t border-gray-100">
               <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-                {appointment && canDelete() && appointment.status !== 'completed' && (
+                {appointment && canCancelAppointment() && appointment.status !== 'completed' && appointment.status !== 'cancelled' && (
                   <Button
                     type="button"
                     variant="destructive"
-                    onClick={handleDelete}
-                    disabled={deleteMutation.isPending || updateMutation.isPending}
+                    onClick={handleCancelAppointment}
+                    disabled={updateMutation.isPending}
                     className="w-full sm:w-auto text-sm"
                   >
-                    <Trash2 className="w-4 h-4 mr-2" />
-                    {(isArtist && !isAdmin) ? 'Cancel' : 'Delete'}
+                    <Ban className="w-4 h-4 mr-2" />
+                    Cancel Appointment
                   </Button>
                 )}
                 {canUnlockAppointment() && (

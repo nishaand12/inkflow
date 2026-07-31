@@ -763,7 +763,9 @@ export default function Calendar() {
     if (selectedTypeCategory !== 'all') {
       if (!appointmentTypeMatchesFilter(reportingCategories, aptType, selectedTypeCategory)) return false;
     }
-    if (statusFilter !== 'all' && apt.status !== statusFilter) return false;
+    // Cancelled appointments stay in the record but are off the calendar unless
+    // explicitly filtered for.
+    if (statusFilter === 'all' ? apt.status === 'cancelled' : apt.status !== statusFilter) return false;
     if ((isAdmin || userRole === 'Front_Desk') && !appointmentMatchesArtistFilter(apt, selectedArtist, activeArtists)) return false;
 
     // Advanced filters
@@ -964,7 +966,7 @@ export default function Calendar() {
                 <Select value={statusFilter} onValueChange={setStatusFilter}>
                   <SelectTrigger className="text-sm"><SelectValue placeholder="All Statuses" /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">All Statuses</SelectItem>
+                    <SelectItem value="all">All (except Cancelled)</SelectItem>
                     <SelectItem value="scheduled">Scheduled</SelectItem>
                     <SelectItem value="confirmed">{getAppointmentStatusLabel("confirmed")}</SelectItem>
                     <SelectItem value="pending_deposit">Pending Deposit</SelectItem>
