@@ -4,17 +4,12 @@ import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { Search, Plus, Calendar, Clock, MapPin, User, SlidersHorizontal, ChevronDown, ChevronUp, ChevronLeft, ChevronRight } from "lucide-react";
-import { format, parseISO, isValid } from "date-fns";
+import { Search, Plus, Calendar, Clock, MapPin, User, SlidersHorizontal, ChevronDown, ChevronUp } from "lucide-react";
+import { format, parseISO } from "date-fns";
 import AppointmentDialog from "../components/calendar/AppointmentDialog";
-import CalendarDatePicker from "../components/calendar/CalendarDatePicker";
-import {
-  getVisibleDateRange,
-  navigateNext,
-  navigatePrev,
-} from "@/utils/calendarViews";
 import { normalizeUserRole } from "@/utils/roles";
 import {
   CATEGORY_ROLE_APPOINTMENT_KIND,
@@ -39,6 +34,7 @@ import {
   useWorkspaceFilters,
   useWorkspaceUrlSync,
 } from "@/hooks/useWorkspaceFilters";
+import { nextDateRange } from "@/lib/dateRange";
 
 const APPOINTMENTS_URL_PARAMS = {
   location: "locationId",
@@ -47,8 +43,8 @@ const APPOINTMENTS_URL_PARAMS = {
   type: "typeCategory",
   workstation: "workStationId",
   specificType: "specificTypeId",
-  date: "calendarDate",
-  view: "calendarView",
+  start: "startDate",
+  end: "endDate",
 };
 
 const statusColors = {
@@ -83,23 +79,13 @@ export default function Appointments() {
   const specificTypeFilter = filters.specificTypeId;
   const setSpecificTypeFilter = (value) => setFilters({ specificTypeId: value });
 
-  // Date window is shared with the Calendar via workspace filters, so moving
-  // through dates on either page keeps both in step.
-  const currentDate = useMemo(() => {
-    const parsed = parseISO(`${filters.calendarDate}T00:00:00`);
-    return isValid(parsed) ? parsed : new Date();
-  }, [filters.calendarDate]);
-
-  const view = filters.calendarView;
-  const setView = (value) => setFilters({ calendarView: value });
-  const setCurrentDate = useCallback(
-    (next) => setFilters({ calendarDate: format(next, "yyyy-MM-dd") }),
-    [setFilters]
-  );
-
-  const handlePrevious = () => setCurrentDate(navigatePrev(currentDate, view));
-  const handleNext = () => setCurrentDate(navigateNext(currentDate, view));
-  const handleToday = () => setCurrentDate(new Date());
+  // Date range is shared with Reports (and Payouts) via workspace filters.
+  // Calendar keeps its own day/view picker; only non-date filters stay in sync.
+  const startDate = filters.startDate;
+  const endDate = filters.endDate;
+  const setStartDate = (value) => setFilters(nextDateRange("start", value, startDate, endDate));
+  const setEndDate = (value) => setFilters(nextDateRange("end", value, startDate, endDate));
+  const dateRangeValid = !!startDate && !!endDate && startDate <= endDate;
 
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
@@ -124,34 +110,30 @@ export default function Appointments() {
     }
   };
 
-  // Scoped to the shared date window rather than the studio's whole history —
+  // Scoped to the selected date range rather than the studio's whole history —
   // an unscoped select is silently truncated by the PostgREST row cap, which
   // makes appointments disappear from this list without being deleted.
-  const { startDate: rangeStart, endDate: rangeEnd } = useMemo(
-    () => getVisibleDateRange(currentDate, view),
-    [currentDate, view]
-  );
-
   const rangeLabel = useMemo(() => {
-    const start = parseISO(`${rangeStart}T00:00:00`);
-    const end = parseISO(`${rangeEnd}T00:00:00`);
-    if (rangeStart === rangeEnd) return format(start, 'EEEE, MMMM d, yyyy');
+    if (!dateRangeValid) return null;
+    const start = parseISO(`${startDate}T00:00:00`);
+    const end = parseISO(`${endDate}T00:00:00`);
+    if (startDate === endDate) return format(start, 'EEEE, MMMM d, yyyy');
     return `${format(start, 'MMM d, yyyy')} – ${format(end, 'MMM d, yyyy')}`;
-  }, [rangeStart, rangeEnd]);
+  }, [startDate, endDate, dateRangeValid]);
 
   const { data: appointments = [] } = useQuery({
-    queryKey: ['appointments', user?.studio_id, rangeStart, rangeEnd],
+    queryKey: ['appointments', user?.studio_id, startDate, endDate],
     queryFn: async () => {
       if (!user?.studio_id) return [];
       return base44.entities.Appointment.filter(
         {
           studio_id: user.studio_id,
-          appointment_date: { gte: rangeStart, lte: rangeEnd },
+          appointment_date: { gte: startDate, lte: endDate },
         },
         'appointment_date'
       );
     },
-    enabled: !!user?.studio_id
+    enabled: !!user?.studio_id && dateRangeValid,
   });
 
   const { data: artists = [] } = useQuery({
@@ -342,35 +324,28 @@ export default function Appointments() {
         <Card className="bg-white border-none shadow-md">
           <CardContent className="p-4 sm:p-6">
             <div className="rounded-xl bg-gray-50/80 p-3 sm:p-4 space-y-3">
-              {/* Date range controls — shared with the Calendar page */}
-              <div className="flex gap-2 items-center">
-                <Select value={view} onValueChange={setView}>
-                  <SelectTrigger className="text-sm w-36 shrink-0">
-                    <SelectValue placeholder="View" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="day">Day View</SelectItem>
-                    <SelectItem value="3day">3-Day View</SelectItem>
-                    <SelectItem value="4day">4-Day View</SelectItem>
-                    <SelectItem value="week">Week View</SelectItem>
-                    <SelectItem value="month">Month View</SelectItem>
-                  </SelectContent>
-                </Select>
-                <div className="flex gap-1 flex-1 sm:flex-none">
-                  <Button variant="outline" onClick={handlePrevious} className="flex-1 sm:flex-none px-3">
-                    <ChevronLeft className="w-4 h-4" />
-                  </Button>
-                  <Button variant="outline" onClick={handleToday} className="flex-1 sm:flex-none px-3 text-sm">
-                    Today
-                  </Button>
-                  <Button variant="outline" onClick={handleNext} className="flex-1 sm:flex-none px-3">
-                    <ChevronRight className="w-4 h-4" />
-                  </Button>
-                  <CalendarDatePicker
-                    date={currentDate}
-                    onDateChange={setCurrentDate}
-                    view={view}
-                    buttonClassName="flex-1 sm:flex-none"
+              {/* Date range — same start/end pickers as Reports */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3">
+                <div className="space-y-1">
+                  <Label htmlFor="appointments-start-date" className="text-sm">Start Date</Label>
+                  <Input
+                    id="appointments-start-date"
+                    type="date"
+                    value={startDate}
+                    max={endDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    className="text-sm"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="appointments-end-date" className="text-sm">End Date</Label>
+                  <Input
+                    id="appointments-end-date"
+                    type="date"
+                    value={endDate}
+                    min={startDate}
+                    onChange={(e) => setEndDate(e.target.value)}
+                    className="text-sm"
                   />
                 </div>
               </div>
@@ -569,7 +544,9 @@ export default function Appointments() {
                 <CardTitle>
                   {(isArtist && !isAdmin) ? 'My Appointments' : 'Appointments'} ({visible.length})
                 </CardTitle>
-                <p className="text-sm text-gray-500 mt-1">{rangeLabel}</p>
+                {rangeLabel && (
+                  <p className="text-sm text-gray-500 mt-1">{rangeLabel}</p>
+                )}
               </CardHeader>
               <CardContent>
                 {visible.length === 0 ? (
