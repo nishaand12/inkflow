@@ -1,8 +1,9 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { BrowserRouter, Navigate, Outlet, Route, Routes } from "react-router-dom";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MutationCache, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { supabase } from "./utils/supabase";
+import { ToastViewport, showErrorToast } from "./components/ui/toast";
 import {
   bootstrapRecoverySession,
   getRecoveryUrlState,
@@ -74,7 +75,23 @@ export default function App() {
     () => initialRecoveryState.hasPendingRecovery || isRecoveryMarked()
   );
   const [loading, setLoading] = useState(true);
-  const queryClient = useMemo(() => new QueryClient(), []);
+  // Global backstop: react-query's mutate() never throws to the caller, so a
+  // mutation without its own onError fails completely silently — the dialog
+  // just sits there and staff assume the save worked. Every failure now
+  // surfaces, whether or not the call site handles it.
+  const queryClient = useMemo(
+    () =>
+      new QueryClient({
+        mutationCache: new MutationCache({
+          onError: (error: any) => {
+            showErrorToast(
+              error?.message || "Something didn't save. Please try again."
+            );
+          },
+        }),
+      }),
+    []
+  );
 
   useEffect(() => {
     if (redirectRecoveryHashToResetPage()) {
@@ -194,6 +211,7 @@ export default function App() {
           </Route>
         </Routes>
       </BrowserRouter>
+      <ToastViewport />
     </QueryClientProvider>
   );
 }

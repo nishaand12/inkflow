@@ -253,27 +253,44 @@ export default function ArtistPayouts() {
       const ledgerAmount = ledgerAmountForDirection(direction, amount);
       const label = direction === "to_shop" ? "payback" : "payout";
 
-      const payout = await base44.entities.ArtistPayout.create({
-        studio_id: studioId,
-        artist_id: form.artist_id,
-        amount,
-        direction,
-        payout_method: form.payout_method,
-        payout_date: form.payout_date,
-        notes: form.notes || null,
-        created_by: user.id,
-      });
+      let payout;
+      try {
+        payout = await base44.entities.ArtistPayout.create({
+          studio_id: studioId,
+          artist_id: form.artist_id,
+          amount,
+          direction,
+          payout_method: form.payout_method,
+          payout_date: form.payout_date,
+          notes: form.notes || null,
+          created_by: user.id,
+        });
+      } catch (error) {
+        throw new Error(
+          `Could not record the ${label}: ${error?.message || "unknown error"}`
+        );
+      }
 
-      await base44.entities.ArtistLedgerEntry.create({
-        studio_id: studioId,
-        artist_id: form.artist_id,
-        payout_id: payout.id,
-        entry_type: entryType,
-        amount: ledgerAmount,
-        description: form.notes || `Artist ${label} via ${form.payout_method}`,
-        occurred_on: form.payout_date,
-        created_by: user.id,
-      });
+      // The ledger entry is what moves the artist's balance. If it fails after
+      // the payout row lands, the balance is stale and the message has to say
+      // so — a silent failure here means paying the artist twice.
+      try {
+        await base44.entities.ArtistLedgerEntry.create({
+          studio_id: studioId,
+          artist_id: form.artist_id,
+          payout_id: payout.id,
+          entry_type: entryType,
+          amount: ledgerAmount,
+          description: form.notes || `Artist ${label} via ${form.payout_method}`,
+          occurred_on: form.payout_date,
+          created_by: user.id,
+        });
+      } catch (error) {
+        throw new Error(
+          `The ${label} was recorded but the artist's balance was NOT updated ` +
+            `(${error?.message || "unknown error"}). Check the ledger before recording it again.`
+        );
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["artistPayouts"] });

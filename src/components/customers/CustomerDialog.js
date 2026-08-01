@@ -23,6 +23,7 @@ import { parseISO, startOfDay, isBefore, isSameDay } from "date-fns";
 import { formatTimeRange12h } from "@/utils/index";
 import { getAppointmentStatusLabel } from "@/utils/appointmentStatus";
 import { resolvePreferredDefaultLocationId } from "@/utils/defaultLocation";
+import { findDuplicateCustomers } from "@/utils/customerDuplicates";
 
 const appointmentStatusStyles = {
   scheduled: "bg-blue-100 text-blue-800 border-blue-200",
@@ -163,14 +164,7 @@ export default function CustomerDialog({ open, onOpenChange, customer, locations
 
   const checkForDuplicates = () => {
     if (customer) return [];
-
-    const potentialDuplicates = allCustomers.filter(c => {
-      const emailMatch = c.email.toLowerCase() === formData.email.toLowerCase();
-      const phoneMatch = c.phone_number === formData.phone_number;
-      return emailMatch || phoneMatch;
-    });
-
-    return potentialDuplicates;
+    return findDuplicateCustomers(allCustomers, formData);
   };
 
   const handleSubmit = (e) => {
