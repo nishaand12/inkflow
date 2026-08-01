@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { base44 } from "@/api/base44Client";
+import { supabase } from "@/utils/supabase";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -80,10 +81,11 @@ function entryAmountClass(entry) {
   return Number(entry.amount) < 0 ? "text-blue-800" : "text-green-800";
 }
 
-function inDateRange(occurredOn, start, end) {
-  if (!occurredOn) return false;
-  return occurredOn >= start && occurredOn <= end;
-}
+/**
+ * Ledger rows shown for the selected period. The running balance comes from
+ * the artist_ledger_balances RPC, so this cap only bounds the visible list.
+ */
+const LEDGER_PAGE_LIMIT = 500;
 
 function balanceHint(balance) {
   const v = Number(balance) || 0;
@@ -127,9 +129,34 @@ export default function ArtistPayouts() {
     enabled: !!studioId,
   });
 
-  const { data: ledgerEntries = [], isLoading: loadingLedger } = useQuery({
-    queryKey: ["artistLedgerEntries", studioId],
-    queryFn: () => base44.entities.ArtistLedgerEntry.filter({ studio_id: studioId }),
+  // Only the selected period is fetched. Fetching the whole ledger was
+  // silently truncated at the API row cap, which dropped entries out of the
+  // client-side sums and misreported what an artist is owed.
+  const { data: periodEntries = [], isLoading: loadingLedger } = useQuery({
+    queryKey: ["artistLedgerEntries", studioId, startDate, endDate],
+    queryFn: () =>
+      base44.entities.ArtistLedgerEntry.filter(
+        {
+          studio_id: studioId,
+          occurred_on: { gte: startDate, lte: endDate },
+        },
+        "-occurred_on",
+        { limit: LEDGER_PAGE_LIMIT }
+      ),
+    enabled: !!studioId,
+  });
+
+  // All-time balances are summed in the database — the running balance must
+  // account for every entry ever, which no bounded fetch can do.
+  const { data: allTimeBalanceRows = [] } = useQuery({
+    queryKey: ["artistLedgerBalances", studioId],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("artist_ledger_balances", {
+        p_studio_id: studioId,
+      });
+      if (error) throw error;
+      return data || [];
+    },
     enabled: !!studioId,
   });
 
@@ -164,15 +191,13 @@ export default function ArtistPayouts() {
     [artists]
   );
 
-  const periodEntries = useMemo(
-    () => ledgerEntries.filter((e) => inDateRange(e.occurred_on, startDate, endDate)),
-    [ledgerEntries, startDate, endDate]
+  const allTimeBalances = useMemo(
+    () =>
+      Object.fromEntries(
+        allTimeBalanceRows.map((row) => [row.artist_id, Number(row.balance) || 0])
+      ),
+    [allTimeBalanceRows]
   );
-
-  const allTimeBalances = useMemo(() => {
-    const rows = computeBalances(payoutArtists, artistById, ledgerEntries);
-    return Object.fromEntries(rows.map((b) => [b.artist_id, b.balance]));
-  }, [payoutArtists, artistById, ledgerEntries]);
 
   const balances = useMemo(() => {
     return computeBalances(payoutArtists, artistById, periodEntries)
@@ -295,6 +320,7 @@ export default function ArtistPayouts() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["artistPayouts"] });
       queryClient.invalidateQueries({ queryKey: ["artistLedgerEntries"] });
+      queryClient.invalidateQueries({ queryKey: ["artistLedgerBalances"] });
       setShowDialog(false);
       setForm({
         ...EMPTY_FORM,
@@ -457,9 +483,7 @@ export default function ArtistPayouts() {
           <CardContent>
             {visibleLedgerEntries.length === 0 ? (
               <p className="text-gray-500">
-                {ledgerEntries.length === 0
-                  ? "No ledger entries yet. Close a daily reconciliation to add earnings."
-                  : "No ledger entries in the selected date range."}
+                No ledger entries in the selected date range.
               </p>
             ) : (
               <Table>

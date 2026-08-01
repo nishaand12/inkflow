@@ -41,6 +41,7 @@ import {
 } from "@/utils/splitTender";
 import SaleDetailDialog from "../components/sales/SaleDetailDialog";
 import CustomerSearch from "../components/customers/CustomerSearch";
+import { useCustomersByIds } from "@/hooks/useCustomersByIds";
 import CustomerDialog from "../components/customers/CustomerDialog";
 import AdvancedSearchDialog from "../components/customers/AdvancedSearchDialog";
 import { normalizeUserRole } from "@/utils/roles";
@@ -111,7 +112,6 @@ export default function Sales() {
 
   const { data: locations = [] } = useQuery(qOpts("locations", () => base44.entities.Location.filter({ studio_id: studioId })));
   const { data: products = [] } = useQuery(qOpts("products", () => base44.entities.Product.filter({ studio_id: studioId })));
-  const { data: customers = [] } = useQuery(qOpts("customers", () => base44.entities.Customer.filter({ studio_id: studioId })));
   const { data: artists = [] } = useQuery(qOpts("artists", () => base44.entities.Artist.filter({ studio_id: studioId })));
   const { data: splitRules = [] } = useQuery(qOpts("artistSplitRules", () => base44.entities.ArtistSplitRule.filter({ studio_id: studioId })));
   const { data: reportingCategories = [] } = useQuery(qOpts("reportingCategories", () => base44.entities.ReportingCategory.filter({ studio_id: studioId })));
@@ -131,23 +131,35 @@ export default function Sales() {
     [todaySales]
   );
 
+  // Names for today's sale rows only; the picker searches server-side.
+  const saleCustomerIds = useMemo(
+    () => todaySales.map((s) => s.customer_id),
+    [todaySales]
+  );
+  const customers = useCustomersByIds(studioId, saleCustomerIds);
+
+  // Fetch only the rows belonging to today's sales. Pulling the studio's whole
+  // line-item and payment history (twice a minute, via refetchInterval) was
+  // silently truncated at the API row cap, which dropped items and payments
+  // from the register's totals.
   const { data: todayLineItems = [] } = useQuery({
     queryKey: ["saleLineItems", studioId, todaySaleIdsKey],
-    queryFn: async () => {
-      const all = await base44.entities.SaleLineItem.filter({ studio_id: studioId });
-      const idSet = new Set(todaySales.map((s) => s.id));
-      return all.filter((li) => idSet.has(li.sale_id));
-    },
+    queryFn: () =>
+      base44.entities.SaleLineItem.filter({
+        studio_id: studioId,
+        sale_id: todaySales.map((s) => s.id),
+      }),
     enabled: !!studioId && todaySales.length > 0,
   });
 
   const { data: todayPayments = [] } = useQuery({
     queryKey: ["salePayments", studioId, todaySaleIdsKey],
-    queryFn: async () => {
-      const all = await base44.entities.Payment.filter({ studio_id: studioId });
-      const idSet = new Set(todaySales.map((s) => s.id));
-      return all.filter((p) => idSet.has(p.sale_id) && p.status === "paid");
-    },
+    queryFn: () =>
+      base44.entities.Payment.filter({
+        studio_id: studioId,
+        sale_id: todaySales.map((s) => s.id),
+        status: "paid",
+      }),
     enabled: !!studioId && todaySales.length > 0,
   });
 
@@ -391,7 +403,7 @@ export default function Sales() {
               <div className="space-y-1">
                 <Label className="text-xs">Customer (optional)</Label>
                 <CustomerSearch
-                  customers={customers}
+                  studioId={studioId}
                   selectedCustomer={selectedCustomer}
                   onSelect={handleCustomerSelect}
                   onNewCustomer={() => setShowCustomerDialog(true)}
@@ -663,7 +675,7 @@ export default function Sales() {
         <AdvancedSearchDialog
           open={showAdvancedSearch}
           onOpenChange={setShowAdvancedSearch}
-          customers={customers}
+          studioId={studioId}
           onSelectCustomer={handleCustomerSelect}
         />
       </div>

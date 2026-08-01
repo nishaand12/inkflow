@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
+import { supabase } from "@/utils/supabase";
 import { fetchDailyTotalsReport } from "@/api/reports";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
@@ -11,6 +12,7 @@ import { format, parseISO, startOfWeek, endOfWeek, isWithinInterval, startOfDay,
 import AppointmentDialog from "../components/calendar/AppointmentDialog";
 import { normalizeUserRole } from "@/utils/roles";
 import { compareAppointmentsByDateTimeAsc } from "@/utils/listSort";
+import { useCustomersByIds } from "@/hooks/useCustomersByIds";
 
 /** How far ahead the "upcoming appointments" panel looks. */
 const DASHBOARD_UPCOMING_DAYS = 45;
@@ -77,20 +79,23 @@ export default function Dashboard() {
     enabled: !!user?.studio_id
   });
 
-  const { data: customers = [] } = useQuery({
-    queryKey: ['customers', user?.studio_id],
-    queryFn: async () => {
-      if (!user?.studio_id) return [];
-      return base44.entities.Customer.filter({ studio_id: user.studio_id });
-    },
-    enabled: !!user?.studio_id
-  });
+  // Only the customers referenced by the fetched window, not the whole table.
+  const customerIds = useMemo(
+    () => appointments.map((a) => a.customer_id),
+    [appointments]
+  );
+  const customers = useCustomersByIds(user?.studio_id, customerIds);
 
-  const { data: ledgerEntries = [] } = useQuery({
-    queryKey: ['artistLedgerEntries', user?.studio_id],
+  // Balances are summed server-side; fetching the whole ledger to add it up in
+  // the browser was silently truncated once the table outgrew the row cap.
+  const { data: ledgerBalances = [] } = useQuery({
+    queryKey: ['artistLedgerBalances', user?.studio_id],
     queryFn: async () => {
-      if (!user?.studio_id) return [];
-      return base44.entities.ArtistLedgerEntry.filter({ studio_id: user.studio_id });
+      const { data, error } = await supabase.rpc('artist_ledger_balances', {
+        p_studio_id: user.studio_id,
+      });
+      if (error) throw error;
+      return data || [];
     },
     enabled: !!user?.studio_id
   });
@@ -148,9 +153,9 @@ export default function Dashboard() {
     .slice(0, 5);
 
   const balanceOwed = (isArtist && userArtist)
-    ? ledgerEntries
-        .filter(e => e.artist_id === userArtist.id)
-        .reduce((sum, e) => sum + (Number(e.amount) || 0), 0)
+    ? Number(
+        ledgerBalances.find((row) => row.artist_id === userArtist.id)?.balance
+      ) || 0
     : 0;
 
   const getCustomerName = (appointment) => {

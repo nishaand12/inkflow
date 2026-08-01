@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { base44 } from "@/api/base44Client";
-import { useQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { CUSTOMER_PAGE_SIZE, listCustomersPage } from "@/api/customers";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,7 +10,6 @@ import { Badge } from "@/components/ui/badge";
 import { Search, Plus, Phone, Mail, Instagram, MapPin, CheckCircle2, XCircle } from "lucide-react";
 import { normalizeUserRole } from "@/utils/roles";
 import CustomerDialog from "../components/customers/CustomerDialog";
-import { sortByNameThenId } from "@/utils/listSort";
 
 export default function Customers() {
   const [searchTerm, setSearchTerm] = useState('');
@@ -29,14 +30,36 @@ export default function Customers() {
     }
   };
 
-  const { data: customers = [] } = useQuery({
-    queryKey: ['customers', user?.studio_id],
-    queryFn: async () => {
-      if (!user?.studio_id) return [];
-      return base44.entities.Customer.filter({ studio_id: user.studio_id });
-    },
-    enabled: !!user?.studio_id
+  // Searched and paged server-side. Downloading the whole customer table and
+  // filtering it here was silently truncated at the API row cap, which made
+  // customers past the cap unfindable — staff then re-created them.
+  const debouncedSearch = useDebouncedValue(searchTerm, 250);
+
+  const {
+    data: customerPages,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    isFetching,
+  } = useInfiniteQuery({
+    queryKey: ['customers', user?.studio_id, debouncedSearch],
+    initialPageParam: 0,
+    queryFn: ({ pageParam }) =>
+      listCustomersPage(user.studio_id, {
+        offset: pageParam,
+        term: debouncedSearch,
+      }),
+    getNextPageParam: (lastPage, allPages) =>
+      lastPage.length < CUSTOMER_PAGE_SIZE
+        ? undefined
+        : allPages.reduce((total, page) => total + page.length, 0),
+    enabled: !!user?.studio_id,
   });
+
+  const customers = useMemo(
+    () => (customerPages?.pages || []).flat(),
+    [customerPages]
+  );
 
   const { data: locations = [] } = useQuery({
     queryKey: ['locations', user?.studio_id],
@@ -56,14 +79,8 @@ export default function Customers() {
   const isAdmin = userRole === 'Admin' || userRole === 'Owner';
   const canEdit = isAdmin || userRole === 'Front_Desk';
 
-  const sortedCustomers = useMemo(() => sortByNameThenId(customers, 'name'), [customers]);
-
-  const filteredCustomers = sortedCustomers.filter(customer =>
-    customer.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    customer.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    customer.phone_number?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    customer.instagram_username?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // Already ordered and matched by the server; no client-side filtering.
+  const filteredCustomers = customers;
 
   const handleEdit = (customer) => {
     setSelectedCustomer(customer);
@@ -125,12 +142,18 @@ export default function Customers() {
 
         <Card className="bg-white border-none shadow-lg">
           <CardHeader>
-            <CardTitle>All Customers ({filteredCustomers.length})</CardTitle>
+            <CardTitle>
+              {debouncedSearch ? "Matching Customers" : "Customers"} (
+              {filteredCustomers.length}
+              {hasNextPage ? "+" : ""})
+            </CardTitle>
           </CardHeader>
           <CardContent>
             {filteredCustomers.length === 0 ? (
               <div className="text-center py-12">
-                <p className="text-gray-500">No customers found</p>
+                <p className="text-gray-500">
+                  {isFetching ? "Searching…" : "No customers found"}
+                </p>
               </div>
             ) : (
               <div className="space-y-3">
@@ -199,6 +222,19 @@ export default function Customers() {
                     </div>
                   );
                 })}
+              </div>
+            )}
+
+            {hasNextPage && (
+              <div className="pt-4 text-center">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => fetchNextPage()}
+                  disabled={isFetchingNextPage}
+                >
+                  {isFetchingNextPage ? "Loading…" : "Load more"}
+                </Button>
               </div>
             )}
           </CardContent>

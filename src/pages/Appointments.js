@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Search, Plus, Calendar, Clock, MapPin, User, SlidersHorizontal, ChevronDown, ChevronUp } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import AppointmentDialog from "../components/calendar/AppointmentDialog";
+import { useCustomersByIds } from "@/hooks/useCustomersByIds";
 import { normalizeUserRole } from "@/utils/roles";
 import {
   CATEGORY_ROLE_APPOINTMENT_KIND,
@@ -154,14 +155,12 @@ export default function Appointments() {
     enabled: !!user?.studio_id
   });
 
-  const { data: customers = [] } = useQuery({
-    queryKey: ['customers', user?.studio_id],
-    queryFn: async () => {
-      if (!user?.studio_id) return [];
-      return base44.entities.Customer.filter({ studio_id: user.studio_id });
-    },
-    enabled: !!user?.studio_id
-  });
+  // Only the customers referenced by the fetched window, not the whole table.
+  const customerIds = useMemo(
+    () => appointments.map((a) => a.customer_id),
+    [appointments]
+  );
+  const customers = useCustomersByIds(user?.studio_id, customerIds);
 
   const { data: appointmentTypes = [] } = useQuery({
     queryKey: ['appointmentTypes', user?.studio_id],
