@@ -183,6 +183,35 @@ export async function fetchArtistReport({ startDate, endDate, locationId, artist
   return data?.rows ?? [];
 }
 
+/**
+ * Live artist splits from completed sales by sale_date (no closed snapshot required).
+ * Mirrors reconciliation detail "Totals by artist" / per-sale math.
+ */
+export async function fetchLiveArtistSplitsReport({ startDate, endDate, locationId, artistId }) {
+  const { data, error } = await supabase.rpc("get_live_artist_splits_report", {
+    p_start_date: startDate,
+    p_end_date: endDate,
+    p_location_id: normalizeLocationId(locationId),
+    p_artist_id: artistId && artistId !== "all" ? artistId : null,
+  });
+  if (error) throw error;
+  return (
+    data ?? {
+      artists: [],
+      sales: [],
+      summary: {
+        sale_count: 0,
+        service_incl_tax: 0,
+        product_incl_tax: 0,
+        tip_total: 0,
+        artist_share: 0,
+        shop_revenue: 0,
+        artist_owed: 0,
+      },
+    }
+  );
+}
+
 /** Phase 5 — get_reconciliation_location_totals RPC */
 export async function fetchLocationReport({ startDate, endDate, locationId }) {
   const { data, error } = await supabase.rpc("get_reconciliation_location_totals", {

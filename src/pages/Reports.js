@@ -8,12 +8,14 @@ import {
   fetchCategoryItemReport,
   fetchCategoryReport,
   fetchDailyTotalsReport,
+  fetchLiveArtistSplitsReport,
   fetchLocationReport,
   fetchPaymentsReport,
   fetchReportContext,
   fetchSalesReport,
   fetchStripeDepositsReport,
 } from "@/api/reports";
+import { todayInTimezone } from "@/utils/timezones";
 import { useCheckoutPaymentMethods } from "@/utils/useCheckoutPaymentMethods";
 import SaleDetailDialog from "@/components/sales/SaleDetailDialog";
 import { useQuery } from "@tanstack/react-query";
@@ -147,17 +149,6 @@ export default function Reports() {
   const setEndDate = (value) => setFilters(nextDateRange("end", value, startDate, endDate));
   const setFilterLocation = (value) => setFilters({ locationId: value });
   const setFilterArtist = (value) => setFilters({ artistId: value });
-  const setActiveTab = (value) => {
-    if (value === "category") {
-      setFilters({
-        reportsTab: value,
-        reportsCategoryKey: "",
-        reportsCategoryScope: "leaf",
-      });
-      return;
-    }
-    setFilters({ reportsTab: value });
-  };
 
   const openCategoryDetail = (row) => {
     if (!row?.category_key) return;
@@ -183,6 +174,39 @@ export default function Reports() {
 
   const studioId = user?.studio_id;
   const dateRangeValid = !!startDate && !!endDate && startDate <= endDate;
+
+  const { data: studio } = useQuery({
+    queryKey: ["studio", studioId],
+    queryFn: async () => {
+      const studios = await base44.entities.Studio.filter({ id: studioId });
+      return studios[0] || null;
+    },
+    enabled: !!studioId,
+  });
+
+  const studioToday = todayInTimezone(studio?.timezone);
+
+  const setActiveTab = (value) => {
+    if (value === "category") {
+      setFilters({
+        reportsTab: value,
+        reportsCategoryKey: "",
+        reportsCategoryScope: "leaf",
+      });
+      return;
+    }
+    // Live artist splits defaults to the studio's current business day so the
+    // view matches today's open reconciliation as sales check out.
+    if (value === "artist-splits") {
+      setFilters({
+        reportsTab: value,
+        startDate: studioToday,
+        endDate: studioToday,
+      });
+      return;
+    }
+    setFilters({ reportsTab: value });
+  };
 
   // Payments filter: in-person tenders (built-ins + custom) plus online
   // (Stripe) payments, stored with tender_type = "Stripe".
@@ -328,6 +352,23 @@ export default function Reports() {
     enabled: !!studioId && dateRangeValid && activeTab === "artist",
   });
 
+  const {
+    data: liveArtistSplitsReport,
+    isLoading: loadingLiveArtistSplits,
+    dataUpdatedAt: liveArtistSplitsUpdatedAt,
+  } = useQuery({
+    queryKey: ["liveArtistSplitsReport", startDate, endDate, filterLocation, filterArtist],
+    queryFn: () =>
+      fetchLiveArtistSplitsReport({
+        startDate,
+        endDate,
+        locationId: filterLocation,
+        artistId: filterArtist,
+      }),
+    enabled: !!studioId && dateRangeValid && activeTab === "artist-splits",
+    refetchInterval: 30000,
+  });
+
   const { data: locationRows = [], isLoading: loadingLocation } = useQuery({
     queryKey: ["locationReport", startDate, endDate, filterLocation],
     queryFn: () =>
@@ -423,6 +464,32 @@ export default function Reports() {
     [artistRows, supportStaffIds]
   );
 
+  const liveArtistRows = useMemo(
+    () =>
+      (liveArtistSplitsReport?.artists ?? []).filter(
+        (row) => !supportStaffIds.has(row.artist_id)
+      ),
+    [liveArtistSplitsReport, supportStaffIds]
+  );
+
+  const liveArtistSaleRows = useMemo(
+    () =>
+      (liveArtistSplitsReport?.sales ?? []).filter(
+        (row) => !supportStaffIds.has(row.artist_id)
+      ),
+    [liveArtistSplitsReport, supportStaffIds]
+  );
+
+  const liveArtistSummary = liveArtistSplitsReport?.summary ?? {
+    sale_count: 0,
+    service_incl_tax: 0,
+    product_incl_tax: 0,
+    tip_total: 0,
+    artist_share: 0,
+    shop_revenue: 0,
+    artist_owed: 0,
+  };
+
   const unreconciledDays = useMemo(
     () =>
       computeUnreconciledDays({
@@ -483,8 +550,11 @@ export default function Reports() {
     return { rows, totalHours: rows.reduce((s, r) => s + r.hours, 0) };
   }, [artists, availabilities, startDate, endDate, filterLocation]);
 
-  const showArtistFilter = activeTab === "artist" || activeTab === "sales";
+  const showArtistFilter =
+    activeTab === "artist" || activeTab === "artist-splits" || activeTab === "sales";
   const showMultiLocationTab = locations.length > 1;
+  const isLiveArtistSplitsToday =
+    activeTab === "artist-splits" && startDate === studioToday && endDate === studioToday;
 
   useEffect(() => {
     if (activeTab === "location" && !showMultiLocationTab) {
@@ -652,6 +722,7 @@ export default function Reports() {
               By Category
             </TabsTrigger>
             <TabsTrigger value="artist">By Artist</TabsTrigger>
+            <TabsTrigger value="artist-splits">Artist Splits (Live)</TabsTrigger>
             {showMultiLocationTab && <TabsTrigger value="location">By Location</TabsTrigger>}
             <TabsTrigger value="support_staff_hours">Counter / Scrub Hours</TabsTrigger>
             <TabsTrigger value="payments">Payments</TabsTrigger>
@@ -1150,6 +1221,269 @@ export default function Reports() {
                             <td className="px-4 py-3 text-sm text-indigo-800 text-right tabular-nums">{money(row.shop_revenue)}</td>
                             <td className="px-4 py-3 text-sm text-green-800 text-right font-semibold tabular-nums">
                               {money(row.artist_owed)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="artist-splits" className="space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div>
+                <p className="text-sm text-gray-600">
+                  Live from completed checkouts by sale date — same math as reconciliation artist
+                  splits, so end-of-day totals match when the day closes.
+                  {isLiveArtistSplitsToday
+                    ? " Showing today (studio timezone). Auto-refreshes every 30 seconds."
+                    : " Date filters apply; use Today to jump back to the current business day."}
+                </p>
+                {liveArtistSplitsUpdatedAt ? (
+                  <p className="text-xs text-gray-400 mt-1">
+                    Last updated {format(new Date(liveArtistSplitsUpdatedAt), "h:mm:ss a")}
+                  </p>
+                ) : null}
+              </div>
+              <div className="flex flex-wrap gap-2 shrink-0">
+                {!isLiveArtistSplitsToday && (
+                  <Button
+                    variant="outline"
+                    onClick={() =>
+                      setFilters({ startDate: studioToday, endDate: studioToday })
+                    }
+                  >
+                    Today
+                  </Button>
+                )}
+                <Button
+                  variant="outline"
+                  onClick={() =>
+                    exportToCSV(
+                      liveArtistRows.map((row) => ({
+                        artist: artistById[row.artist_id]?.full_name || row.artist_id || "Unassigned",
+                        sale_count: row.sale_count,
+                        service_incl_tax: row.service_incl_tax,
+                        products_incl_tax: row.product_incl_tax,
+                        tips: row.tip_total,
+                        artist_owed: row.artist_owed,
+                        shop_revenue: row.shop_revenue,
+                      })),
+                      "live_artist_splits"
+                    )
+                  }
+                  disabled={liveArtistRows.length === 0}
+                >
+                  <Download className="w-4 h-4 mr-2" /> Export CSV
+                </Button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <Card className="bg-white border-none shadow-md">
+                <CardContent className="p-4">
+                  <p className="text-xs text-gray-500">Sales</p>
+                  <p className="text-2xl font-bold text-gray-900">{liveArtistSummary.sale_count ?? 0}</p>
+                </CardContent>
+              </Card>
+              <Card className="bg-white border-none shadow-md">
+                <CardContent className="p-4">
+                  <p className="text-xs text-gray-500">Artist owed</p>
+                  <p className="text-2xl font-bold text-green-800">{money(liveArtistSummary.artist_owed)}</p>
+                </CardContent>
+              </Card>
+              <Card className="bg-white border-none shadow-md">
+                <CardContent className="p-4">
+                  <p className="text-xs text-gray-500">Shop revenue</p>
+                  <p className="text-2xl font-bold text-indigo-700">{money(liveArtistSummary.shop_revenue)}</p>
+                </CardContent>
+              </Card>
+              <Card className="bg-white border-none shadow-md">
+                <CardContent className="p-4">
+                  <p className="text-xs text-gray-500">Tips</p>
+                  <p className="text-2xl font-bold text-green-800">{money(liveArtistSummary.tip_total)}</p>
+                </CardContent>
+              </Card>
+            </div>
+
+            <Card className="bg-white border-none shadow-lg">
+              <CardHeader>
+                <CardTitle>Totals by artist</CardTitle>
+                <p className="text-sm text-gray-500 font-normal mt-1">
+                  All amounts include tax. Products are 100% shop revenue; tips are owed 100% to the
+                  artist. Service + Products = Artist owed + Shop revenue − Tips.
+                </p>
+              </CardHeader>
+              <CardContent>
+                {loadingLiveArtistSplits ? (
+                  <p className="text-center py-12 text-gray-500">Loading…</p>
+                ) : liveArtistRows.length === 0 ? (
+                  <div className="text-center py-12">
+                    <Users className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                    <p className="text-gray-500">No completed sales in this range yet.</p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Artist</th>
+                          <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900"># Sales</th>
+                          <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Service (incl. tax)</th>
+                          <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Products (incl. tax)</th>
+                          <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Tips</th>
+                          <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Artist owed (incl. tax)</th>
+                          <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Shop revenue (incl. tax)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-200">
+                        {liveArtistRows.map((row) => (
+                          <tr key={row.artist_id || "unknown"} className="hover:bg-gray-50">
+                            <td className="px-4 py-3 text-sm text-gray-900 font-medium">
+                              {artistById[row.artist_id]?.full_name || "Unassigned"}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-600 text-right tabular-nums">
+                              {row.sale_count}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-900 text-right tabular-nums">
+                              {money(row.service_incl_tax ?? row.service_total)}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-900 text-right tabular-nums">
+                              {money(row.product_incl_tax ?? row.product_total)}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-green-800 text-right tabular-nums">
+                              {money(row.tip_total)}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-green-800 text-right font-semibold tabular-nums">
+                              {money(row.artist_owed)}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-indigo-800 text-right tabular-nums">
+                              {money(row.shop_revenue)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot className="bg-gray-50 border-t-2 border-gray-200">
+                        <tr>
+                          <td className="px-4 py-3 text-sm font-semibold text-gray-900">Total</td>
+                          <td className="px-4 py-3 text-sm font-semibold text-gray-900 text-right tabular-nums">
+                            {liveArtistRows.reduce((s, r) => s + (Number(r.sale_count) || 0), 0)}
+                          </td>
+                          <td className="px-4 py-3 text-sm font-semibold text-gray-900 text-right tabular-nums">
+                            {money(
+                              liveArtistRows.reduce(
+                                (s, r) => s + (Number(r.service_incl_tax ?? r.service_total) || 0),
+                                0
+                              )
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-sm font-semibold text-gray-900 text-right tabular-nums">
+                            {money(
+                              liveArtistRows.reduce(
+                                (s, r) => s + (Number(r.product_incl_tax ?? r.product_total) || 0),
+                                0
+                              )
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-sm font-semibold text-green-800 text-right tabular-nums">
+                            {money(liveArtistRows.reduce((s, r) => s + (Number(r.tip_total) || 0), 0))}
+                          </td>
+                          <td className="px-4 py-3 text-sm font-semibold text-green-800 text-right tabular-nums">
+                            {money(liveArtistRows.reduce((s, r) => s + (Number(r.artist_owed) || 0), 0))}
+                          </td>
+                          <td className="px-4 py-3 text-sm font-semibold text-indigo-800 text-right tabular-nums">
+                            {money(liveArtistRows.reduce((s, r) => s + (Number(r.shop_revenue) || 0), 0))}
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="bg-white border-none shadow-lg">
+              <CardHeader className="flex flex-row items-center justify-between gap-4">
+                <div>
+                  <CardTitle>Per-sale lines</CardTitle>
+                  <p className="text-sm text-gray-500 font-normal mt-1">
+                    Each completed sale in range. All amounts include tax.
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  className="shrink-0"
+                  onClick={() =>
+                    exportToCSV(
+                      liveArtistSaleRows.map((row) => ({
+                        sale_date: row.sale_date,
+                        artist: artistById[row.artist_id]?.full_name || row.artist_id || "Unassigned",
+                        location: locationById[row.location_id]?.name || row.location_id || "",
+                        service_incl_tax: row.service_incl_tax,
+                        products_incl_tax: row.product_incl_tax,
+                        tips: row.tips,
+                        artist_owed: row.artist_owed,
+                        shop_revenue: row.shop_revenue,
+                      })),
+                      "live_artist_splits_sales"
+                    )
+                  }
+                  disabled={liveArtistSaleRows.length === 0}
+                >
+                  <Download className="w-4 h-4 mr-2" /> Export CSV
+                </Button>
+              </CardHeader>
+              <CardContent>
+                {loadingLiveArtistSplits ? (
+                  <p className="text-center py-12 text-gray-500">Loading…</p>
+                ) : liveArtistSaleRows.length === 0 ? (
+                  <p className="text-center py-12 text-gray-500">No sales.</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Sale date</th>
+                          <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Artist</th>
+                          {showMultiLocationTab && (
+                            <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">Location</th>
+                          )}
+                          <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Service (incl. tax)</th>
+                          <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Products (incl. tax)</th>
+                          <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Tips</th>
+                          <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Artist owed</th>
+                          <th className="px-4 py-3 text-right text-sm font-semibold text-gray-900">Shop revenue</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-200">
+                        {liveArtistSaleRows.map((row) => (
+                          <tr key={row.id} className="hover:bg-gray-50">
+                            <td className="px-4 py-3 text-sm text-gray-900 font-medium">{row.sale_date}</td>
+                            <td className="px-4 py-3 text-sm text-gray-900">
+                              {artistById[row.artist_id]?.full_name || "Unassigned"}
+                            </td>
+                            {showMultiLocationTab && (
+                              <td className="px-4 py-3 text-sm text-gray-600">
+                                {locationById[row.location_id]?.name || "—"}
+                              </td>
+                            )}
+                            <td className="px-4 py-3 text-sm text-gray-900 text-right tabular-nums">
+                              {money(row.service_incl_tax ?? row.service)}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-900 text-right tabular-nums">
+                              {money(row.product_incl_tax ?? row.product)}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-green-800 text-right tabular-nums">
+                              {money(row.tips)}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-green-800 text-right tabular-nums">
+                              {money(row.artist_owed)}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-indigo-800 text-right tabular-nums">
+                              {money(row.shop_revenue)}
                             </td>
                           </tr>
                         ))}
