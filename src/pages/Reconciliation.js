@@ -117,28 +117,40 @@ export default function Reconciliation() {
       for (const t of tenderView) {
         if (t.pos_amount == null && !t.row) continue;
         const variance = t.pos_amount != null ? t.system_amount - t.pos_amount : null;
-        if (t.row) {
-          await base44.entities.ReconciliationTender.update(t.row.id, {
-            pos_amount: t.pos_amount,
-            variance,
-          });
-        } else if (t.pos_amount != null) {
-          await base44.entities.ReconciliationTender.create({
-            studio_id: studioId,
-            reconciliation_id: reconciliation.id,
-            tender_type: t.tender_type,
-            system_amount: 0,
-            pos_amount: t.pos_amount,
-            variance,
-          });
+        try {
+          if (t.row) {
+            await base44.entities.ReconciliationTender.update(t.row.id, {
+              pos_amount: t.pos_amount,
+              variance,
+            });
+          } else if (t.pos_amount != null) {
+            await base44.entities.ReconciliationTender.create({
+              studio_id: studioId,
+              reconciliation_id: reconciliation.id,
+              tender_type: t.tender_type,
+              system_amount: 0,
+              pos_amount: t.pos_amount,
+              variance,
+            });
+          }
+        } catch (error) {
+          throw new Error(
+            `Could not save the ${t.tender_type} total: ${error?.message || "unknown error"}`
+          );
         }
       }
       // Persist POS totals first; closing is a separate RPC so it can also post
       // the day's consolidated artist earnings (Service fees + Tips) atomically.
-      await base44.entities.DailyReconciliation.update(reconciliation.id, {
-        pos_reported_total: posReportedTotal,
-        variance: overallVariance,
-      });
+      try {
+        await base44.entities.DailyReconciliation.update(reconciliation.id, {
+          pos_reported_total: posReportedTotal,
+          variance: overallVariance,
+        });
+      } catch (error) {
+        throw new Error(
+          `Could not save POS totals: ${error?.message || "unknown error"}`
+        );
+      }
       if (close) {
         const { error } = await supabase.rpc("close_daily_reconciliation", {
           p_reconciliation_id: reconciliation.id,

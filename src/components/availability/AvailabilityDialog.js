@@ -95,7 +95,10 @@ export default function AvailabilityDialog({ open, onOpenChange, date, availabil
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['availabilities'] });
       onOpenChange(false);
-    }
+    },
+    onError: (error) => {
+      setSaveError(error?.message || 'Failed to update availability.');
+    },
   });
 
   const deleteMutation = useMutation({
@@ -103,7 +106,10 @@ export default function AvailabilityDialog({ open, onOpenChange, date, availabil
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['availabilities'] });
       onOpenChange(false);
-    }
+    },
+    onError: (error) => {
+      setSaveError(error?.message || 'Failed to delete availability.');
+    },
   });
 
   const buildSubmitData = (artistIdValue) => {

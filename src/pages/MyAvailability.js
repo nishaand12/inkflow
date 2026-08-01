@@ -155,8 +155,17 @@ export default function MyAvailability() {
     [artistFilter, activeArtists]
   );
 
+  // Raw Postgres/RLS messages say nothing about which action failed, and a
+  // working-hours change that silently doesn't save leaves an artist bookable
+  // when they aren't. Wrap so the surfaced message names the operation.
   const createScheduleMutation = useMutation({
-    mutationFn: (data) => base44.entities.ArtistWeeklySchedule.create(data),
+    mutationFn: async (data) => {
+      try {
+        return await base44.entities.ArtistWeeklySchedule.create(data);
+      } catch (error) {
+        throw new Error(`Could not save working hours: ${error?.message || "unknown error"}`);
+      }
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["weeklySchedules"] });
       setShowScheduleForm(false);
@@ -165,7 +174,13 @@ export default function MyAvailability() {
   });
 
   const updateScheduleMutation = useMutation({
-    mutationFn: ({ id, data }) => base44.entities.ArtistWeeklySchedule.update(id, data),
+    mutationFn: async ({ id, data }) => {
+      try {
+        return await base44.entities.ArtistWeeklySchedule.update(id, data);
+      } catch (error) {
+        throw new Error(`Could not update working hours: ${error?.message || "unknown error"}`);
+      }
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["weeklySchedules"] });
       setShowScheduleForm(false);
@@ -174,7 +189,13 @@ export default function MyAvailability() {
   });
 
   const deleteScheduleMutation = useMutation({
-    mutationFn: (id) => base44.entities.ArtistWeeklySchedule.delete(id),
+    mutationFn: async (id) => {
+      try {
+        return await base44.entities.ArtistWeeklySchedule.delete(id);
+      } catch (error) {
+        throw new Error(`Could not delete working hours: ${error?.message || "unknown error"}`);
+      }
+    },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["weeklySchedules"] }),
   });
 
