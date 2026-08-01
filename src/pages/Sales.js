@@ -42,6 +42,8 @@ import {
 import SaleDetailDialog from "../components/sales/SaleDetailDialog";
 import CustomerSearch from "../components/customers/CustomerSearch";
 import { useCustomersByIds } from "@/hooks/useCustomersByIds";
+import { todayInTimezone } from "@/utils/timezones";
+import { formatMoney } from "@/utils/money";
 import CustomerDialog from "../components/customers/CustomerDialog";
 import AdvancedSearchDialog from "../components/customers/AdvancedSearchDialog";
 import { normalizeUserRole } from "@/utils/roles";
@@ -53,9 +55,7 @@ function getProductTaxRate(product) {
   return DEFAULT_SERVICE_TAX_RATE;
 }
 
-function money(n) {
-  return `$${(Number(n) || 0).toFixed(2)}`;
-}
+const money = formatMoney;
 
 function formatSaleTime(createdAt) {
   if (!createdAt) return "—";
@@ -107,8 +107,22 @@ export default function Sales() {
     ? normalizeUserRole(user.user_role || (user.role === "admin" ? "Admin" : "Front_Desk"))
     : null;
   const isAdmin = userRole === "Admin" || userRole === "Owner";
-  const today = format(new Date(), "yyyy-MM-dd");
   const qOpts = (key, fn) => ({ queryKey: [key, studioId], queryFn: () => fn(), enabled: !!studioId });
+
+  const { data: studio } = useQuery({
+    queryKey: ["studio", studioId],
+    queryFn: async () => {
+      const studios = await base44.entities.Studio.filter({ id: studioId });
+      return studios[0] || null;
+    },
+    enabled: !!studioId,
+  });
+
+  // The studio's business day, not the browser's. finalize_sale stamps
+  // business_date in the studio's timezone, so deriving "today" from the
+  // device made the register show the wrong day's sales near midnight or on a
+  // machine set to another timezone.
+  const today = todayInTimezone(studio?.timezone);
 
   const { data: locations = [] } = useQuery(qOpts("locations", () => base44.entities.Location.filter({ studio_id: studioId })));
   const { data: products = [] } = useQuery(qOpts("products", () => base44.entities.Product.filter({ studio_id: studioId })));
@@ -122,7 +136,9 @@ export default function Sales() {
       const rows = await base44.entities.Sale.filter({ studio_id: studioId, sale_date: today }, "-created_at");
       return rows.filter((s) => !s.appointment_id && s.status === "completed");
     },
-    enabled: !!studioId,
+    // Waits for the studio so the first fetch already uses its business day
+    // rather than briefly querying the device's date.
+    enabled: !!studioId && !!studio,
     refetchInterval: 30000,
   });
 

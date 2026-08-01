@@ -1,9 +1,12 @@
+import { roundMoney } from "./money";
+
 /** Max tender rows at checkout (primary + optional second). */
 export const MAX_SPLIT_TENDERS = 2;
 
-export function roundMoney(n) {
-  return Math.round((Number(n) || 0) * 100) / 100;
-}
+// Re-exported from the shared money helpers, which also normalise -0. The
+// local version returned -0 for tiny negative drift, so a fully-tendered sale
+// could show a "-0.00" remaining balance.
+export { roundMoney };
 
 export function createTenderRow(overrides = {}) {
   return {
