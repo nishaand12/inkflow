@@ -3,7 +3,6 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY");
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -58,7 +57,9 @@ serve(async (req) => {
     // Trigger cancellation email
     try {
       const endpoint = `${SUPABASE_URL}/functions/v1/send-appointment-email`;
-      const key = SUPABASE_ANON_KEY || SUPABASE_SERVICE_ROLE_KEY;
+      // Service key: send-appointment-email no longer accepts the anon key,
+      // which is public. This call has no signed-in user to borrow a JWT from.
+      const key = SUPABASE_SERVICE_ROLE_KEY;
       await fetch(endpoint, {
         method: "POST",
         headers: {

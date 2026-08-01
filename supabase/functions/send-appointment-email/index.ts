@@ -64,20 +64,41 @@ serve(async (req) => {
       return jsonResponse({ skipped: true, reason: "unsupported_event_type" }, 200);
     }
 
-    // Basic authorization: allow anon key (frontend calls) or service-role key (server-to-server calls)
+    // Authorization: the service-role key (server-to-server, i.e. our own edge
+    // functions) or a signed-in staff user's JWT.
+    //
+    // The anon key used to be accepted, but it ships in the frontend bundle —
+    // so anyone who learned an appointment UUID could send mail to that
+    // studio's customers from the studio's own address.
     const apiKey = req.headers.get("apikey");
     const authHeader = req.headers.get("authorization");
-    const expectedAnonKey = Deno.env.get("SUPABASE_ANON_KEY");
     const serviceKey = SUPABASE_SERVICE_ROLE_KEY;
     const bearerToken = authHeader?.startsWith("Bearer ")
       ? authHeader.slice("Bearer ".length)
       : null;
-    const keyMatches =
-      Boolean(apiKey) &&
-      ((Boolean(expectedAnonKey) && apiKey === expectedAnonKey) ||
-        (Boolean(serviceKey) && apiKey === serviceKey));
-    const bearerMatches = Boolean(serviceKey && bearerToken && bearerToken === serviceKey);
-    if (!keyMatches && !bearerMatches) {
+
+    const isServiceCall =
+      Boolean(serviceKey) &&
+      ((Boolean(apiKey) && apiKey === serviceKey) ||
+        (Boolean(bearerToken) && bearerToken === serviceKey));
+
+    let isStaffCall = false;
+    if (!isServiceCall && bearerToken) {
+      const anonKey = Deno.env.get("SUPABASE_ANON_KEY");
+      if (anonKey && SUPABASE_URL) {
+        try {
+          const userClient = createClient(SUPABASE_URL, anonKey, {
+            global: { headers: { Authorization: `Bearer ${bearerToken}` } },
+          });
+          const { data: { user }, error: authErr } = await userClient.auth.getUser();
+          isStaffCall = Boolean(user) && !authErr;
+        } catch (_) {
+          isStaffCall = false;
+        }
+      }
+    }
+
+    if (!isServiceCall && !isStaffCall) {
       return jsonResponse({ error: "Unauthorized" }, 401);
     }
 
