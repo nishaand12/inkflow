@@ -55,6 +55,37 @@ function storedTimeTo12h(timeStr) {
 }
 
 /**
+ * Today's date (yyyy-MM-dd) in a studio's timezone.
+ *
+ * The register used the browser's local date while finalize_sale stamps
+ * business_date in the studio's timezone. Those agree only while the device's
+ * clock and timezone match the studio's — near midnight, or on a laptop
+ * carried across timezones, the register reads the wrong day's sales.
+ *
+ * @param {string} timezone - IANA timezone identifier
+ * @param {Date} [now] - reference instant (injectable for tests)
+ * @returns {string} yyyy-MM-dd
+ */
+export function todayInTimezone(timezone, now = new Date()) {
+  try {
+    // en-CA formats as yyyy-MM-dd, which is the shape stored in sale_date.
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone || 'UTC',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(now);
+  } catch {
+    // Unknown timezone — fall back to the device's date rather than failing.
+    return new Intl.DateTimeFormat('en-CA', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(now);
+  }
+}
+
+/**
  * Format a date and time in a specific timezone
  * @param {string} dateStr - Date string in YYYY-MM-DD format
  * @param {string} timeStr - Time string in HH:MM format

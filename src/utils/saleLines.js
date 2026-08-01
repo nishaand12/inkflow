@@ -7,6 +7,8 @@
  *   revenue_sign ('positive' | 'negative'), plus display fields.
  */
 
+import { roundMoney, sumMoney } from "./money";
+
 export const DEFAULT_SERVICE_TAX_RATE = 0.13;
 
 export function lineSign(li) {
@@ -47,17 +49,22 @@ export function lineTotal(li) {
   return lineNetAmount(li) + lineTaxAmount(li);
 }
 
-/** Totals for a cart of lines + tip. */
+/**
+ * Totals for a cart of lines + tip.
+ *
+ * Summed in whole cents. Adding raw per-line floats drifts, so the register,
+ * the persisted sale and reconciliation could disagree by a penny — and a
+ * fully-discounted cart could total -0.
+ */
 export function computeSaleTotals(lines, tip = 0) {
-  const subtotal = lines.reduce((s, li) => s + lineNetAmount(li), 0);
-  const taxTotal = lines.reduce((s, li) => s + lineTaxAmount(li), 0);
-  const discountTotal = lines.reduce((s, li) => s + (Number(li.discount_amount) || 0), 0);
-  const grossBeforeDiscounts = lines.reduce(
-    (s, li) => s + lineSign(li) * (Number(li.quantity) || 0) * (Number(li.unit_price) || 0),
-    0
+  const subtotal = sumMoney(lines.map(lineNetAmount));
+  const taxTotal = sumMoney(lines.map(lineTaxAmount));
+  const discountTotal = sumMoney(lines.map((li) => li.discount_amount));
+  const grossBeforeDiscounts = sumMoney(
+    lines.map((li) => lineSign(li) * (Number(li.quantity) || 0) * (Number(li.unit_price) || 0))
   );
-  const tipTotal = Math.max(0, Number(tip) || 0);
-  const grandTotal = subtotal + taxTotal;
+  const tipTotal = Math.max(0, roundMoney(tip));
+  const grandTotal = sumMoney([subtotal, taxTotal]);
   return {
     subtotal,
     taxTotal,
@@ -65,7 +72,7 @@ export function computeSaleTotals(lines, tip = 0) {
     grossBeforeDiscounts,
     tipTotal,
     grandTotal,
-    totalWithTip: grandTotal + tipTotal,
+    totalWithTip: sumMoney([grandTotal, tipTotal]),
   };
 }
 
@@ -75,26 +82,15 @@ export function computeSaleTotals(lines, tip = 0) {
  * (tax-exempt gift cards, zero-rated services) allocate correctly.
  */
 export function saleServiceProductNet(lines) {
-  let service = 0;
-  let product = 0;
-  let serviceTax = 0;
-  let productTax = 0;
-  for (const li of lines) {
-    const net = lineNetAmount(li);
-    const tax = lineTaxAmount(li);
-    if (li.line_type === "service") {
-      service += net;
-      serviceTax += tax;
-    } else {
-      product += net;
-      productTax += tax;
-    }
-  }
+  const serviceLines = lines.filter((li) => li.line_type === "service");
+  const productLines = lines.filter((li) => li.line_type !== "service");
+  // Rounded per bucket: these feed the artist commission split, so a fraction
+  // of a cent here becomes a mismatch against what the ledger records.
   return {
-    service: Math.max(0, service),
-    product: Math.max(0, product),
-    serviceTax: Math.max(0, serviceTax),
-    productTax: Math.max(0, productTax),
+    service: Math.max(0, sumMoney(serviceLines.map(lineNetAmount))),
+    product: Math.max(0, sumMoney(productLines.map(lineNetAmount))),
+    serviceTax: Math.max(0, sumMoney(serviceLines.map(lineTaxAmount))),
+    productTax: Math.max(0, sumMoney(productLines.map(lineTaxAmount))),
   };
 }
 

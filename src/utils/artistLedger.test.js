@@ -46,3 +46,42 @@ describe("artistLedger", () => {
     expect(row.payback).toBe(50);
   });
 });
+
+describe("negative-zero balances", () => {
+  const ARTISTS = [{ id: "a1", full_name: "Ada" }];
+  const BY_ID = { a1: { id: "a1", full_name: "Ada" } };
+
+  it("settles to exactly 0 when earnings and payouts cancel", () => {
+    // Values chosen so raw float addition lands on -0.0000000001.
+    const entries = [
+      { artist_id: "a1", entry_type: "settlement_share", amount: 0.1 },
+      { artist_id: "a1", entry_type: "settlement_share", amount: 0.2 },
+      { artist_id: "a1", entry_type: "payout", amount: -0.3 },
+    ];
+    const [row] = computeBalances(ARTISTS, BY_ID, entries);
+
+    expect(row.balance).toBe(0);
+    expect(Object.is(row.balance, -0)).toBe(false);
+    expect(row.balance.toFixed(2)).toBe("0.00");
+  });
+
+  it("keeps a real negative balance negative", () => {
+    const entries = [
+      { artist_id: "a1", entry_type: "settlement_share", amount: 10 },
+      { artist_id: "a1", entry_type: "payout", amount: -10.5 },
+    ];
+    const [row] = computeBalances(ARTISTS, BY_ID, entries);
+    expect(row.balance).toBe(-0.5);
+  });
+
+  it("does not drift over many entries", () => {
+    const entries = Array.from({ length: 30 }, () => ({
+      artist_id: "a1",
+      entry_type: "settlement_share",
+      amount: 0.1,
+    }));
+    const [row] = computeBalances(ARTISTS, BY_ID, entries);
+    expect(row.balance).toBe(3);
+    expect(row.earned).toBe(3);
+  });
+});

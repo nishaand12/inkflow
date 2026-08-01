@@ -42,6 +42,7 @@ import {
   useWorkspaceUrlSync,
 } from "@/hooks/useWorkspaceFilters";
 import { nextDateRange } from "@/lib/dateRange";
+import { formatMoney, moneySign } from "@/utils/money";
 import {
   computeBalances,
   entryLabel,
@@ -64,10 +65,7 @@ const EMPTY_FORM = {
   notes: "",
 };
 
-function money(n) {
-  const v = Number(n) || 0;
-  return `$${v.toFixed(2)}`;
-}
+const money = formatMoney;
 
 function entryBadgeClass(type) {
   if (type === "payout") return "bg-blue-100 text-blue-800";
@@ -78,7 +76,9 @@ function entryBadgeClass(type) {
 function entryAmountClass(entry) {
   if (entry.entry_type === "payout") return "text-blue-800";
   if (entry.entry_type === "payback") return "text-amber-900";
-  return Number(entry.amount) < 0 ? "text-blue-800" : "text-green-800";
+  // Sign is taken to the cent so an entry that rounds to zero is not styled
+  // as if it were negative.
+  return moneySign(entry.amount) < 0 ? "text-blue-800" : "text-green-800";
 }
 
 /**
@@ -87,10 +87,14 @@ function entryAmountClass(entry) {
  */
 const LEDGER_PAGE_LIMIT = 500;
 
+/**
+ * Compared to the cent: a balance that has drifted to -0.0000001 is settled,
+ * and used to be labelled "Artist owes studio" alongside a "$-0.00" figure.
+ */
 function balanceHint(balance) {
-  const v = Number(balance) || 0;
-  if (v < 0) return "Artist owes studio";
-  if (v > 0) return "Studio owes artist";
+  const sign = moneySign(balance);
+  if (sign < 0) return "Artist owes studio";
+  if (sign > 0) return "Studio owes artist";
   return "Settled";
 }
 
@@ -247,14 +251,16 @@ export default function ArtistPayouts() {
     ? Number(allTimeBalances[form.artist_id]) || 0
     : null;
 
+  // Warnings compare to the cent so a settled artist is treated as settled
+  // rather than as owing a fraction of a cent either way.
   const directionWarning = useMemo(() => {
     if (!form.artist_id || selectedTotalBalance === null) return null;
-    if (isPayback && selectedTotalBalance >= 0) {
+    if (isPayback && moneySign(selectedTotalBalance) >= 0) {
       return `This artist does not currently owe the studio (total balance ${money(
         selectedTotalBalance
       )}). Recording a payback will increase what the studio owes them.`;
     }
-    if (!isPayback && selectedTotalBalance <= 0) {
+    if (!isPayback && moneySign(selectedTotalBalance) <= 0) {
       return `The studio does not currently owe this artist (total balance ${money(
         selectedTotalBalance
       )}). Recording a payout will increase what the artist owes the studio.`;
@@ -450,7 +456,7 @@ export default function ArtistPayouts() {
                       <TableCell className="text-right tabular-nums">{money(row.payback)}</TableCell>
                       <TableCell
                         className={`text-right tabular-nums ${
-                          row.balance < 0 ? "text-amber-900" : ""
+                          moneySign(row.balance) < 0 ? "text-amber-900" : ""
                         }`}
                         title={balanceHint(row.balance)}
                       >
@@ -458,7 +464,7 @@ export default function ArtistPayouts() {
                       </TableCell>
                       <TableCell
                         className={`text-right tabular-nums font-bold ${
-                          row.totalBalance < 0 ? "text-amber-900" : "text-indigo-900"
+                          moneySign(row.totalBalance) < 0 ? "text-amber-900" : "text-indigo-900"
                         }`}
                         title={balanceHint(row.totalBalance)}
                       >

@@ -1,3 +1,5 @@
+import { toCents } from "./money";
+
 export function entryLabel(type) {
   if (type === "settlement_share") return "Service fees";
   if (type === "tip") return "Tips";
@@ -35,21 +37,34 @@ export function computeBalances(artists, artistById, entries) {
         payback: 0,
       };
     }
-    const amount = Number(entry.amount) || 0;
-    map[entry.artist_id].balance += amount;
+    // Accumulate in whole cents: summing raw floats drifts, which is what made
+    // a settled balance render as "$-0.00 — Artist owes studio".
+    const cents = toCents(entry.amount);
+    map[entry.artist_id].balance += cents;
     if (entry.entry_type === "payout") {
-      map[entry.artist_id].paid += Math.abs(amount);
+      map[entry.artist_id].paid += Math.abs(cents);
     } else if (entry.entry_type === "payback") {
-      map[entry.artist_id].payback += Math.abs(amount);
+      map[entry.artist_id].payback += Math.abs(cents);
     } else if (entry.entry_type === "settlement_share" || entry.entry_type === "tip") {
-      map[entry.artist_id].earned += amount;
-    } else if (amount >= 0) {
-      map[entry.artist_id].earned += amount;
+      map[entry.artist_id].earned += cents;
+    } else if (cents >= 0) {
+      map[entry.artist_id].earned += cents;
     } else {
-      map[entry.artist_id].paid += Math.abs(amount);
+      map[entry.artist_id].paid += Math.abs(cents);
     }
   }
-  return Object.values(map);
+  return Object.values(map).map((row) => ({
+    ...row,
+    balance: centsToMoney(row.balance),
+    earned: centsToMoney(row.earned),
+    paid: centsToMoney(row.paid),
+    payback: centsToMoney(row.payback),
+  }));
+}
+
+/** Cent totals back to a currency value, never -0. */
+function centsToMoney(cents) {
+  return cents === 0 ? 0 : cents / 100;
 }
 
 /** Ledger amount for a payment header amount (> 0). */

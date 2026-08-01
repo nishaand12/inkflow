@@ -45,6 +45,7 @@ import {
   useWorkspaceUrlSync,
 } from "@/hooks/useWorkspaceFilters";
 import { nextDateRange } from "@/lib/dateRange";
+import { formatMoney } from "@/utils/money";
 
 const REPORTS_URL_PARAMS = {
   start: "startDate",
@@ -58,9 +59,7 @@ const REPORTS_URL_PARAMS = {
 
 const CATEGORY_DETAIL_PAGE_SIZE = 25;
 
-function money(n) {
-  return `$${(Number(n) || 0).toFixed(2)}`;
-}
+const money = formatMoney;
 
 function tenderGroupAmounts(groups) {
   return Object.fromEntries((groups ?? []).map((g) => [g.key, Number(g.amount) || 0]));

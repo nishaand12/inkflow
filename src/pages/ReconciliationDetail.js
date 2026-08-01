@@ -33,10 +33,9 @@ import {
   getCategoryPathLabel,
   sortRowsByCategoryOrder,
 } from "@/utils/reportingCategories";
+import { formatMoney } from "@/utils/money";
 
-function money(n) {
-  return `$${(Number(n) || 0).toFixed(2)}`;
-}
+const money = formatMoney;
 
 /**
  * Read-only breakdown for a single day's reconciliation, sourced from the unified

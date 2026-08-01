@@ -13,10 +13,9 @@ import { Wallet, Lock, Loader2, RefreshCw, FileText } from "lucide-react";
 import { format } from "date-fns";
 import { normalizeUserRole } from "@/utils/roles";
 import { useCheckoutPaymentMethods } from "@/utils/useCheckoutPaymentMethods";
+import { formatMoney, isZeroMoney, sumMoney } from "@/utils/money";
 
-function money(n) {
-  return `$${(Number(n) || 0).toFixed(2)}`;
-}
+const money = formatMoney;
 
 export default function Reconciliation() {
   const queryClient = useQueryClient();
@@ -85,16 +84,20 @@ export default function Reconciliation() {
         row,
         system_amount: system,
         pos_amount: pos,
-        variance: pos != null ? system - pos : null,
+        // Rounded so a matched tender reads as exactly zero rather than a
+        // fraction of a cent that formats as "-0.00".
+        variance: pos != null ? sumMoney([system, -pos]) : null,
       };
     });
   }, [tenderRows, posInputs, inPersonTenders]);
 
   const posReportedTotal = useMemo(
-    () => tenderView.reduce((s, t) => s + (t.pos_amount != null ? t.pos_amount : 0), 0),
+    () => sumMoney(tenderView.map((t) => (t.pos_amount != null ? t.pos_amount : 0))),
     [tenderView]
   );
-  const overallVariance = reconciliation ? (Number(reconciliation.in_person_total) || 0) - posReportedTotal : 0;
+  const overallVariance = reconciliation
+    ? sumMoney([reconciliation.in_person_total, -posReportedTotal])
+    : 0;
 
   const buildMutation = useMutation({
     mutationFn: async () => {
@@ -272,7 +275,7 @@ export default function Reconciliation() {
                           />
                         </td>
                         <td className={`px-4 py-3 text-sm text-right tabular-nums font-medium ${
-                          t.variance == null ? "text-gray-400" : Math.abs(t.variance) < 0.005 ? "text-green-700" : "text-red-600"
+                          t.variance == null ? "text-gray-400" : isZeroMoney(t.variance) ? "text-green-700" : "text-red-600"
                         }`}>
                           {t.variance == null ? "—" : money(t.variance)}
                         </td>
@@ -283,7 +286,7 @@ export default function Reconciliation() {
                       <td className="px-4 py-3 text-sm text-gray-900 text-right tabular-nums">{money(reconciliation.in_person_total)}</td>
                       <td className="px-4 py-3 text-sm text-gray-900 text-right tabular-nums">{money(posReportedTotal)}</td>
                       <td className={`px-4 py-3 text-sm text-right tabular-nums ${
-                        Math.abs(overallVariance) < 0.005 ? "text-green-700" : "text-red-600"
+                        isZeroMoney(overallVariance) ? "text-green-700" : "text-red-600"
                       }`}>{money(overallVariance)}</td>
                     </tr>
                   </tbody>

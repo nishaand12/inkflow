@@ -43,10 +43,16 @@ const RANGE_OPERATORS = new Set(["gte", "lte", "gt", "lt", "ilike"]);
 
 /**
  * PostgREST caps how many rows it will return and gives no signal when it
- * truncates. A response sitting exactly on a round cap is almost always a
+ * truncates. A response sitting exactly on the cap is almost always a
  * truncated full-table read, which silently hides records from the UI.
+ *
+ * Set REACT_APP_SUPABASE_MAX_ROWS to match the project's configured Max Rows;
+ * a mismatch means the tripwire never fires.
  */
-const ROW_CAP_HINTS = new Set([1000]);
+const configuredRowCap = Number(process.env.REACT_APP_SUPABASE_MAX_ROWS);
+const ROW_CAP_HINTS = new Set(
+  Number.isFinite(configuredRowCap) && configuredRowCap > 0 ? [configuredRowCap] : [1000]
+);
 
 const warnIfTruncated = (table, rows) => {
   if (!Array.isArray(rows) || !ROW_CAP_HINTS.has(rows.length)) return;
