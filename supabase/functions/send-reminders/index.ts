@@ -2,6 +2,7 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { formatTime12h } from "../_shared/timeDisplay.ts";
 import { appUrl } from "../_shared/appUrl.ts";
+import { computeReminderWindow } from "../_shared/reminderWindow.ts";
 
 const MAILJET_API_KEY = Deno.env.get("MAILJET_API_KEY");
 const MAILJET_SECRET_KEY = Deno.env.get("MAILJET_SECRET_KEY");
@@ -13,6 +14,11 @@ const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 const CRON_SECRET = Deno.env.get("CRON_SECRET");
 
 const MAILJET_API_URL = "https://api.mailjet.com/v3.1/send";
+
+/** Page size for the appointments sweep; well under the API row cap. */
+const APPOINTMENTS_PAGE_SIZE = 500;
+/** Runaway backstop (100k rows) far above any real sweep. */
+const MAX_APPOINTMENT_PAGES = 200;
 const DEFAULT_PRIMARY_REMINDER_SUBJECT_TEMPLATE = "Appointment Reminder - {{studio_name}}";
 const DEFAULT_PRIMARY_REMINDER_BODY_TEMPLATE = `Hi {{customer_name}},
 
@@ -104,26 +110,84 @@ serve(async (req) => {
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
     const now = new Date();
 
-    const { data: appointments, error } = await supabase
-      .from("appointments")
-      .select(
-        `
-        *,
-        studio:studios(*),
-        location:locations(*),
-        artist:artists(*),
-        customer:customers(*),
-        appointment_type:appointment_types(*)
-      `
-      )
-      .in("status", ["scheduled", "confirmed", "deposit_paid", "completed"]);
+    // Bound the sweep to the widest window any studio has configured — an
+    // unbounded select is silently truncated at the API row cap once enough
+    // history accumulates, which drops reminders with no error anywhere.
+    const [
+      { data: profileRows, error: profileErr },
+      { data: studioRows, error: studioErr },
+    ] = await Promise.all([
+      supabase
+        .from("studio_notification_profiles")
+        .select(
+          "reminder_primary_minutes, reminder_secondary_minutes, reminder_tertiary_minutes, followup_quick_minutes, followup_longterm_minutes, followup_midterm_minutes"
+        ),
+      supabase
+        .from("studios")
+        .select(
+          "reminder_minutes_before, reminder_secondary_minutes_before, followup_quick_minutes_after, followup_longterm_minutes_after"
+        ),
+    ]);
+    if (profileErr) return jsonResponse({ error: profileErr.message }, 500);
+    if (studioErr) return jsonResponse({ error: studioErr.message }, 500);
 
-    if (error) {
-      return jsonResponse({ error: error.message }, 500);
+    const window = computeReminderWindow(
+      [
+        ...(profileRows || []).map((p: any) => ({
+          before: [
+            p.reminder_primary_minutes,
+            p.reminder_secondary_minutes,
+            p.reminder_tertiary_minutes,
+          ],
+          after: [
+            p.followup_quick_minutes,
+            p.followup_longterm_minutes,
+            p.followup_midterm_minutes,
+          ],
+        })),
+        ...(studioRows || []).map((s: any) => ({
+          before: [s.reminder_minutes_before, s.reminder_secondary_minutes_before],
+          after: [s.followup_quick_minutes_after, s.followup_longterm_minutes_after],
+        })),
+      ],
+      now
+    );
+
+    // Fetch in pages so even a busy multi-studio window can never hit the cap.
+    // All pages load before any send/update runs, so pagination is stable.
+    const appointments: any[] = [];
+    let pages = 0;
+    for (let page = 0; page < MAX_APPOINTMENT_PAGES; page++) {
+      const offset = page * APPOINTMENTS_PAGE_SIZE;
+      const { data: batch, error } = await supabase
+        .from("appointments")
+        .select(
+          `
+          *,
+          studio:studios(*),
+          location:locations(*),
+          artist:artists(*),
+          customer:customers(*),
+          appointment_type:appointment_types(*)
+        `
+        )
+        .in("status", ["scheduled", "confirmed", "deposit_paid", "completed"])
+        .gte("appointment_date", window.fromDate)
+        .lte("appointment_date", window.toDate)
+        .order("appointment_date", { ascending: true })
+        .order("id", { ascending: true })
+        .range(offset, offset + APPOINTMENTS_PAGE_SIZE - 1);
+
+      if (error) {
+        return jsonResponse({ error: error.message }, 500);
+      }
+      pages += 1;
+      appointments.push(...(batch || []));
+      if (!batch || batch.length < APPOINTMENTS_PAGE_SIZE) break;
     }
 
     // Batch-load profiles, assignments, and booking hierarchy per studio
-    const studioIds = [...new Set((appointments || []).map((a: any) => a.studio?.id).filter(Boolean))];
+    const studioIds = [...new Set(appointments.map((a: any) => a.studio?.id).filter(Boolean))];
     const profilesMap: Record<string, any[]> = {};
     const assignmentsMap: Record<string, any[]> = {};
     const kindCategoriesMap: Record<string, any[]> = {};
@@ -140,7 +204,7 @@ serve(async (req) => {
     }
 
     let sentCount = 0;
-    for (const appointment of appointments || []) {
+    for (const appointment of appointments) {
       const studio = appointment.studio;
       if (!studio || studio.subscription_tier !== "plus") {
         continue;
@@ -291,7 +355,14 @@ serve(async (req) => {
       }
     }
 
-    return jsonResponse({ success: true, sent: sentCount });
+    // fetched/pages make silent truncation visible in cron logs forever after.
+    return jsonResponse({
+      success: true,
+      sent: sentCount,
+      fetched: appointments.length,
+      pages,
+      window: { from: window.fromDate, to: window.toDate },
+    });
   } catch (err) {
     return jsonResponse({ error: err.message || "Unknown error" }, 500);
   }
