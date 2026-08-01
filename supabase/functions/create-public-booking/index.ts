@@ -8,7 +8,6 @@ import { PUBLIC_BOOKING_DEPOSIT_CHECKOUT_EXPIRY_SECONDS } from "../_shared/depos
 const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY")!;
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY");
 const APP_URL = Deno.env.get("APP_URL") || "https://inkflow.app";
 
 const stripe = new Stripe(STRIPE_SECRET_KEY, { apiVersion: "2024-06-20" });
@@ -292,7 +291,9 @@ async function triggerConfirmationEmail(appointmentId: string) {
   try {
     if (!appointmentId) return;
     const endpoint = `${SUPABASE_URL}/functions/v1/send-appointment-email`;
-    const key = SUPABASE_ANON_KEY || SUPABASE_SERVICE_ROLE_KEY;
+    // Service key: send-appointment-email no longer accepts the anon key,
+    // which is public. This call has no signed-in user to borrow a JWT from.
+    const key = SUPABASE_SERVICE_ROLE_KEY;
     if (!key) return;
 
     const response = await fetch(endpoint, {
