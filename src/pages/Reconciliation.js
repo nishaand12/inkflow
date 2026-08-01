@@ -162,6 +162,9 @@ export default function Reconciliation() {
       queryClient.invalidateQueries({ queryKey: ["reconciliations", studioId, selectedDate] });
       queryClient.invalidateQueries({ queryKey: ["reconciliationTenders"] });
       queryClient.invalidateQueries({ queryKey: ["artistLedgerEntries"] });
+      // Closing the day posts earnings; the all-time balances are summed
+      // server-side so they must be refetched too.
+      queryClient.invalidateQueries({ queryKey: ["artistLedgerBalances"] });
     },
   });
 

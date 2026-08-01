@@ -35,8 +35,11 @@ const normalizeOrderColumn = (column) => {
   return column;
 };
 
-/** Range operators usable as `{ column: { gte, lte } }` in a filter object. */
-const RANGE_OPERATORS = new Set(["gte", "lte", "gt", "lt"]);
+/**
+ * Operators usable as `{ column: { gte, lte } }` in a filter object.
+ * `ilike` expects the caller to supply its own wildcards.
+ */
+const RANGE_OPERATORS = new Set(["gte", "lte", "gt", "lt", "ilike"]);
 
 /**
  * PostgREST caps how many rows it will return and gives no signal when it
@@ -59,8 +62,15 @@ const buildFilterQuery = (query, filters = {}) => {
   Object.entries(filters).forEach(([key, value]) => {
     if (value === undefined || value === null) return;
 
+    // An array value means "any of these" — used to fetch exactly the rows a
+    // page already knows it needs instead of downloading the whole table.
+    if (Array.isArray(value)) {
+      filteredQuery = filteredQuery.in(key, value);
+      return;
+    }
+
     // `{ column: { gte: x, lte: y } }` → range comparison instead of equality.
-    if (typeof value === "object" && !Array.isArray(value)) {
+    if (typeof value === "object") {
       Object.entries(value).forEach(([operator, operand]) => {
         if (operand === undefined || operand === null) return;
         if (!RANGE_OPERATORS.has(operator)) {
@@ -89,7 +99,12 @@ const createEntityClient = (entityName) => {
       warnIfTruncated(table, data);
       return data || [];
     },
-    filter: async (filters = {}, order) => {
+    /**
+     * `options.limit` caps the rows returned; `options.offset` pages through
+     * them. Both suppress the truncation warning, since a short page is then
+     * the intent rather than a silent cap.
+     */
+    filter: async (filters = {}, order, options = {}) => {
       let query = buildFilterQuery(supabase.from(table).select("*"), filters);
 
       if (order) {
@@ -98,9 +113,15 @@ const createEntityClient = (entityName) => {
         query = query.order(column, { ascending: !descending });
       }
 
+      const { limit, offset } = options;
+      if (limit != null) {
+        const from = offset || 0;
+        query = query.range(from, from + limit - 1);
+      }
+
       const { data, error } = await query;
       if (error) throw error;
-      warnIfTruncated(table, data);
+      if (limit == null) warnIfTruncated(table, data);
       return data || [];
     },
     create: async (payload) => {

@@ -24,6 +24,7 @@ import { formatTimeRange12h } from "@/utils/index";
 import { getAppointmentStatusLabel } from "@/utils/appointmentStatus";
 import { resolvePreferredDefaultLocationId } from "@/utils/defaultLocation";
 import { findDuplicateCustomers } from "@/utils/customerDuplicates";
+import { findExistingCustomers } from "@/api/customers";
 
 const appointmentStatusStyles = {
   scheduled: "bg-blue-100 text-blue-800 border-blue-200",
@@ -60,15 +61,6 @@ export default function CustomerDialog({ open, onOpenChange, customer, locations
   const [showDeleteAlert, setShowDeleteAlert] = useState(false);
   const [showDuplicateAlert, setShowDuplicateAlert] = useState(false);
   const [duplicates, setDuplicates] = useState([]);
-
-  const { data: allCustomers = [] } = useQuery({
-    queryKey: ['customers', currentUser?.studio_id],
-    queryFn: async () => {
-      if (!currentUser?.studio_id) return [];
-      return base44.entities.Customer.filter({ studio_id: currentUser.studio_id });
-    },
-    enabled: !!currentUser?.studio_id
-  });
 
   const { data: customerAppointments = [], isLoading: customerAppointmentsLoading } = useQuery({
     queryKey: ["customerAppointments", customer?.id, currentUser?.studio_id],
@@ -162,16 +154,18 @@ export default function CustomerDialog({ open, onOpenChange, customer, locations
     }
   });
 
-  const checkForDuplicates = () => {
-    if (customer) return [];
-    return findDuplicateCustomers(allCustomers, formData);
-  };
-
-  const handleSubmit = (e) => {
+  // Queried server-side so the check covers every customer. Scanning a
+  // downloaded list missed anyone past the API row cap, which let real
+  // duplicates through exactly when the table was big enough to need the check.
+  const handleSubmit = async (e) => {
     e.preventDefault();
 
     if (!customer) {
-      const foundDuplicates = checkForDuplicates();
+      const candidates = await findExistingCustomers(currentUser?.studio_id, {
+        email: formData.email,
+        phone: formData.phone_number,
+      });
+      const foundDuplicates = findDuplicateCustomers(candidates, formData);
       if (foundDuplicates.length > 0) {
         setDuplicates(foundDuplicates);
         setShowDuplicateAlert(true);

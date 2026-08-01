@@ -11,6 +11,7 @@ import {
   addMonths, subMonths, addDays, parseISO
 } from "date-fns";
 import { getVisibleDays, getVisibleDateRange } from "@/utils/calendarViews";
+import { useCustomersByIds } from "@/hooks/useCustomersByIds";
 import AppointmentDialog from "../components/calendar/AppointmentDialog";
 import AppointmentCard from "../components/calendar/AppointmentCard";
 import { normalizeUserRole } from "@/utils/roles";
@@ -642,11 +643,12 @@ export default function Calendar() {
     enabled: !!user?.studio_id
   });
 
-  const { data: customers = [] } = useQuery({
-    queryKey: ['customers', user?.studio_id],
-    queryFn: () => base44.entities.Customer.filter({ studio_id: user.studio_id }),
-    enabled: !!user?.studio_id
-  });
+  // Only the customers referenced by the fetched window, not the whole table.
+  const customerIds = useMemo(
+    () => appointments.map((a) => a.customer_id),
+    [appointments]
+  );
+  const customers = useCustomersByIds(user?.studio_id, customerIds);
 
   const { data: appointmentTypes = [] } = useQuery({
     queryKey: ['appointmentTypes', user?.studio_id],

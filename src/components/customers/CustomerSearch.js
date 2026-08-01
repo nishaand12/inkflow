@@ -1,12 +1,14 @@
-import React, { useState, useRef, useEffect, useMemo } from "react";
+import React, { useState, useRef, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
-import { Search, Plus, Check, X } from "lucide-react";
+import { Search, Plus, Check, X, Loader2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { sortByNameThenId } from "@/utils/listSort";
+import { searchCustomers } from "@/api/customers";
+import { useDebouncedValue } from "@/hooks/useDebouncedValue";
 
 export default function CustomerSearch({
-  customers,
+  studioId,
   onSelect,
   onNewCustomer,
   onAdvancedSearch,
@@ -18,6 +20,7 @@ export default function CustomerSearch({
   const [open, setOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const dropdownRef = useRef(null);
+  const debouncedTerm = useDebouncedValue(searchTerm, 250);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -34,23 +37,14 @@ export default function CustomerSearch({
     };
   }, [open]);
 
-  const sortedActiveCustomers = useMemo(
-    () => sortByNameThenId(customers.filter((customer) => customer.is_active)),
-    [customers]
-  );
-
-  const filteredCustomers = useMemo(() => {
-    const term = searchTerm.trim().toLowerCase();
-    const matches = term === ""
-      ? sortedActiveCustomers
-      : sortedActiveCustomers.filter(
-          (customer) =>
-            customer.name?.toLowerCase().includes(term) ||
-            customer.email?.toLowerCase().includes(term) ||
-            customer.phone_number?.includes(searchTerm.trim())
-        );
-    return matches.slice(0, 10);
-  }, [searchTerm, sortedActiveCustomers]);
+  // Searched server-side: the studio's full customer list is larger than a
+  // single API response, so filtering a downloaded copy silently hid people.
+  const { data: filteredCustomers = [], isFetching } = useQuery({
+    queryKey: ['customerSearch', studioId, debouncedTerm],
+    queryFn: () => searchCustomers(studioId, debouncedTerm),
+    enabled: open && !!studioId,
+    placeholderData: (previous) => previous,
+  });
 
   const handleSelect = (customer) => {
     onSelect(customer);
@@ -101,7 +95,13 @@ export default function CustomerSearch({
             <div className="py-1">
               {filteredCustomers.length === 0 ? (
                 <div className="px-4 py-3 text-sm text-gray-500 text-center">
-                  No customers found
+                  {isFetching ? (
+                    <span className="inline-flex items-center gap-2">
+                      <Loader2 className="h-3 w-3 animate-spin" /> Searching…
+                    </span>
+                  ) : (
+                    "No customers found"
+                  )}
                 </div>
               ) : (
                 filteredCustomers.map((customer) => (

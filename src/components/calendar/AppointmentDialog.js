@@ -34,6 +34,7 @@ import {
   canArtistBookAppointmentType,
 } from "@/utils/artistServiceEligibility";
 import { pickPreferredWorkStationId } from "@/utils/workStationSelection";
+import { useCustomersByIds } from "@/hooks/useCustomersByIds";
 import {
   resolvePreferredDefaultLocationId,
   sortLocationsByCreatedAt,
@@ -318,14 +319,13 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
   const { options: paymentMethodOptions, values: paymentMethodValues } =
     useCheckoutPaymentMethods(currentUser?.studio_id);
 
-  const { data: customers = EMPTY_ARRAY } = useQuery({
-    queryKey: ['customers', currentUser?.studio_id],
-    queryFn: async () => {
-      if (!currentUser?.studio_id) return [];
-      return base44.entities.Customer.filter({ studio_id: currentUser.studio_id });
-    },
-    enabled: !!currentUser?.studio_id
-  });
+  // Only the appointment's own customer is needed here — the picker searches
+  // server-side, and checkout looks up this one record. Fetching the studio's
+  // whole customer table was silently truncated once it outgrew the row cap.
+  const customers = useCustomersByIds(
+    currentUser?.studio_id,
+    appointment?.customer_id ? [appointment.customer_id] : EMPTY_ARRAY
+  );
 
   const { data: appointmentTypes = EMPTY_ARRAY } = useQuery({
     queryKey: ['appointmentTypes', currentUser?.studio_id],
@@ -1698,7 +1698,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
             <div className="space-y-2">
               <Label>Customer (optional)</Label>
               <CustomerSearch
-                customers={customers}
+                studioId={currentUser?.studio_id}
                 onSelect={handleCustomerSelect}
                 onNewCustomer={() => setShowCustomerDialog(true)}
                 onAdvancedSearch={() => setShowAdvancedSearch(true)}
@@ -2641,7 +2641,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
       <AdvancedSearchDialog
         open={showAdvancedSearch}
         onOpenChange={setShowAdvancedSearch}
-        customers={customers}
+        studioId={currentUser?.studio_id}
         onSelectCustomer={handleCustomerSelect}
       />
 
