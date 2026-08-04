@@ -195,16 +195,6 @@ export default function Reports() {
       });
       return;
     }
-    // Live artist splits defaults to the studio's current business day so the
-    // view matches today's open reconciliation as sales check out.
-    if (value === "artist-splits") {
-      setFilters({
-        reportsTab: value,
-        startDate: studioToday,
-        endDate: studioToday,
-      });
-      return;
-    }
     setFilters({ reportsTab: value });
   };
 
@@ -1237,10 +1227,8 @@ export default function Reports() {
               <div>
                 <p className="text-sm text-gray-600">
                   Live from completed checkouts by sale date — same math as reconciliation artist
-                  splits, so end-of-day totals match when the day closes.
-                  {isLiveArtistSplitsToday
-                    ? " Showing today (studio timezone). Auto-refreshes every 30 seconds."
-                    : " Date filters apply; use Today to jump back to the current business day."}
+                  splits, so end-of-day totals match when the day closes. Uses the shared date and
+                  location filters. Auto-refreshes every 30 seconds.
                 </p>
                 {liveArtistSplitsUpdatedAt ? (
                   <p className="text-xs text-gray-400 mt-1">
