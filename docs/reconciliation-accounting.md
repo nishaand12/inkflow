@@ -21,6 +21,9 @@ Driven by `sales.sale_date` — completed sales at the reconciliation's location
   the UI — historically the misleading "Merchandise"), discounts, tips, total
 - Category totals, per-artist and per-sale breakdowns
 - Artist earnings ledger: `settlement_share` + `tip` rows in `artist_ledger_entries`
+- Reports → **Artist Splits (Live)** (`get_live_artist_splits_report`) — same
+  per-artist / per-sale math as the closed snapshot, read directly from
+  completed sales so the day can be watched as checkouts happen
 
 ## Why they differ
 

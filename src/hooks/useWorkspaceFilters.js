@@ -46,6 +46,7 @@ const ALLOWED_TABS = new Set([
   "category",
   "category-detail",
   "artist",
+  "artist-splits",
   "location",
   "support_staff_hours",
   "payments",
