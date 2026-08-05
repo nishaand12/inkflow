@@ -439,7 +439,11 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
   // Use userArtist?.id for stable dependency instead of the full object
   const userArtistId = userArtist?.id;
 
-  // Prefer list cache so deposit_status / status update after mutations without stale props
+  // Prefer list cache so deposit_status / status update after mutations without
+  // stale props. This must NOT feed the form-reset effect below: allAppointments
+  // is keyed by the editable conflict date, so picking a new date swaps the
+  // query result, appointmentForForm flips from the cached row to the prop,
+  // and a full reset would wipe the date the user just chose.
   const appointmentForForm = useMemo(() => {
     if (!appointment?.id) return null;
     const cached = allAppointments.find((a) => a.id === appointment.id);
@@ -453,7 +457,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
 
   useEffect(() => {
     if (appointment) {
-      const src = appointmentForForm || appointment;
+      const src = appointment;
       // Merge appointment with defaults to ensure no undefined/null values for inputs
       setFormData({
         ...src,
@@ -533,7 +537,27 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     setEditingDeposit(false);
     setDepositEditError(null);
     setSaveError(null);
-  }, [appointment, appointmentForForm, defaultDate, defaultArtistId, defaultStartTime, open, isArtist, isAdmin, userArtistId, customers, artists, locations]);
+  }, [appointment, defaultDate, defaultArtistId, defaultStartTime, open, isArtist, isAdmin, userArtistId, customers, artists, locations]);
+
+  // Keep deposit/status in sync with the list cache after mutations without
+  // replacing the rest of the in-progress edit (especially appointment_date).
+  // Only sync when the row is present in the date-scoped query — falling back
+  // to the appointment prop after a date change would reapply stale values.
+  useEffect(() => {
+    if (!open || !appointment?.id) return;
+    const cached = allAppointments.find((a) => a.id === appointment.id);
+    if (!cached) return;
+    setFormData((prev) => {
+      if (prev.deposit_status === cached.deposit_status && prev.status === cached.status) {
+        return prev;
+      }
+      return {
+        ...prev,
+        deposit_status: cached.deposit_status,
+        status: cached.status || prev.status,
+      };
+    });
+  }, [open, appointment?.id, allAppointments]);
 
   useEffect(() => {
     const canValidateTimed =
