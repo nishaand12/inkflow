@@ -120,6 +120,7 @@ jest.mock("@/api/base44Client", () => ({
       SaleLineItem: { filter: async () => [] },
       AppointmentCharge: { filter: async () => [] },
       Customer: { filter: async () => [] },
+      ReportingTenderGroup: { filter: async () => [] },
     },
   },
 }));
@@ -128,9 +129,15 @@ jest.mock("@/utils/supabase", () => ({
   supabase: { functions: { invoke: async () => ({ data: null, error: null }) } },
 }));
 jest.mock("@/utils/useCheckoutPaymentMethods", () => ({
-  useCheckoutPaymentMethods: () => ({ methods: ["Cash", "Card"], loading: false }),
+  useCheckoutPaymentMethods: () => ({
+    options: [
+      { value: "Cash", label: "Cash" },
+      { value: "Card", label: "Card" },
+    ],
+    values: ["Cash", "Card"],
+    customMethods: [],
+  }),
 }));
-
 jest.mock("../customers/CustomerSearch", () => () => null);
 jest.mock("../customers/CustomerDialog", () => () => null);
 jest.mock("../customers/AdvancedSearchDialog", () => () => null);
@@ -175,6 +182,38 @@ jest.mock("@/components/ui/accordion", () => ({
   AccordionTrigger: ({ children }) => <div>{children}</div>,
   AccordionContent: ({ children }) => <div>{children}</div>,
 }));
+
+jest.mock("@/components/ui/switch", () => ({
+  Switch: ({ checked, onCheckedChange, id, disabled }) => (
+    <input
+      id={id}
+      type="checkbox"
+      checked={!!checked}
+      disabled={disabled}
+      onChange={(e) => onCheckedChange?.(e.target.checked)}
+    />
+  ),
+}));
+
+jest.mock("@/components/ui/checkbox", () => ({
+  Checkbox: ({ checked, onCheckedChange, id, disabled }) => (
+    <input
+      id={id}
+      type="checkbox"
+      checked={!!checked}
+      disabled={disabled}
+      onChange={(e) => onCheckedChange?.(e.target.checked)}
+    />
+  ),
+}));
+
+beforeAll(() => {
+  global.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  };
+});
 
 async function flushQueries() {
   await act(async () => {
