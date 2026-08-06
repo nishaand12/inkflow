@@ -586,8 +586,12 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
         endTime: formData.end_time,
         workStations,
         allAppointments,
+        // Exclude this appointment so its own station stays selectable when
+        // editing the same slot. Do not force-include the original station —
+        // that wrongly showed it as free when rescheduling onto a slot where
+        // another booking already took it.
         excludeAppointmentId: appointment?.id,
-        includeStationId: appointment?.work_station_id,
+        includeStationId: undefined,
       }),
     [
       formData.location_id,
@@ -597,12 +601,16 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
       workStations,
       allAppointments,
       appointment?.id,
-      appointment?.work_station_id,
     ]
   );
 
+  // Keep / auto-pick workstation for create AND edit when the slot changes:
+  // 1) Persist the current selection if it is still free for the new slot
+  // 2) Otherwise pick the artist's preferred station when free, else first free
+  // Artist changes still clear the station (see handleArtistChange) so the new
+  // artist's preferred station can be applied.
   useEffect(() => {
-    if (!open || appointment) return;
+    if (!open || formData.is_all_day) return;
     if (!formData.location_id || !formData.appointment_date || !formData.start_time) return;
 
     setFormData((prev) => {
@@ -613,7 +621,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
         endTime: prev.end_time,
         workStations,
         allAppointments,
-        excludeAppointmentId: undefined,
+        excludeAppointmentId: appointment?.id,
         includeStationId: undefined,
       });
       if (prev.work_station_id && stations.some((s) => s.id === prev.work_station_id)) {
@@ -625,12 +633,13 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     });
   }, [
     open,
-    appointment,
+    appointment?.id,
     formData.artist_id,
     formData.location_id,
     formData.appointment_date,
     formData.start_time,
     formData.end_time,
+    formData.is_all_day,
     workStations,
     allAppointments,
     artists,
@@ -917,7 +926,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
         workStations,
         allAppointments,
         excludeAppointmentId: appointment?.id,
-        includeStationId: appointment?.work_station_id,
+        includeStationId: undefined,
       });
       if (stationsForValidation.length === 0 && formData.work_station_id === '') {
         errors.stationsFull = true;
@@ -1781,7 +1790,9 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                 <Select
                   value={formData.location_id}
                   onValueChange={(value) => {
-                    setFormData({ ...formData, location_id: value, work_station_id: '' });
+                    // Keep work_station_id; the auto-pick effect persists it when
+                    // still free at the new location, otherwise selects preferred.
+                    setFormData({ ...formData, location_id: value });
                   }}
                   required
                   disabled={!canEditLocation() || !canEdit()}
@@ -1847,7 +1858,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                 <Input
                   type="date"
                   value={formData.appointment_date}
-                  onChange={(e) => setFormData({ ...formData, appointment_date: e.target.value, work_station_id: '' })}
+                  onChange={(e) => setFormData({ ...formData, appointment_date: e.target.value })}
                   required
                   disabled={!canEdit()}
                   className="text-sm"
@@ -1862,7 +1873,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                   onChange={(newStart) => {
                     const currentDuration = timeToMinutes(formData.end_time) - timeToMinutes(formData.start_time);
                     const newEnd = addMinutesToTime(newStart, Math.max(currentDuration, MIN_APPOINTMENT_DURATION_MINUTES));
-                    setFormData({ ...formData, start_time: newStart, end_time: newEnd, work_station_id: '' });
+                    setFormData({ ...formData, start_time: newStart, end_time: newEnd });
                   }}
                   required
                   disabled={!canEdit()}
@@ -1874,7 +1885,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                 <TimePicker12h
                   id="end_time"
                   value={formData.end_time}
-                  onChange={(newEnd) => setFormData({ ...formData, end_time: newEnd, work_station_id: '' })}
+                  onChange={(newEnd) => setFormData({ ...formData, end_time: newEnd })}
                   required
                   disabled={!canEdit()}
                 />
