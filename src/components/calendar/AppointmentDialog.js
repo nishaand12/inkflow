@@ -604,10 +604,11 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
     ]
   );
 
-  // Auto-select preferred (or first free) workstation for create AND edit.
-  // Date/time/location/artist changes clear work_station_id; without this,
-  // edit mode left the station empty so Update either alerted on submit or
-  // looked blocked on mobile after a native date change.
+  // Keep / auto-pick workstation for create AND edit when the slot changes:
+  // 1) Persist the current selection if it is still free for the new slot
+  // 2) Otherwise pick the artist's preferred station when free, else first free
+  // Artist changes still clear the station (see handleArtistChange) so the new
+  // artist's preferred station can be applied.
   useEffect(() => {
     if (!open || formData.is_all_day) return;
     if (!formData.location_id || !formData.appointment_date || !formData.start_time) return;
@@ -1789,7 +1790,9 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                 <Select
                   value={formData.location_id}
                   onValueChange={(value) => {
-                    setFormData({ ...formData, location_id: value, work_station_id: '' });
+                    // Keep work_station_id; the auto-pick effect persists it when
+                    // still free at the new location, otherwise selects preferred.
+                    setFormData({ ...formData, location_id: value });
                   }}
                   required
                   disabled={!canEditLocation() || !canEdit()}
@@ -1855,7 +1858,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                 <Input
                   type="date"
                   value={formData.appointment_date}
-                  onChange={(e) => setFormData({ ...formData, appointment_date: e.target.value, work_station_id: '' })}
+                  onChange={(e) => setFormData({ ...formData, appointment_date: e.target.value })}
                   required
                   disabled={!canEdit()}
                   className="text-sm"
@@ -1870,7 +1873,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                   onChange={(newStart) => {
                     const currentDuration = timeToMinutes(formData.end_time) - timeToMinutes(formData.start_time);
                     const newEnd = addMinutesToTime(newStart, Math.max(currentDuration, MIN_APPOINTMENT_DURATION_MINUTES));
-                    setFormData({ ...formData, start_time: newStart, end_time: newEnd, work_station_id: '' });
+                    setFormData({ ...formData, start_time: newStart, end_time: newEnd });
                   }}
                   required
                   disabled={!canEdit()}
@@ -1882,7 +1885,7 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
                 <TimePicker12h
                   id="end_time"
                   value={formData.end_time}
-                  onChange={(newEnd) => setFormData({ ...formData, end_time: newEnd, work_station_id: '' })}
+                  onChange={(newEnd) => setFormData({ ...formData, end_time: newEnd })}
                   required
                   disabled={!canEdit()}
                 />
