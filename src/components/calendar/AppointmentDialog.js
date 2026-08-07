@@ -1538,7 +1538,10 @@ export default function AppointmentDialog({ open, onOpenChange, appointment, def
 
   const handleCancelAppointment = () => {
     if (window.confirm('Are you sure you want to cancel this appointment?')) {
-      updateMutation.mutate({ id: appointment.id, data: { ...formData, status: 'cancelled' } });
+      // Soft-cancel only — do not spread formData. Empty strings for optional
+      // UUID fields (customer_id, work_station_id, etc.) become "" and Postgres
+      // rejects them with: invalid input syntax for type uuid: "".
+      updateMutation.mutate({ id: appointment.id, data: { status: 'cancelled' } });
     }
   };
 
